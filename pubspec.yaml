@@ -32,40 +32,52 @@ dependencies:
     sdk: flutter
   
   # State Management
-  flutter_bloc: ^8.1.3
+  bloc: ^9.2.0
+  flutter_bloc: ^9.1.1
   equatable: ^2.0.5
   
   # Firebase
-  firebase_core: ^2.24.0
-  firebase_auth: ^4.15.0
-  cloud_firestore: ^4.13.0
-  firebase_storage: ^11.5.0
+  firebase_core: ^4.4.0
+  cloud_firestore: ^6.1.2
+  firebase_auth: ^6.1.4
+  firebase_storage: ^13.0.6
+
   
   # Network
   dio: ^5.3.3
-  connectivity_plus: ^5.0.1
+  connectivity_plus: ^7.0.0
+
   
   # Local Storage
   sqflite: ^2.3.0
   hive_flutter: ^1.1.0
-  flutter_secure_storage: ^9.0.0
+  flutter_secure_storage: ^10.0.0
+
   
   # Dependency Injection
-  get_it: ^7.6.4
+  get_it: ^9.2.0
+
   
   # Utils
-  intl: ^0.18.1
+  intl: ^0.20.2
   uuid: ^4.2.1
   dartz: ^0.10.1
   
   # QR
   qr_flutter: ^4.1.0
-  mobile_scanner: ^3.5.2
+  mobile_scanner: ^7.1.4
+
+   # UI/Utilities (add if missing)
+  google_fonts: ^8.0.1  # Optional but recommended
+  
+  # For handling the js package issue
+  js: ^0.7.2  # Force use the last version
+
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.0
+  flutter_lints: ^6.0.0
   mockito: ^5.4.4
   build_runner: ^2.4.7
 # For information on the generic Dart part of this file, see the

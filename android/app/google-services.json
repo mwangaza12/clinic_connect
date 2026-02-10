@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "241332019153",
+    "project_id": "clinic-connect-kenya",
+    "storage_bucket": "clinic-connect-kenya.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:241332019153:android:c6e2ce14c5af363b80caf0",
+        "android_client_info": {
+          "package_name": "com.example.clinic_connect"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDOgMoijbhbfINxwxh0qI4IR-g8XYLkiPk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
