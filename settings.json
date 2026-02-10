@@ -1,0 +1,21 @@
+{
+  "files.watcherExclude": {
+    "**/build/**": true,
+    "**/.dart_tool/**": true,
+    "**/ios/**": true,
+    "**/android/**": true,
+    "**/windows/**": true,
+    "**/macos/**": true
+  },
+  "search.exclude": {
+    "**/build/**": true,
+    "**/.dart_tool/**": true
+  },
+  "dart.analysisExcludedFolders": [
+    "**/build/**",
+    "**/.dart_tool/**"
+  ],
+  "dart.previewFlutterUiGuides": false,
+  "dart.previewHotReloadOnSaveWatcher": false
+
+}
