@@ -4,6 +4,7 @@ import '../../../../injection_container.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
+import '../../../home/presentation/pages/home_page.dart';
 
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
@@ -60,13 +61,16 @@ class _LoginViewState extends State<LoginView> {
               ),
             );
           } else if (state is Authenticated) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Login successful!'),
-                backgroundColor: Colors.green,
+            // Navigate to home page
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => BlocProvider.value(
+                  value: context.read<AuthBloc>(),
+                  child: const HomePage(),
+                ),
               ),
             );
-            // Navigate to home page (we'll create this later)
           }
         },
         builder: (context, state) {

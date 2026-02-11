@@ -11,6 +11,15 @@ import 'features/auth/domain/usecases/login.dart';
 import 'features/auth/domain/usecases/logout.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
 
+import 'core/database/database_helper.dart';
+import 'features/patient/data/datasources/patient_local_datasource.dart';
+import 'features/patient/data/datasources/patient_remote_datasource.dart';
+import 'features/patient/data/repositories/patient_repository_impl.dart';
+import 'features/patient/domain/repositories/patient_repository.dart';
+import 'features/patient/domain/usecases/register_patient.dart';
+import 'features/patient/domain/usecases/search_patient.dart';
+import 'features/patient/presentation/bloc/patient_bloc.dart';
+
 final sl = GetIt.instance;
 
 Future<void> init() async {
@@ -21,6 +30,37 @@ Future<void> init() async {
       logoutUsecase: sl(),
     ),
   );
+
+  // Patient BLoC
+  sl.registerFactory(
+    () => PatientBloc(
+      registerPatientUsecase: sl(),
+      searchPatientUsecase: sl(),
+    ),
+  );
+
+  // Patient Use cases
+  sl.registerLazySingleton(() => RegisterPatient(sl()));
+  sl.registerLazySingleton(() => SearchPatient(sl()));
+
+ // Patient Repository
+  sl.registerLazySingleton<PatientRepository>(
+    () => PatientRepositoryImpl(
+      remoteDatasource: sl(),
+      localDatasource: sl(),
+    ),
+  );
+
+  // Patient Datasources
+  sl.registerLazySingleton<PatientRemoteDatasource>(
+    () => PatientRemoteDatasourceImpl(firestore: sl()),
+  );
+
+  sl.registerLazySingleton<PatientLocalDatasource>(
+    () => PatientLocalDatasourceImpl(databaseHelper: sl()),
+  );
+  // Database
+  sl.registerLazySingleton(() => DatabaseHelper());
 
   // Use cases
   sl.registerLazySingleton(() => Login(sl()));

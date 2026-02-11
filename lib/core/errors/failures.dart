@@ -23,3 +23,7 @@ class ValidationFailure extends Failure {
 class NetworkFailure extends Failure {
   const NetworkFailure(super.message);
 }
+
+class InvalidSearchFailure extends Failure {
+  const InvalidSearchFailure(super.message);
+}

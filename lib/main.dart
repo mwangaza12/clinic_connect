@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'core/config/firebase_config.dart';
 import 'features/auth/presentation/pages/login_page.dart';
+import 'routes/app_router.dart';
 import 'injection_container.dart' as di;
 
 void main() async {
@@ -22,11 +23,13 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'ClinicConnect',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
       home: const LoginPage(),
+      onGenerateRoute: AppRouter.generateRoute,
     );
   }
 }
