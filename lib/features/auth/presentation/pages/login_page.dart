@@ -1,20 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../../../injection_container.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
-import '../../../home/presentation/pages/home_page.dart';
+import 'register_page.dart';
 
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => sl<AuthBloc>(),
-      child: const LoginView(),
-    );
+    return const LoginView();
   }
 }
 
@@ -29,6 +25,7 @@ class _LoginViewState extends State<LoginView> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  bool _obscurePassword = true;
 
   @override
   void dispose() {
@@ -60,18 +57,8 @@ class _LoginViewState extends State<LoginView> {
                 backgroundColor: Colors.red,
               ),
             );
-          } else if (state is Authenticated) {
-            // Navigate to home page
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => BlocProvider.value(
-                  value: context.read<AuthBloc>(),
-                  child: const HomePage(),
-                ),
-              ),
-            );
           }
+          // Navigation handled by AuthWrapper in main.dart
         },
         builder: (context, state) {
           return SafeArea(
@@ -84,6 +71,8 @@ class _LoginViewState extends State<LoginView> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      const SizedBox(height: 40),
+
                       // Logo
                       Icon(
                         Icons.local_hospital,
@@ -91,17 +80,18 @@ class _LoginViewState extends State<LoginView> {
                         color: Theme.of(context).primaryColor,
                       ),
                       const SizedBox(height: 16),
-                      
+
                       // Title
                       Text(
                         'ClinicConnect',
                         textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                        style: Theme.of(context)
+                            .textTheme
+                            .headlineMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
-                      
+
                       Text(
                         'Interoperable EHR for Kenya',
                         textAlign: TextAlign.center,
@@ -110,7 +100,7 @@ class _LoginViewState extends State<LoginView> {
                             ),
                       ),
                       const SizedBox(height: 48),
-                      
+
                       // Email field
                       TextFormField(
                         controller: _emailController,
@@ -132,15 +122,26 @@ class _LoginViewState extends State<LoginView> {
                         },
                       ),
                       const SizedBox(height: 16),
-                      
+
                       // Password field
                       TextFormField(
                         controller: _passwordController,
-                        obscureText: true,
-                        decoration: const InputDecoration(
+                        obscureText: _obscurePassword,
+                        decoration: InputDecoration(
                           labelText: 'Password',
-                          prefixIcon: Icon(Icons.lock_outlined),
-                          border: OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.lock_outlined),
+                          border: const OutlineInputBorder(),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                            ),
+                            onPressed: () {
+                              setState(
+                                  () => _obscurePassword = !_obscurePassword);
+                            },
+                          ),
                         ),
                         validator: (value) {
                           if (value == null || value.isEmpty) {
@@ -153,7 +154,7 @@ class _LoginViewState extends State<LoginView> {
                         },
                       ),
                       const SizedBox(height: 24),
-                      
+
                       // Login button
                       ElevatedButton(
                         onPressed: state is AuthLoading ? null : _login,
@@ -166,19 +167,45 @@ class _LoginViewState extends State<LoginView> {
                                 width: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
+                                  color: Colors.white,
                                 ),
                               )
-                            : const Text('Login'),
+                            : const Text(
+                                'Login',
+                                style: TextStyle(fontSize: 16),
+                              ),
                       ),
                       const SizedBox(height: 16),
-                      
-                      // Forgot password (placeholder)
+
+                      // Forgot password
                       TextButton(
-                        onPressed: () {
-                          // TODO: Implement forgot password
-                        },
+                        onPressed: () {},
                         child: const Text('Forgot password?'),
                       ),
+
+                      const SizedBox(height: 24),
+                      const Divider(),
+                      const SizedBox(height: 16),
+
+                      // Register button
+                      OutlinedButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const RegisterPage(),
+                            ),
+                          );
+                        },
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                        child: const Text(
+                          'Create New Account',
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
                     ],
                   ),
                 ),

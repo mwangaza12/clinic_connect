@@ -14,7 +14,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   }) : super(AuthInitial()) {
     on<LoginRequested>(_onLoginRequested);
     on<LogoutRequested>(_onLogoutRequested);
-    on<CheckAuthStatus>(_onCheckAuthStatus);
   }
 
   Future<void> _onLoginRequested(
@@ -22,12 +21,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(AuthLoading());
-
     final result = await loginUsecase(
       email: event.email,
       password: event.password,
     );
-
     result.fold(
       (failure) => emit(AuthError(failure.message)),
       (user) => emit(Authenticated(user)),
@@ -39,21 +36,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     emit(AuthLoading());
-
     final result = await logoutUsecase();
-
     result.fold(
       (failure) => emit(AuthError(failure.message)),
       (_) => emit(Unauthenticated()),
     );
-  }
-
-  Future<void> _onCheckAuthStatus(
-    CheckAuthStatus event,
-    Emitter<AuthState> emit,
-  ) async {
-    // Check if user is already logged in
-    // You'll implement this later
-    emit(Unauthenticated());
   }
 }

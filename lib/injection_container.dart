@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:get_it/get_it.dart';
 
+import 'core/database/database_helper.dart';
 import 'features/auth/data/datasources/auth_local_datasource.dart';
 import 'features/auth/data/datasources/auth_remote_datasource.dart';
 import 'features/auth/data/repositories/auth_repository_impl.dart';
@@ -10,8 +11,6 @@ import 'features/auth/domain/repositories/auth_repository.dart';
 import 'features/auth/domain/usecases/login.dart';
 import 'features/auth/domain/usecases/logout.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
-
-import 'core/database/database_helper.dart';
 import 'features/patient/data/datasources/patient_local_datasource.dart';
 import 'features/patient/data/datasources/patient_remote_datasource.dart';
 import 'features/patient/data/repositories/patient_repository_impl.dart';
@@ -23,7 +22,9 @@ import 'features/patient/presentation/bloc/patient_bloc.dart';
 final sl = GetIt.instance;
 
 Future<void> init() async {
+  // ==================
   // BLoCs
+  // ==================
   sl.registerFactory(
     () => AuthBloc(
       loginUsecase: sl(),
@@ -31,7 +32,6 @@ Future<void> init() async {
     ),
   );
 
-  // Patient BLoC
   sl.registerFactory(
     () => PatientBloc(
       registerPatientUsecase: sl(),
@@ -39,34 +39,17 @@ Future<void> init() async {
     ),
   );
 
-  // Patient Use cases
+  // ==================
+  // Use Cases
+  // ==================
+  sl.registerLazySingleton(() => Login(sl()));
+  sl.registerLazySingleton(() => Logout(sl()));
   sl.registerLazySingleton(() => RegisterPatient(sl()));
   sl.registerLazySingleton(() => SearchPatient(sl()));
 
- // Patient Repository
-  sl.registerLazySingleton<PatientRepository>(
-    () => PatientRepositoryImpl(
-      remoteDatasource: sl(),
-      localDatasource: sl(),
-    ),
-  );
-
-  // Patient Datasources
-  sl.registerLazySingleton<PatientRemoteDatasource>(
-    () => PatientRemoteDatasourceImpl(firestore: sl()),
-  );
-
-  sl.registerLazySingleton<PatientLocalDatasource>(
-    () => PatientLocalDatasourceImpl(databaseHelper: sl()),
-  );
-  // Database
-  sl.registerLazySingleton(() => DatabaseHelper());
-
-  // Use cases
-  sl.registerLazySingleton(() => Login(sl()));
-  sl.registerLazySingleton(() => Logout(sl()));
-
+  // ==================
   // Repositories
+  // ==================
   sl.registerLazySingleton<AuthRepository>(
     () => AuthRepositoryImpl(
       remoteDatasource: sl(),
@@ -74,7 +57,16 @@ Future<void> init() async {
     ),
   );
 
-  // Data sources
+  sl.registerLazySingleton<PatientRepository>(
+    () => PatientRepositoryImpl(
+      remoteDatasource: sl(),
+      localDatasource: sl(),
+    ),
+  );
+
+  // ==================
+  // Data Sources
+  // ==================
   sl.registerLazySingleton<AuthRemoteDatasource>(
     () => AuthRemoteDatasourceImpl(
       firebaseAuth: sl(),
@@ -88,8 +80,23 @@ Future<void> init() async {
     ),
   );
 
+  sl.registerLazySingleton<PatientRemoteDatasource>(
+    () => PatientRemoteDatasourceImpl(
+      firestore: sl(),
+    ),
+  );
+
+  sl.registerLazySingleton<PatientLocalDatasource>(
+    () => PatientLocalDatasourceImpl(
+      databaseHelper: sl(),
+    ),
+  );
+
+  // ==================
   // External
+  // ==================
   sl.registerLazySingleton(() => FirebaseAuth.instance);
   sl.registerLazySingleton(() => FirebaseFirestore.instance);
   sl.registerLazySingleton(() => const FlutterSecureStorage());
+  sl.registerLazySingleton(() => DatabaseHelper());
 }
