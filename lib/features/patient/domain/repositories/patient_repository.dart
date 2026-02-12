@@ -16,4 +16,6 @@ abstract class PatientRepository {
   });
   
   Future<Either<Failure, Patient>> updatePatient(Patient patient);
+  Future<Either<Failure, List<Patient>>> getAllPatients();   // ← ADD
+
 }

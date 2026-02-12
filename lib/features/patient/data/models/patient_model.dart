@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../domain/entities/patient.dart';
 
@@ -26,7 +27,10 @@ class PatientModel extends Patient {
     required super.updatedAt,
   });
 
-  factory PatientModel.fromJson(Map<String, dynamic> json) {
+  // ─────────────────────────────────────────
+  // FROM FIRESTORE (uses Timestamp)
+  // ─────────────────────────────────────────
+  factory PatientModel.fromFirestore(Map<String, dynamic> json) {
     return PatientModel(
       id: json['id'] ?? '',
       nupi: json['nupi'] ?? '',
@@ -52,7 +56,10 @@ class PatientModel extends Patient {
     );
   }
 
-  Map<String, dynamic> toJson() {
+  // ─────────────────────────────────────────
+  // TO FIRESTORE (uses Timestamp)
+  // ─────────────────────────────────────────
+  Map<String, dynamic> toFirestore() {
     return {
       'id': id,
       'nupi': nupi,
@@ -75,6 +82,71 @@ class PatientModel extends Patient {
       'next_of_kin_relationship': nextOfKinRelationship,
       'created_at': Timestamp.fromDate(createdAt),
       'updated_at': Timestamp.fromDate(updatedAt),
+    };
+  }
+
+  // ─────────────────────────────────────────
+  // FROM SQLITE (uses String for dates/lists)
+  // ─────────────────────────────────────────
+  factory PatientModel.fromSqlite(Map<String, dynamic> json) {
+    return PatientModel(
+      id: json['id'] ?? '',
+      nupi: json['nupi'] ?? '',
+      firstName: json['first_name'] ?? '',
+      middleName: json['middle_name'] ?? '',
+      lastName: json['last_name'] ?? '',
+      gender: json['gender'] ?? '',
+      dateOfBirth: DateTime.parse(json['date_of_birth']),
+      phoneNumber: json['phone_number'] ?? '',
+      email: json['email'],
+      county: json['county'] ?? '',
+      subCounty: json['sub_county'] ?? '',
+      ward: json['ward'] ?? '',
+      village: json['village'] ?? '',
+      bloodGroup: json['blood_group'],
+      // Decode JSON strings back to List<String>
+      allergies: json['allergies'] != null
+          ? List<String>.from(jsonDecode(json['allergies']))
+          : [],
+      chronicConditions: json['chronic_conditions'] != null
+          ? List<String>.from(jsonDecode(json['chronic_conditions']))
+          : [],
+      nextOfKinName: json['next_of_kin_name'],
+      nextOfKinPhone: json['next_of_kin_phone'],
+      nextOfKinRelationship: json['next_of_kin_relationship'],
+      createdAt: DateTime.parse(json['created_at']),
+      updatedAt: DateTime.parse(json['updated_at']),
+    );
+  }
+
+  // ─────────────────────────────────────────
+  // TO SQLITE (converts dates/lists to String)
+  // ─────────────────────────────────────────
+  Map<String, dynamic> toSqlite() {
+    return {
+      'id': id,
+      'nupi': nupi,
+      'first_name': firstName,
+      'middle_name': middleName,
+      'last_name': lastName,
+      'gender': gender,
+      // Convert DateTime to ISO String
+      'date_of_birth': dateOfBirth.toIso8601String(),
+      'phone_number': phoneNumber,
+      'email': email,
+      'county': county,
+      'sub_county': subCounty,
+      'ward': ward,
+      'village': village,
+      'blood_group': bloodGroup,
+      // Convert List<String> to JSON String
+      'allergies': jsonEncode(allergies),
+      'chronic_conditions': jsonEncode(chronicConditions),
+      'next_of_kin_name': nextOfKinName,
+      'next_of_kin_phone': nextOfKinPhone,
+      'next_of_kin_relationship': nextOfKinRelationship,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
     };
   }
 

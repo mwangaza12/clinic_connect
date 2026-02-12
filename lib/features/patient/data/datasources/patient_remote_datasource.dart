@@ -18,14 +18,16 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
   @override
   Future<PatientModel> registerPatient(PatientModel patient) async {
     try {
-      // Check if NUPI already exists
       final existing = await getPatientByNupi(patient.nupi);
       if (existing != null) {
         throw ServerException('Patient with NUPI ${patient.nupi} already exists');
       }
 
-      // Save to Firestore
-      await firestore.collection('patients').doc(patient.id).set(patient.toJson());
+      // Use toFirestore() - correct Timestamp format
+      await firestore
+          .collection('patients')
+          .doc(patient.id)
+          .set(patient.toFirestore());
 
       return patient;
     } catch (e) {
@@ -39,14 +41,12 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
     try {
       final doc = await firestore.collection('patients').doc(patientId).get();
 
-      if (!doc.exists) {
-        throw ServerException('Patient not found');
-      }
+      if (!doc.exists) throw ServerException('Patient not found');
 
       final data = doc.data()!;
       data['id'] = doc.id;
 
-      return PatientModel.fromJson(data);
+      return PatientModel.fromFirestore(data);
     } catch (e) {
       if (e is ServerException) rethrow;
       throw ServerException('Failed to get patient: ${e.toString()}');
@@ -56,9 +56,7 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
   @override
   Future<List<PatientModel>> searchPatients(String query) async {
     try {
-      query.toLowerCase();
-
-      // Search by NUPI
+      // Search by NUPI first
       final nupiQuery = await firestore
           .collection('patients')
           .where('nupi', isEqualTo: query)
@@ -68,7 +66,7 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
         return nupiQuery.docs.map((doc) {
           final data = doc.data();
           data['id'] = doc.id;
-          return PatientModel.fromJson(data);
+          return PatientModel.fromFirestore(data);
         }).toList();
       }
 
@@ -82,12 +80,10 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
         return phoneQuery.docs.map((doc) {
           final data = doc.data();
           data['id'] = doc.id;
-          return PatientModel.fromJson(data);
+          return PatientModel.fromFirestore(data);
         }).toList();
       }
 
-      // If not found by exact match, return empty list
-      // (Full-text search would require Algolia or similar)
       return [];
     } catch (e) {
       throw ServerException('Failed to search patients: ${e.toString()}');
@@ -97,7 +93,10 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
   @override
   Future<PatientModel> updatePatient(PatientModel patient) async {
     try {
-      await firestore.collection('patients').doc(patient.id).update(patient.toJson());
+      await firestore
+          .collection('patients')
+          .doc(patient.id)
+          .update(patient.toFirestore());
       return patient;
     } catch (e) {
       throw ServerException('Failed to update patient: ${e.toString()}');
@@ -113,14 +112,12 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
           .limit(1)
           .get();
 
-      if (query.docs.isEmpty) {
-        return null;
-      }
+      if (query.docs.isEmpty) return null;
 
       final data = query.docs.first.data();
       data['id'] = query.docs.first.id;
 
-      return PatientModel.fromJson(data);
+      return PatientModel.fromFirestore(data);
     } catch (e) {
       throw ServerException('Failed to check NUPI: ${e.toString()}');
     }

@@ -1,4 +1,5 @@
 import 'package:clinic_connect/features/patient/domain/usecases/search_patient.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dartz/dartz.dart';
 import '../../../../core/errors/exceptions.dart';
 import '../../../../core/errors/failures.dart';
@@ -11,10 +12,13 @@ import '../models/patient_model.dart';
 class PatientRepositoryImpl implements PatientRepository {
   final PatientRemoteDatasource remoteDatasource;
   final PatientLocalDatasource localDatasource;
+  final FirebaseFirestore firestore;
+
 
   PatientRepositoryImpl({
     required this.remoteDatasource,
     required this.localDatasource,
+    required this.firestore,   
   });
 
   @override
@@ -105,4 +109,36 @@ class PatientRepositoryImpl implements PatientRepository {
       return Left(ServerFailure(e.toString()));
     }
   }
+
+  @override
+Future<Either<Failure, List<Patient>>> getAllPatients() async {
+  try {
+    // Try remote first
+    final snapshot = await firestore
+        .collection('patients')
+        .orderBy('created_at', descending: true)
+        .get();
+
+    final patients = snapshot.docs.map((doc) {
+      final data = doc.data();
+      data['id'] = doc.id;
+      return PatientModel.fromFirestore(data);
+    }).toList();
+
+    // Cache locally
+    for (final patient in patients) {
+      await localDatasource.cachePatient(patient);
+    }
+
+    return Right(patients);
+  } catch (e) {
+    // Fallback to local
+    try {
+      final patients = await localDatasource.getAllPatients();
+      return Right(patients);
+    } catch (cacheError) {
+      return Left(ServerFailure(e.toString()));
+    }
+  }
+}
 }

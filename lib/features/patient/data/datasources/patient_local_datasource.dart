@@ -19,9 +19,10 @@ class PatientLocalDatasourceImpl implements PatientLocalDatasource {
   Future<void> cachePatient(PatientModel patient) async {
     try {
       final db = await databaseHelper.database;
+      // Use toSqlite() - correct String format
       await db.insert(
         'patients',
-        patient.toJson(),
+        patient.toSqlite(),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     } catch (e) {
@@ -39,11 +40,9 @@ class PatientLocalDatasourceImpl implements PatientLocalDatasource {
         whereArgs: [patientId],
       );
 
-      if (results.isEmpty) {
-        throw CacheException('Patient not found in cache');
-      }
+      if (results.isEmpty) throw CacheException('Patient not found in cache');
 
-      return PatientModel.fromJson(results.first);
+      return PatientModel.fromSqlite(results.first);
     } catch (e) {
       if (e is CacheException) rethrow;
       throw CacheException('Failed to get patient: ${e.toString()}');
@@ -55,8 +54,7 @@ class PatientLocalDatasourceImpl implements PatientLocalDatasource {
     try {
       final db = await databaseHelper.database;
       final results = await db.query('patients', orderBy: 'created_at DESC');
-
-      return results.map((json) => PatientModel.fromJson(json)).toList();
+      return results.map((json) => PatientModel.fromSqlite(json)).toList();
     } catch (e) {
       throw CacheException('Failed to get patients: ${e.toString()}');
     }
@@ -70,11 +68,12 @@ class PatientLocalDatasourceImpl implements PatientLocalDatasource {
 
       final results = await db.query(
         'patients',
-        where: 'nupi = ? OR phone_number = ? OR LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ?',
+        where:
+            'nupi = ? OR phone_number = ? OR LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ?',
         whereArgs: [query, query, '%$queryLower%', '%$queryLower%'],
       );
 
-      return results.map((json) => PatientModel.fromJson(json)).toList();
+      return results.map((json) => PatientModel.fromSqlite(json)).toList();
     } catch (e) {
       throw CacheException('Failed to search patients: ${e.toString()}');
     }

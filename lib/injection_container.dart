@@ -1,3 +1,4 @@
+import 'features/patient/domain/usecases/get_all_patients.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -36,6 +37,7 @@ Future<void> init() async {
     () => PatientBloc(
       registerPatientUsecase: sl(),
       searchPatientUsecase: sl(),
+      getAllPatientsUsecase: sl(),
     ),
   );
 
@@ -46,6 +48,8 @@ Future<void> init() async {
   sl.registerLazySingleton(() => Logout(sl()));
   sl.registerLazySingleton(() => RegisterPatient(sl()));
   sl.registerLazySingleton(() => SearchPatient(sl()));
+  sl.registerLazySingleton(() => GetAllPatients(sl()));
+
 
   // ==================
   // Repositories
@@ -61,6 +65,7 @@ Future<void> init() async {
     () => PatientRepositoryImpl(
       remoteDatasource: sl(),
       localDatasource: sl(),
+      firestore: sl(),
     ),
   );
 
