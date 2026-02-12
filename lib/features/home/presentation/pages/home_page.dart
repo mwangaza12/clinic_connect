@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'dart:ui';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
-import '../../../auth/presentation/bloc/auth_event.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../../patient/presentation/bloc/patient_bloc.dart';
 import '../../../patient/presentation/bloc/patient_event.dart';
 import '../../../patient/presentation/pages/patient_list_page.dart';
 import '../../../patient/presentation/pages/patient_registration_page.dart';
 import '../../../../injection_container.dart';
+import 'profile_page.dart'; // New Import
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -22,7 +21,6 @@ class _HomePageState extends State<HomePage> {
   final PageController _pageController = PageController();
 
   final Color primaryDark = const Color(0xFF1B4332);
-  final Color accentGreen = const Color(0xFF2D6A4F);
   final Color lightBg = const Color(0xFFF8FAFC);
 
   @override
@@ -31,54 +29,41 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
+  void _navigateToTab(int index) {
+    setState(() => _currentIndex = index);
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOutCubic,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: lightBg,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: false,
-        automaticallyImplyLeading: false,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'ClinicConnect',
-              style: TextStyle(
-                color: Color(0xFF1B4332),
-                fontWeight: FontWeight.w900,
-                fontSize: 22,
-                letterSpacing: -1,
-              ),
-            ),
-            Text(
-              'Interoperable EHR System',
-              style: TextStyle(
-                color: Colors.grey[500],
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          _buildSyncStatus(),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: CircleAvatar(
-              backgroundColor: primaryDark.withOpacity(0.1),
-              child: Icon(Icons.person_outline, color: primaryDark, size: 20),
-            ),
-            onPressed: () => _showLogoutDialog(context),
-          ),
-          const SizedBox(width: 12),
-        ],
-      ),
+      appBar: _buildAppBar(context),
       body: BlocBuilder<AuthBloc, AuthState>(
         builder: (context, state) {
           if (state is Authenticated) {
-            return _buildMainContent(state);
+            return PageView(
+              controller: _pageController,
+              physics: const NeverScrollableScrollPhysics(),
+              onPageChanged: (index) => setState(() => _currentIndex = index),
+              children: [
+                _DashboardTab(
+                  state: state, 
+                  primaryColor: primaryDark, 
+                  onSearchClick: () => _navigateToTab(1)
+                ),
+                BlocProvider(
+                  create: (_) => sl<PatientBloc>()..add(const LoadPatientsEvent()),
+                  child: const PatientListView(),
+                ),
+                const _ReferralsTab(),
+                ProfilePage(state: state, primaryColor: primaryDark),
+              ],
+            );
           }
           return const Center(child: CircularProgressIndicator.adaptive());
         },
@@ -87,53 +72,47 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  PreferredSizeWidget _buildAppBar(BuildContext context) {
+    return AppBar(
+      backgroundColor: Colors.white,
+      elevation: 0,
+      automaticallyImplyLeading: false,
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('ClinicConnect',
+              style: TextStyle(color: Color(0xFF1B4332), fontWeight: FontWeight.w900, fontSize: 22, letterSpacing: -1)),
+          Text('Interoperable EHR System',
+              style: TextStyle(color: Colors.grey[500], fontSize: 12, fontWeight: FontWeight.w500)),
+        ],
+      ),
+      actions: [
+        _buildSyncStatus(),
+        const SizedBox(width: 8),
+        IconButton(
+          icon: CircleAvatar(
+            backgroundColor: primaryDark.withOpacity(0.1),
+            child: Icon(Icons.person_outline, color: primaryDark, size: 20),
+          ),
+          onPressed: () => _navigateToTab(3), // Go to Profile
+        ),
+        const SizedBox(width: 12),
+      ],
+    );
+  }
+
   Widget _buildSyncStatus() {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 12),
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFDCFCE7),
-        borderRadius: BorderRadius.circular(30),
-      ),
+      decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(30)),
       child: const Row(
         children: [
-          Icon(Icons.wifi_tethering_rounded,
-              size: 14, color: Color(0xFF166534)),
+          Icon(Icons.wifi_tethering_rounded, size: 14, color: Color(0xFF166534)),
           SizedBox(width: 6),
-          Text(
-            "OFFLINE-READY",
-            style: TextStyle(
-              color: Color(0xFF166534),
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+          Text("OFFLINE-READY", style: TextStyle(color: Color(0xFF166534), fontSize: 10, fontWeight: FontWeight.bold)),
         ],
       ),
-    );
-  }
-
-  Widget _buildMainContent(Authenticated state) {
-    return PageView(
-      controller: _pageController,
-      physics: const NeverScrollableScrollPhysics(),
-      onPageChanged: (index) => setState(() => _currentIndex = index),
-      children: [
-        // Tab 1: Dashboard
-        _DashboardTab(state: state, primaryColor: primaryDark),
-
-        // Tab 2: Patients - full patient list
-        BlocProvider(
-          create: (_) => sl<PatientBloc>()..add(const LoadPatientsEvent()),
-          child: const PatientListView(),
-        ),
-
-        // Tab 3: Referrals
-        const _ReferralsTab(),
-
-        // Tab 4: Profile/Settings
-        _ProfileTab(state: state, primaryColor: primaryDark),
-      ],
     );
   }
 
@@ -142,13 +121,7 @@ class _HomePageState extends State<HomePage> {
       height: 85,
       decoration: BoxDecoration(
         color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 20,
-            offset: const Offset(0, -5),
-          ),
-        ],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 20, offset: const Offset(0, -5))],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -165,14 +138,7 @@ class _HomePageState extends State<HomePage> {
   Widget _navItem(IconData icon, String label, int index) {
     final bool isSelected = _currentIndex == index;
     return GestureDetector(
-      onTap: () {
-        setState(() => _currentIndex = index);
-        _pageController.animateToPage(
-          index,
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.easeInOutCubic,
-        );
-      },
+      onTap: () => _navigateToTab(index),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -183,69 +149,26 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              color: isSelected ? primaryDark : Colors.grey[400],
-              size: 26,
-            ),
+            Icon(icon, color: isSelected ? primaryDark : Colors.grey[400], size: 26),
             const SizedBox(height: 4),
             AnimatedOpacity(
               duration: const Duration(milliseconds: 300),
               opacity: isSelected ? 1 : 0,
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: primaryDark,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              child: Text(label, style: TextStyle(color: primaryDark, fontSize: 12, fontWeight: FontWeight.bold)),
             ),
           ],
         ),
       ),
     );
   }
-
-  void _showLogoutDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        title: const Text('Confirm Logout'),
-        content: const Text('End your current clinical session?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              context.read<AuthBloc>().add(LogoutRequested());
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
-// ─────────────────────────────────────────
-// Dashboard Tab
-// ─────────────────────────────────────────
 class _DashboardTab extends StatelessWidget {
   final Authenticated state;
   final Color primaryColor;
+  final VoidCallback onSearchClick;
 
-  const _DashboardTab({required this.state, required this.primaryColor});
+  const _DashboardTab({required this.state, required this.primaryColor, required this.onSearchClick});
 
   @override
   Widget build(BuildContext context) {
@@ -255,44 +178,19 @@ class _DashboardTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Stats Card
           Container(
             padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: primaryColor,
-              borderRadius: BorderRadius.circular(24),
-            ),
+            decoration: BoxDecoration(color: primaryColor, borderRadius: BorderRadius.circular(24)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  state.user.facilityName.toUpperCase(),
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1,
-                  ),
-                ),
+                Text(state.user.facilityName.toUpperCase(),
+                    style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
                 const SizedBox(height: 8),
-                Text(
-                  state.user.name,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
+                Text(state.user.name, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
                 const SizedBox(height: 4),
-                Text(
-                  state.user.role.toUpperCase(),
-                  style: const TextStyle(
-                    color: Colors.white60,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.5,
-                  ),
-                ),
+                Text(state.user.role.toUpperCase(),
+                    style: const TextStyle(color: Colors.white60, fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
                 const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -306,464 +204,64 @@ class _DashboardTab extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 32),
-
-          const Text(
-            'Quick Clinical Actions',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF0F172A),
-            ),
-          ),
+          const Text('Quick Clinical Actions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
           const SizedBox(height: 16),
-
-          _buildActionRow(
-            context,
-            Icons.person_add_rounded,
-            'New Registration',
-            'Capture NUPI Identification',
-            () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const PatientRegistrationPage(),
-              ),
-            ),
-          ),
-          _buildActionRow(
-            context,
-            Icons.history_edu_rounded,
-            'Visit Documentation',
-            'Comprehensive Clinical Records',
-            () => ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Coming soon!')),
-            ),
-          ),
-          _buildActionRow(
-            context,
-            Icons.send_rounded,
-            'Inter-facility Referral',
-            'FHIR R4 Compliant Transfer',
-            () => ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Coming soon!')),
-            ),
-          ),
-          _buildActionRow(
-            context,
-            Icons.search_rounded,
-            'Search Patient',
-            'Find by NUPI, name or phone',
-            () {
-              // Navigate to patients tab
-              final homeState = context.findAncestorStateOfType<_HomePageState>();
-              homeState?._pageController.animateToPage(
-                1,
-                duration: const Duration(milliseconds: 400),
-                curve: Curves.easeInOutCubic,
-              );
-              homeState?.setState(() => homeState._currentIndex = 1);
-            },
-          ),
-
+          _actionRow(context, Icons.person_add_rounded, 'New Registration', 'Capture NUPI Identification', 
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PatientRegistrationPage()))),
+          _actionRow(context, Icons.history_edu_rounded, 'Visit Documentation', 'Clinical Records', () {}),
+          _actionRow(context, Icons.search_rounded, 'Search Patient', 'Find by NUPI or Name', onSearchClick),
           const SizedBox(height: 32),
-          const Text(
-            'Disease Management',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF0F172A),
-            ),
-          ),
+          const Text('Programs', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
           const SizedBox(height: 16),
-
           SizedBox(
-            height: 50,
+            height: 40,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                _programChip('HIV/ART', Colors.red),
-                _programChip('NCD/Diabetes', Colors.blue),
-                _programChip('Hypertension', Colors.orange),
-                _programChip('Malaria', Colors.green),
-                _programChip('TB', Colors.purple),
+                _chip('HIV/ART', Colors.red),
+                _chip('NCD/Diabetes', Colors.blue),
+                _chip('Hypertension', Colors.orange),
               ],
             ),
           ),
-          const SizedBox(height: 100),
         ],
       ),
     );
   }
 
   Widget _miniStat(String val, String label) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          val,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        Text(
-          label,
-          style: const TextStyle(color: Colors.white60, fontSize: 12),
-        ),
-      ],
-    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(val, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
+      Text(label, style: const TextStyle(color: Colors.white60, fontSize: 12)),
+    ]);
   }
 
-  Widget _buildActionRow(
-    BuildContext context,
-    IconData icon,
-    String title,
-    String sub,
-    VoidCallback onTap,
-  ) {
+  Widget _actionRow(BuildContext context, IconData icon, String title, String sub, VoidCallback onTap) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFE2E8F0))),
       child: ListTile(
         onTap: onTap,
-        leading: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: primaryColor.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, color: primaryColor),
-        ),
-        title: Text(
-          title,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 15,
-          ),
-        ),
-        subtitle: Text(
-          sub,
-          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-        ),
-        trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+        leading: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: primaryColor.withOpacity(0.05), borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: primaryColor)),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+        subtitle: Text(sub, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+        trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 12),
       ),
     );
   }
 
-  Widget _programChip(String label, Color color) {
+  Widget _chip(String label, Color color) {
     return Container(
       margin: const EdgeInsets.only(right: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Center(
-        child: Text(
-          label,
-          style: TextStyle(
-            color: color,
-            fontWeight: FontWeight.bold,
-            fontSize: 13,
-          ),
-        ),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(20), border: Border.all(color: color.withOpacity(0.2))),
+      child: Center(child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12))),
     );
   }
 }
 
-// ─────────────────────────────────────────
-// Referrals Tab
-// ─────────────────────────────────────────
 class _ReferralsTab extends StatelessWidget {
   const _ReferralsTab();
-
   @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: const Color(0xFF2D6A4F).withOpacity(0.08),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.swap_horizontal_circle_outlined,
-              size: 64,
-              color: Color(0xFF2D6A4F),
-            ),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'Referral Hub',
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF0F172A),
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Inter-facility FHIR R4 referrals\ncoming soon',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Color(0xFF64748B), height: 1.5),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────
-// Profile Tab
-// ─────────────────────────────────────────
-class _ProfileTab extends StatelessWidget {
-  final Authenticated state;
-  final Color primaryColor;
-
-  const _ProfileTab({required this.state, required this.primaryColor});
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          const SizedBox(height: 20),
-
-          // Avatar
-          CircleAvatar(
-            radius: 50,
-            backgroundColor: primaryColor,
-            child: Text(
-              state.user.name.substring(0, 1).toUpperCase(),
-              style: const TextStyle(
-                fontSize: 40,
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          Text(
-            state.user.name,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF0F172A),
-            ),
-          ),
-          const SizedBox(height: 8),
-
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            decoration: BoxDecoration(
-              color: primaryColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              state.user.role.toUpperCase(),
-              style: TextStyle(
-                color: primaryColor,
-                fontWeight: FontWeight.w700,
-                fontSize: 12,
-                letterSpacing: 1,
-              ),
-            ),
-          ),
-          const SizedBox(height: 32),
-
-          // Info
-          _infoCard(Icons.local_hospital_outlined, 'Facility', state.user.facilityName),
-          const SizedBox(height: 12),
-          _infoCard(Icons.email_outlined, 'Email', state.user.email),
-          const SizedBox(height: 12),
-          _infoCard(Icons.badge_outlined, 'Facility ID', state.user.facilityId),
-          const SizedBox(height: 32),
-
-          // Menu Options
-          _menuOption(
-            context,
-            Icons.settings_outlined,
-            'Settings',
-            () => ScaffoldMessenger.of(context)
-                .showSnackBar(const SnackBar(content: Text('Coming soon!'))),
-          ),
-          const SizedBox(height: 12),
-          _menuOption(
-            context,
-            Icons.help_outline_rounded,
-            'Help & Support',
-            () => ScaffoldMessenger.of(context)
-                .showSnackBar(const SnackBar(content: Text('Coming soon!'))),
-          ),
-          const SizedBox(height: 12),
-          _menuOption(
-            context,
-            Icons.info_outline_rounded,
-            'About ClinicConnect v1.0.0',
-            () => ScaffoldMessenger.of(context)
-                .showSnackBar(const SnackBar(content: Text('ClinicConnect v1.0.0'))),
-          ),
-          const SizedBox(height: 32),
-
-          // Logout
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    title: const Text('Confirm Logout'),
-                    content: const Text('End your current clinical session?'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('Cancel'),
-                      ),
-                      ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          context.read<AuthBloc>().add(LogoutRequested());
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.redAccent,
-                          foregroundColor: Colors.white,
-                        ),
-                        child: const Text('Logout'),
-                      ),
-                    ],
-                  ),
-                );
-              },
-              icon: const Icon(Icons.logout_rounded),
-              label: const Text(
-                'Logout',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFFF1F2),
-                foregroundColor: const Color(0xFFE11D48),
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  side: const BorderSide(color: Color(0xFFFFCDD2)),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 40),
-        ],
-      ),
-    );
-  }
-
-  Widget _infoCard(IconData icon, String title, String value) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFF2D6A4F).withOpacity(0.08),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: const Color(0xFF2D6A4F), size: 20),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF94A3B8),
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF0F172A),
-                    fontWeight: FontWeight.w600,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _menuOption(
-    BuildContext context,
-    IconData icon,
-    String title,
-    VoidCallback onTap,
-  ) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFF475569).withOpacity(0.08),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: const Color(0xFF475569), size: 20),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF475569),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            const Icon(
-              Icons.chevron_right_rounded,
-              color: Color(0xFFCBD5E1),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const Center(child: Text("Referral Hub - Coming Soon"));
 }
