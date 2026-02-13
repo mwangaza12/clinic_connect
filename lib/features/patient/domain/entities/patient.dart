@@ -1,6 +1,6 @@
-import 'package:equatable/equatable.dart';
+// lib/features/patients/domain/entities/patient.dart
 
-class Patient extends Equatable {
+class Patient {
   final String id;
   final String nupi;
   final String firstName;
@@ -15,6 +15,7 @@ class Patient extends Equatable {
   final String ward;
   final String village;
   final String? bloodGroup;
+  final String facilityId;
   final List<String> allergies;
   final List<String> chronicConditions;
   final String? nextOfKinName;
@@ -38,6 +39,7 @@ class Patient extends Equatable {
     required this.ward,
     required this.village,
     this.bloodGroup,
+    required this.facilityId,
     required this.allergies,
     required this.chronicConditions,
     this.nextOfKinName,
@@ -47,40 +49,65 @@ class Patient extends Equatable {
     required this.updatedAt,
   });
 
-  String get fullName => '$firstName $middleName $lastName'.trim();
-
+  String get fullName => '$firstName $middleName $lastName'.trim().replaceAll(RegExp(r'\s+'), ' ');
+  
   int get age {
     final now = DateTime.now();
     int age = now.year - dateOfBirth.year;
-    if (now.month < dateOfBirth.month ||
+    if (now.month < dateOfBirth.month || 
         (now.month == dateOfBirth.month && now.day < dateOfBirth.day)) {
       age--;
     }
     return age;
   }
 
-  @override
-  List<Object?> get props => [
-        id,
-        nupi,
-        firstName,
-        middleName,
-        lastName,
-        gender,
-        dateOfBirth,
-        phoneNumber,
-        email,
-        county,
-        subCounty,
-        ward,
-        village,
-        bloodGroup,
-        allergies,
-        chronicConditions,
-        nextOfKinName,
-        nextOfKinPhone,
-        nextOfKinRelationship,
-        createdAt,
-        updatedAt,
-      ];
+  Patient copyWith({
+    String? id,
+    String? nupi,
+    String? firstName,
+    String? middleName,
+    String? lastName,
+    String? gender,
+    DateTime? dateOfBirth,
+    String? phoneNumber,
+    String? email,
+    String? county,
+    String? subCounty,
+    String? ward,
+    String? village,
+    String? bloodGroup,
+    String? facilityId,
+    List<String>? allergies,
+    List<String>? chronicConditions,
+    String? nextOfKinName,
+    String? nextOfKinPhone,
+    String? nextOfKinRelationship,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return Patient(
+      id: id ?? this.id,
+      nupi: nupi ?? this.nupi,
+      firstName: firstName ?? this.firstName,
+      middleName: middleName ?? this.middleName,
+      lastName: lastName ?? this.lastName,
+      gender: gender ?? this.gender,
+      dateOfBirth: dateOfBirth ?? this.dateOfBirth,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+      email: email ?? this.email,
+      county: county ?? this.county,
+      subCounty: subCounty ?? this.subCounty,
+      ward: ward ?? this.ward,
+      village: village ?? this.village,
+      bloodGroup: bloodGroup ?? this.bloodGroup,
+      facilityId: facilityId ?? this.facilityId,
+      allergies: allergies ?? this.allergies,
+      chronicConditions: chronicConditions ?? this.chronicConditions,
+      nextOfKinName: nextOfKinName ?? this.nextOfKinName,
+      nextOfKinPhone: nextOfKinPhone ?? this.nextOfKinPhone,
+      nextOfKinRelationship: nextOfKinRelationship ?? this.nextOfKinRelationship,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
 }

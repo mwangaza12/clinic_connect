@@ -1,5 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../../../core/config/firebase_config.dart';
 import '../../../../core/errors/exceptions.dart';
 import '../models/user_model.dart';
 
@@ -24,43 +26,43 @@ class AuthRemoteDatasourceImpl implements AuthRemoteDatasource {
   });
 
   @override
+  @override
   Future<UserModel> login({
     required String email,
     required String password,
   }) async {
     try {
-      // Sign in with Firebase Auth
       final credential = await firebaseAuth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
 
-      if (credential.user == null) {
-        throw ServerException('Login failed - no user returned');
-      }
-
-      // Get user details from Firestore
-      final userDoc = await firestore
+      final userDoc = await FirebaseConfig.facilityDb
           .collection('users')
           .doc(credential.user!.uid)
           .get();
 
-      if (!userDoc.exists) {
-        throw ServerException('User profile not found');
-      }
+      if (!userDoc.exists) throw ServerException('User profile not found');
 
-      final userData = userDoc.data()!;
-      userData['id'] = credential.user!.uid;
-      userData['email'] = credential.user!.email ?? email;
+      final user = UserModel.fromFirestore(userDoc.data()!
+        ..['id'] = credential.user!.uid);
 
-      return UserModel.fromJson(userData);
-    } on firebase_auth.FirebaseAuthException catch (e) {
-      throw ServerException(e.message ?? 'Authentication failed');
-    } catch (e) {
-      throw ServerException(e.toString());
+      // Ensure facility is registered in shared index
+      await FirebaseConfig.sharedDb
+          .collection('facilities')
+          .doc(user.facilityId)
+          .set({
+        'id': user.facilityId,
+        'name': user.facilityName,
+        'is_active': true,
+        'last_seen': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));  // merge: true = don't overwrite existing data
+
+      return user;
+    } on FirebaseAuthException catch (e) {
+      throw ServerException(e.message ?? 'Login failed');
     }
   }
-
   @override
   Future<void> logout() async {
     try {

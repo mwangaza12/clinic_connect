@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../injection_container.dart';
+import '../../../../features/auth/presentation/bloc/auth_bloc.dart';
+import '../../../../features/auth/presentation/bloc/auth_state.dart';
 import '../../domain/entities/patient.dart';
 import '../bloc/patient_bloc.dart';
 import '../bloc/patient_event.dart';
@@ -111,6 +113,24 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         );
         return;
       }
+     // Get facility ID from auth state using context
+      String facilityId;
+      try {
+        final authState = context.read<AuthBloc>().state;
+        if (authState is Authenticated) {
+          facilityId = authState.user.facilityId;
+        } else {
+          throw Exception('User not authenticated');
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Authentication error: $e'), 
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
 
       final patient = Patient(
         id: const Uuid().v4(),
@@ -127,6 +147,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         ward: _wardController.text.trim(),
         village: _villageController.text.trim(),
         bloodGroup: _bloodGroup,
+        facilityId: facilityId,
         allergies: const [],
         chronicConditions: const [],
         nextOfKinName: _nextOfKinNameController.text.trim().isEmpty ? null : _nextOfKinNameController.text.trim(),
@@ -374,7 +395,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
 
   Widget _buildDropdown({required String label, String? value, String? hint, required List<String> items, required Function(String?) onChanged}) {
     return DropdownButtonFormField<String>(
-      value: value,
+      initialValue: value,
       hint: Text(hint ?? ""),
       decoration: InputDecoration(
         labelText: label,

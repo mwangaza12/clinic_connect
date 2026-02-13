@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'core/config/firebase_config.dart';
 import 'firebase_options.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/bloc/auth_state.dart';
@@ -10,9 +11,15 @@ import 'injection_container.dart' as di;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize facility's own Firebase (primary)
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Initialize shared index Firebase (secondary)
+  await FirebaseConfig.initSharedIndex();
+
   await di.init();
   runApp(const MyApp());
 }

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'dart:ui';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -276,7 +275,7 @@ class _RegisterPageState extends State<RegisterPage> {
 
   Widget _buildDropdownField() {
     return DropdownButtonFormField<String>(
-      value: _selectedRole,
+      initialValue: _selectedRole,
       style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF0F172A), fontSize: 16),
       decoration: InputDecoration(
         prefixIcon: const Icon(Icons.work_outline_rounded, color: Color(0xFF2D6A4F), size: 20),

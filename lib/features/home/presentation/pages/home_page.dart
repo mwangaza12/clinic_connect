@@ -7,7 +7,9 @@ import '../../../patient/presentation/bloc/patient_event.dart';
 import '../../../patient/presentation/pages/patient_list_page.dart';
 import '../../../patient/presentation/pages/patient_registration_page.dart';
 import '../../../../injection_container.dart';
-import 'profile_page.dart'; // New Import
+import 'profile_page.dart';
+import '../../../referral/presentation/pages/referrals_page.dart';
+
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -263,5 +265,7 @@ class _DashboardTab extends StatelessWidget {
 class _ReferralsTab extends StatelessWidget {
   const _ReferralsTab();
   @override
-  Widget build(BuildContext context) => const Center(child: Text("Referral Hub - Coming Soon"));
+  Widget build(BuildContext context) {
+    return const ReferralsPage();
+  }
 }

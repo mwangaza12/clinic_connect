@@ -73,6 +73,7 @@ dependencies:
   # For handling the js package issue
   js: ^0.7.2  # Force use the last version
 
+  internet_connection_checker: ^1.0.0
 
 dev_dependencies:
   flutter_test:

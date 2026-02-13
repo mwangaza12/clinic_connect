@@ -1,4 +1,7 @@
+// lib/features/patients/data/datasources/patient_remote_datasource.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../../core/config/firebase_config.dart';
 import '../../../../core/errors/exceptions.dart';
 import '../models/patient_model.dart';
 
@@ -8,58 +11,88 @@ abstract class PatientRemoteDatasource {
   Future<List<PatientModel>> searchPatients(String query);
   Future<PatientModel> updatePatient(PatientModel patient);
   Future<PatientModel?> getPatientByNupi(String nupi);
+  Future<List<PatientModel>> getPatientsByFacility(String facilityId);
+  Future<List<PatientModel>> getAllPatients(); // ADD THIS
 }
 
 class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
-  final FirebaseFirestore firestore;
-
-  PatientRemoteDatasourceImpl({required this.firestore});
-
   @override
   Future<PatientModel> registerPatient(PatientModel patient) async {
     try {
-      final existing = await getPatientByNupi(patient.nupi);
-      if (existing != null) {
-        throw ServerException('Patient with NUPI ${patient.nupi} already exists');
-      }
-
-      // Use toFirestore() - correct Timestamp format
-      await firestore
+      // 1. Save full record in OWN facility DB
+      await FirebaseConfig.facilityDb
           .collection('patients')
           .doc(patient.id)
           .set(patient.toFirestore());
 
+      // 2. Register NUPI in shared index (minimal data)
+      await FirebaseConfig.sharedDb
+          .collection('patient_index')
+          .doc(patient.nupi)
+          .set({
+        'nupi': patient.nupi,
+        'facility_id': patient.facilityId,
+        'patient_id': patient.id,
+        'first_name': patient.firstName,
+        'last_name': patient.lastName,
+        'registered_at': Timestamp.now(),
+      }, SetOptions(merge: true));
+
       return patient;
     } catch (e) {
-      if (e is ServerException) rethrow;
-      throw ServerException('Failed to register patient: ${e.toString()}');
+      throw ServerException('Failed to register patient: $e');
     }
   }
 
   @override
   Future<PatientModel> getPatient(String patientId) async {
     try {
-      final doc = await firestore.collection('patients').doc(patientId).get();
+      final doc = await FirebaseConfig.facilityDb
+          .collection('patients')
+          .doc(patientId)
+          .get();
 
-      if (!doc.exists) throw ServerException('Patient not found');
+      if (!doc.exists) {
+        throw ServerException('Patient not found');
+      }
 
       final data = doc.data()!;
       data['id'] = doc.id;
-
       return PatientModel.fromFirestore(data);
     } catch (e) {
-      if (e is ServerException) rethrow;
-      throw ServerException('Failed to get patient: ${e.toString()}');
+      throw ServerException('Failed to get patient: $e');
+    }
+  }
+
+  @override
+  Future<PatientModel?> getPatientByNupi(String nupi) async {
+    try {
+      final query = await FirebaseConfig.facilityDb
+          .collection('patients')
+          .where('nupi', isEqualTo: nupi)
+          .limit(1)
+          .get();
+
+      if (query.docs.isEmpty) return null;
+
+      final data = query.docs.first.data();
+      data['id'] = query.docs.first.id;
+      return PatientModel.fromFirestore(data);
+    } catch (e) {
+      return null;
     }
   }
 
   @override
   Future<List<PatientModel>> searchPatients(String query) async {
     try {
-      // Search by NUPI first
-      final nupiQuery = await firestore
+      if (query.isEmpty) return [];
+
+      // Search by NUPI (exact match)
+      final nupiQuery = await FirebaseConfig.facilityDb
           .collection('patients')
           .where('nupi', isEqualTo: query)
+          .limit(10)
           .get();
 
       if (nupiQuery.docs.isNotEmpty) {
@@ -70,10 +103,11 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
         }).toList();
       }
 
-      // Search by phone number
-      final phoneQuery = await firestore
+      // Search by phone (exact match)
+      final phoneQuery = await FirebaseConfig.facilityDb
           .collection('patients')
           .where('phone_number', isEqualTo: query)
+          .limit(10)
           .get();
 
       if (phoneQuery.docs.isNotEmpty) {
@@ -84,42 +118,84 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
         }).toList();
       }
 
-      return [];
+      // Search by name (client-side filtering)
+      final snapshot = await FirebaseConfig.facilityDb
+          .collection('patients')
+          .limit(50)
+          .get();
+
+      final results = snapshot.docs.where((doc) {
+        final data = doc.data();
+        final fullName = '${data['first_name']} ${data['middle_name']} ${data['last_name']}'
+            .toLowerCase();
+        return fullName.contains(query.toLowerCase());
+      }).map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return PatientModel.fromFirestore(data);
+      }).toList();
+
+      return results.take(10).toList();
     } catch (e) {
-      throw ServerException('Failed to search patients: ${e.toString()}');
+      throw ServerException('Failed to search patients: $e');
     }
   }
 
   @override
   Future<PatientModel> updatePatient(PatientModel patient) async {
     try {
-      await firestore
+      final updatedPatient = patient.copyWith(
+        updatedAt: DateTime.now(),
+      );
+
+      await FirebaseConfig.facilityDb
           .collection('patients')
           .doc(patient.id)
-          .update(patient.toFirestore());
-      return patient;
+          .update(updatedPatient.toFirestore());
+
+      return updatedPatient;
     } catch (e) {
-      throw ServerException('Failed to update patient: ${e.toString()}');
+      throw ServerException('Failed to update patient: $e');
     }
   }
 
   @override
-  Future<PatientModel?> getPatientByNupi(String nupi) async {
+  Future<List<PatientModel>> getPatientsByFacility(String facilityId) async {
     try {
-      final query = await firestore
+      final snapshot = await FirebaseConfig.facilityDb
           .collection('patients')
-          .where('nupi', isEqualTo: nupi)
-          .limit(1)
+          .where('facility_id', isEqualTo: facilityId)
+          .orderBy('created_at', descending: true)
+          .limit(100)
           .get();
 
-      if (query.docs.isEmpty) return null;
-
-      final data = query.docs.first.data();
-      data['id'] = query.docs.first.id;
-
-      return PatientModel.fromFirestore(data);
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return PatientModel.fromFirestore(data);
+      }).toList();
     } catch (e) {
-      throw ServerException('Failed to check NUPI: ${e.toString()}');
+      throw ServerException('Failed to get patients by facility: $e');
+    }
+  }
+
+  // ADD THIS NEW METHOD
+  @override
+  Future<List<PatientModel>> getAllPatients() async {
+    try {
+      final snapshot = await FirebaseConfig.facilityDb
+          .collection('patients')
+          .orderBy('created_at', descending: true)
+          .limit(100)
+          .get();
+
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return PatientModel.fromFirestore(data);
+      }).toList();
+    } catch (e) {
+      throw ServerException('Failed to get all patients: $e');
     }
   }
 }
