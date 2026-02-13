@@ -1,11 +1,9 @@
-// lib/features/referral/presentation/pages/create_referral_page.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
-import '../../../facility/domain/entities/facility.dart';
+import '../../../../injection_container.dart';
 import '../../../auth/domain/entities/user.dart';
+import '../../../facility/domain/entities/facility.dart';
 import '../../../facility/presentation/bloc/facility_bloc.dart';
 import '../../../facility/presentation/bloc/facility_event.dart';
 import '../../../facility/presentation/bloc/facility_state.dart';
@@ -13,25 +11,47 @@ import '../../../patient/domain/entities/patient.dart';
 import '../../../patient/presentation/bloc/patient_bloc.dart';
 import '../../../patient/presentation/bloc/patient_event.dart';
 import '../../../patient/presentation/bloc/patient_state.dart';
-import '../../../../injection_container.dart';
 import '../../domain/entities/referral.dart';
 import '../bloc/referral_bloc.dart';
 import '../bloc/referral_event.dart';
 import '../bloc/referral_state.dart';
 
-class CreateReferralPage extends StatefulWidget {
+class CreateReferralPage extends StatelessWidget {
   final User user;
 
   const CreateReferralPage({super.key, required this.user});
 
   @override
-  State<CreateReferralPage> createState() => _CreateReferralPageState();
+  Widget build(BuildContext context) {
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider<PatientBloc>(
+          create: (_) => sl<PatientBloc>()..add(const LoadPatientsEvent()),
+        ),
+        BlocProvider<FacilityBloc>(
+          create: (_) => sl<FacilityBloc>(),
+        ),
+        // ✅ ReferralBloc is FRESH here, and BlocConsumer below listens to IT
+        BlocProvider<ReferralBloc>(
+          create: (_) => sl<ReferralBloc>(),
+        ),
+      ],
+      child: _CreateReferralView(user: user),
+    );
+  }
 }
 
-class _CreateReferralPageState extends State<CreateReferralPage> {
+class _CreateReferralView extends StatefulWidget {
+  final User user;
+
+  const _CreateReferralView({required this.user});
+
+  @override
+  State<_CreateReferralView> createState() => _CreateReferralViewState();
+}
+
+class _CreateReferralViewState extends State<_CreateReferralView> {
   final _formKey = GlobalKey<FormState>();
-  final _toFacilityNameController = TextEditingController();
-  final _toFacilityIdController = TextEditingController();
   final _reasonController = TextEditingController();
   final _clinicalSummaryController = TextEditingController();
   final _diagnosesController = TextEditingController();
@@ -39,37 +59,17 @@ class _CreateReferralPageState extends State<CreateReferralPage> {
   final _instructionsController = TextEditingController();
   final _searchController = TextEditingController();
   final _facilitySearchController = TextEditingController();
+  final PageController _pageController = PageController();
 
   ReferralPriority _priority = ReferralPriority.normal;
   Patient? _selectedPatient;
   Facility? _selectedFacility;
-  bool _isSearchingFacilities = false;
   int _currentStep = 0;
-  final PageController _pageController = PageController();
 
   final Color primaryDark = const Color(0xFF1B4332);
 
   @override
-  void initState() {
-    super.initState();
-    // Load patients when page initializes - use addPostFrameCallback to ensure context has providers
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        // Use try-catch to handle any provider issues
-        try {
-          context.read<PatientBloc>().add(const LoadPatientsEvent());
-          print('✅ PatientBloc loaded successfully');
-        } catch (e) {
-          print('❌ Error loading PatientBloc: $e');
-        }
-      }
-    });
-  }
-
-  @override
   void dispose() {
-    _toFacilityNameController.dispose();
-    _toFacilityIdController.dispose();
     _reasonController.dispose();
     _clinicalSummaryController.dispose();
     _diagnosesController.dispose();
@@ -81,21 +81,30 @@ class _CreateReferralPageState extends State<CreateReferralPage> {
     super.dispose();
   }
 
-  Referral _createReferral() {
-    // Combine clinical notes
-    final clinicalNotes = '''
-Clinical Summary: ${_clinicalSummaryController.text.trim()}
-Diagnoses: ${_diagnosesController.text.trim()}
-Current Medications: ${_medicationsController.text.trim()}
-Special Instructions: ${_instructionsController.text.trim()}
-'''.trim();
+  void _submit() {
+    if (!_formKey.currentState!.validate()) return;
 
-    print('📝 Creating referral with:');
-    print('  - Patient: ${_selectedPatient!.fullName}');
-    print('  - To: ${_selectedFacility!.name}');
-    print('  - Reason: ${_reasonController.text.trim()}');
+    if (_selectedPatient == null) {
+      _showSnack('Please select a patient', Colors.orange);
+      return;
+    }
+    if (_selectedFacility == null) {
+      _showSnack('Please select a receiving facility', Colors.orange);
+      return;
+    }
 
-    return Referral(
+    final clinicalNotes = [
+      if (_clinicalSummaryController.text.trim().isNotEmpty)
+        'Summary: ${_clinicalSummaryController.text.trim()}',
+      if (_diagnosesController.text.trim().isNotEmpty)
+        'Diagnoses: ${_diagnosesController.text.trim()}',
+      if (_medicationsController.text.trim().isNotEmpty)
+        'Medications: ${_medicationsController.text.trim()}',
+      if (_instructionsController.text.trim().isNotEmpty)
+        'Instructions: ${_instructionsController.text.trim()}',
+    ].join('\n');
+
+    final referral = Referral(
       id: const Uuid().v4(),
       patientNupi: _selectedPatient!.nupi,
       patientName: _selectedPatient!.fullName,
@@ -111,150 +120,120 @@ Special Instructions: ${_instructionsController.text.trim()}
       createdBy: widget.user.id,
       createdByName: widget.user.name,
     );
+
+    // ✅ This reads from the BlocProvider ABOVE in the same widget tree
+    context.read<ReferralBloc>().add(CreateReferralEvent(referral));
   }
 
-  void _submit() {
-    print('🚀 _submit called');
-    print('Form valid: ${_formKey.currentState?.validate()}');
-    print('Selected patient: ${_selectedPatient?.fullName}');
-    print('Selected facility: ${_selectedFacility?.name}');
-    
-    if (!_formKey.currentState!.validate()) {
-      print('❌ Form validation failed');
+  void _showSnack(String msg, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: color),
+    );
+  }
+
+  void _nextStep() {
+    if (_currentStep == 0 && _selectedPatient == null) {
+      _showSnack('Please select a patient', Colors.orange);
       return;
     }
-    
-    if (_selectedPatient == null) {
-      print('❌ No patient selected');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select a patient'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+    if (_currentStep == 1 && _selectedFacility == null) {
+      _showSnack('Please select a receiving facility', Colors.orange);
       return;
     }
-    
-    if (_selectedFacility == null) {
-      print('❌ No facility selected');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select a receiving facility'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+    if (_currentStep == 1 && _reasonController.text.trim().isEmpty) {
+      _showSnack('Please enter a referral reason', Colors.orange);
       return;
     }
 
-    print('📤 Dispatching CreateReferralEvent');
-    // Use Provider.of instead of context.read for better reliability
-    Provider.of<ReferralBloc>(context, listen: false).add(
-      CreateReferralEvent(_createReferral()),
+    setState(() => _currentStep++);
+    _pageController.nextPage(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
     );
+  }
+
+  void _prevStep() {
+    if (_currentStep > 0) {
+      setState(() => _currentStep--);
+      _pageController.previousPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    } else {
+      Navigator.pop(context);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return MultiBlocProvider(
-      providers: [
-        // Use create instead of value to ensure fresh instances
-        BlocProvider<PatientBloc>(
-          create: (context) => sl<PatientBloc>()..add(const LoadPatientsEvent()),
-        ),
-        BlocProvider<ReferralBloc>(
-          create: (context) => sl<ReferralBloc>(),
-        ),
-        BlocProvider<FacilityBloc>(
-          create: (context) => sl<FacilityBloc>(),
-        ),
-      ],
-      child: Scaffold(
-        backgroundColor: const Color(0xFFF8FAFC),
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          elevation: 0,
-          leading: IconButton(
-            icon: Icon(
-              Icons.arrow_back_ios_new_rounded,
-              color: primaryDark,
-              size: 20,
-            ),
-            onPressed: () => Navigator.pop(context),
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: Icon(
+            Icons.arrow_back_ios_new_rounded,
+            color: primaryDark,
+            size: 20,
           ),
-          title: Text(
-            'New Referral',
-            style: TextStyle(
-              color: primaryDark,
-              fontWeight: FontWeight.bold,
-            ),
+          onPressed: _prevStep,
+        ),
+        title: Text(
+          'New Referral',
+          style: TextStyle(
+            color: primaryDark,
+            fontWeight: FontWeight.bold,
           ),
         ),
-        body: BlocConsumer<ReferralBloc, ReferralState>(
-          listener: (context, state) {
-            if (state is ReferralError) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(state.message),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            } else if (state is ReferralCreated) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('✅ Referral created successfully!'),
-                  backgroundColor: Color(0xFF2D6A4F),
-                ),
-              );
-              
-              // Add a small delay to show the success message before popping
-              Future.delayed(const Duration(milliseconds: 500), () {
-                if (mounted) {
-                  Navigator.pop(context, true);
-                }
-              });
-            }
-          },
-          builder: (context, state) {
-            // Show loading indicator if needed
-            if (state is ReferralLoading) {
-              return const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('Creating referral...'),
-                  ],
-                ),
-              );
-            }
-            
-            return Column(
-              children: [
-                _buildProgressBar(),
-                Expanded(
-                  child: Form(
-                    key: _formKey,
-                    child: PageView(
-                      controller: _pageController,
-                      physics: const NeverScrollableScrollPhysics(),
-                      children: [
-                        _buildStepOne(context),
-                        _buildStepTwo(context),
-                        _buildStepThree(),
-                      ],
-                    ),
+      ),
+      // ✅ BlocConsumer now listens to the ReferralBloc
+      //    provided by CreateReferralPage above
+      body: BlocConsumer<ReferralBloc, ReferralState>(
+        listener: (context, state) {
+          if (state is ReferralError) {
+            _showSnack(state.message, Colors.red);
+          } else if (state is ReferralCreated) {
+            _showSnack(
+              '✅ Referral created successfully!',
+              const Color(0xFF2D6A4F),
+            );
+            // ✅ Pop immediately with result = true
+            // so ReferralsPage knows to reload
+            Navigator.pop(context, true);
+          }
+        },
+        builder: (context, state) {
+          final isLoading = state is ReferralLoading;
+
+          return Column(
+            children: [
+              _buildProgressBar(),
+              Expanded(
+                child: Form(
+                  key: _formKey,
+                  child: PageView(
+                    controller: _pageController,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: [
+                      _buildStepOne(),
+                      _buildStepTwo(),
+                      _buildStepThree(),
+                    ],
                   ),
                 ),
-                _buildBottomActions(state is ReferralLoading),
-              ],
-            );
-          },
-        ),
+              ),
+              _buildBottomActions(isLoading),
+            ],
+          );
+        },
       ),
     );
   }
 
+  // ─────────────────────────────────────────
+  // Progress Bar
+  // ─────────────────────────────────────────
   Widget _buildProgressBar() {
     return Container(
       color: Colors.white,
@@ -320,8 +299,10 @@ Special Instructions: ${_instructionsController.text.trim()}
     );
   }
 
+  // ─────────────────────────────────────────
   // Step 1: Select Patient
-  Widget _buildStepOne(BuildContext context) {
+  // ─────────────────────────────────────────
+  Widget _buildStepOne() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -341,59 +322,9 @@ Special Instructions: ${_instructionsController.text.trim()}
           ),
           const SizedBox(height: 20),
 
-          // Selected Patient Display
+          // Selected patient card
           if (_selectedPatient != null)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2D6A4F).withOpacity(0.08),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: const Color(0xFF2D6A4F).withOpacity(0.3),
-                ),
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: const Color(0xFF2D6A4F),
-                    child: Text(
-                      _selectedPatient!.firstName
-                          .substring(0, 1)
-                          .toUpperCase(),
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _selectedPatient!.fullName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
-                          ),
-                        ),
-                        Text(
-                          'NUPI: ${_selectedPatient!.nupi} • ${_selectedPatient!.age} yrs',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF2D6A4F),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded,
-                        color: Color(0xFF2D6A4F)),
-                    onPressed: () =>
-                        setState(() => _selectedPatient = null),
-                  ),
-                ],
-              ),
-            ),
+            _selectedPatientCard(_selectedPatient!),
 
           const SizedBox(height: 16),
 
@@ -402,38 +333,28 @@ Special Instructions: ${_instructionsController.text.trim()}
             controller: _searchController,
             onChanged: (query) {
               if (query.isEmpty) {
-                context
-                    .read<PatientBloc>()
-                    .add(const LoadPatientsEvent());
+                context.read<PatientBloc>().add(const LoadPatientsEvent());
               } else {
-                context
-                    .read<PatientBloc>()
-                    .add(SearchPatientEvent(query));
+                context.read<PatientBloc>().add(SearchPatientEvent(query));
               }
             },
-            decoration: InputDecoration(
-              hintText: 'Search by name, NUPI or phone...',
-              prefixIcon: const Icon(Icons.search_rounded),
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.grey[200]!),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.grey[200]!),
-              ),
+            decoration: _inputDecoration(
+              'Search by name, NUPI or phone...',
+              Icons.search_rounded,
             ),
           ),
           const SizedBox(height: 12),
 
-          // Patient List
+          // Patient list
           BlocBuilder<PatientBloc, PatientState>(
             builder: (context, state) {
               if (state is PatientLoading) {
                 return const Center(
-                    child: CircularProgressIndicator.adaptive());
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: CircularProgressIndicator.adaptive(),
+                  ),
+                );
               }
 
               if (state is PatientsLoaded) {
@@ -441,7 +362,11 @@ Special Instructions: ${_instructionsController.text.trim()}
                   return const Center(
                     child: Padding(
                       padding: EdgeInsets.all(24),
-                      child: Text('No patients found'),
+                      child: Text(
+                        'No patients found.\nRegister a patient first.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Color(0xFF64748B)),
+                      ),
                     ),
                   );
                 }
@@ -452,8 +377,7 @@ Special Instructions: ${_instructionsController.text.trim()}
                   itemCount: state.patients.length,
                   itemBuilder: (context, index) {
                     final patient = state.patients[index];
-                    final isSelected =
-                        _selectedPatient?.id == patient.id;
+                    final isSelected = _selectedPatient?.id == patient.id;
 
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
@@ -479,7 +403,8 @@ Special Instructions: ${_instructionsController.text.trim()}
                             patient.firstName
                                 .substring(0, 1)
                                 .toUpperCase(),
-                            style: const TextStyle(color: Colors.white),
+                            style:
+                                const TextStyle(color: Colors.white),
                           ),
                         ),
                         title: Text(
@@ -492,9 +417,14 @@ Special Instructions: ${_instructionsController.text.trim()}
                           style: const TextStyle(fontSize: 12),
                         ),
                         trailing: isSelected
-                            ? const Icon(Icons.check_circle_rounded,
-                                color: Color(0xFF2D6A4F))
-                            : null,
+                            ? const Icon(
+                                Icons.check_circle_rounded,
+                                color: Color(0xFF2D6A4F),
+                              )
+                            : const Icon(
+                                Icons.radio_button_unchecked,
+                                color: Color(0xFFCBD5E1),
+                              ),
                       ),
                     );
                   },
@@ -509,8 +439,61 @@ Special Instructions: ${_instructionsController.text.trim()}
     );
   }
 
-  // Step 2: Receiving Facility with Search
-  Widget _buildStepTwo(BuildContext context) {
+  Widget _selectedPatientCard(Patient patient) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2D6A4F).withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFF2D6A4F).withOpacity(0.3),
+        ),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            backgroundColor: const Color(0xFF2D6A4F),
+            child: Text(
+              patient.firstName.substring(0, 1).toUpperCase(),
+              style: const TextStyle(color: Colors.white),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  patient.fullName,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                Text(
+                  'NUPI: ${patient.nupi} • ${patient.age} yrs',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF2D6A4F),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close_rounded,
+                color: Color(0xFF2D6A4F)),
+            onPressed: () => setState(() => _selectedPatient = null),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────
+  // Step 2: Select Facility
+  // ─────────────────────────────────────────
+  Widget _buildStepTwo() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -525,245 +508,174 @@ Special Instructions: ${_instructionsController.text.trim()}
             ),
           ),
           const Text(
-            'Where is the patient being referred to?',
+            'Search verified ClinicConnect facilities',
             style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
 
-          // Selected Facility Display
+          // Info banner
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0EA5E9).withOpacity(0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFF0EA5E9).withOpacity(0.2),
+              ),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.info_outline_rounded,
+                    color: Color(0xFF0EA5E9), size: 18),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Only registered ClinicConnect facilities appear here. Patient data stays secure.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF0369A1),
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Selected facility card
           if (_selectedFacility != null)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2D6A4F).withOpacity(0.08),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: const Color(0xFF2D6A4F).withOpacity(0.3),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2D6A4F).withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.local_hospital_rounded,
-                      color: Color(0xFF2D6A4F),
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _selectedFacility!.name,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF2D6A4F).withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                _selectedFacility!.type,
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF2D6A4F),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '${_selectedFacility!.county} County',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF64748B),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded,
-                        color: Color(0xFF2D6A4F)),
-                    onPressed: () {
-                      setState(() {
-                        _selectedFacility = null;
-                        _toFacilityNameController.clear();
-                        _toFacilityIdController.clear();
-                      });
-                    },
-                  ),
-                ],
+            _selectedFacilityCard(_selectedFacility!)
+          else ...[
+            // Facility search
+            TextField(
+              controller: _facilitySearchController,
+              onChanged: (query) {
+                if (query.length >= 2) {
+                  context
+                      .read<FacilityBloc>()
+                      .add(SearchFacilitiesEvent(query));
+                }
+              },
+              decoration: _inputDecoration(
+                'Search facility name or county...',
+                Icons.search_rounded,
               ),
             ),
-
-          if (_selectedFacility == null) ...[
-            const SizedBox(height: 16),
-
-            // Search Input - Using Builder to ensure proper context
-            Builder(
-              builder: (context) => TextField(
-                controller: _facilitySearchController,
-                onChanged: (query) {
-                  print('🔍 Searching for: "$query"');
-                  if (query.length >= 3) {
-                    setState(() => _isSearchingFacilities = true);
-                    context.read<FacilityBloc>().add(
-                      SearchFacilitiesEvent(query),
-                    );
-                  } else {
-                    setState(() {
-                      _isSearchingFacilities = false;
-                    });
-                  }
-                },
-                decoration: InputDecoration(
-                  hintText: 'Search for facility (min 3 characters)...',
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  suffixIcon: _isSearchingFacilities
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: Padding(
-                            padding: EdgeInsets.all(12),
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        )
-                      : null,
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey[200]!),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey[200]!),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: const Color(0xFF2D6A4F), width: 2),
-                  ),
-                ),
-              ),
-            ),
-
             const SizedBox(height: 12),
 
-            // Search Results
+            // Facility results
             BlocBuilder<FacilityBloc, FacilityState>(
               builder: (context, state) {
-                print('📦 FacilityBloc state: $state');
-                
-                if (state is FacilitySearchLoaded) {
-                  print('✅ Found ${state.facilities.length} facilities');
-                  
-                  if (state.facilities.isEmpty) {
-                    return const Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Text(
-                        'No facilities found',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    );
-                  }
-                  
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    constraints: BoxConstraints(
-                      maxHeight: 200,
-                    ),
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      itemCount: state.facilities.length,
-                      itemBuilder: (context, index) {
-                        final facility = state.facilities[index];
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(color: Colors.grey[200]!),
-                          ),
-                          child: ListTile(
-                            onTap: () {
-                              setState(() {
-                                _selectedFacility = facility;
-                                _toFacilityNameController.text = facility.name;
-                                _toFacilityIdController.text = facility.id;
-                                _facilitySearchController.clear();
-                                _isSearchingFacilities = false;
-                              });
-                              print('✅ Selected facility: ${facility.name}');
-                            },
-                            leading: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF2D6A4F).withOpacity(0.1),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                Icons.local_hospital_rounded,
-                                color: const Color(0xFF2D6A4F),
-                                size: 20,
-                              ),
-                            ),
-                            title: Text(
-                              facility.name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            subtitle: Text(
-                              '${facility.county} • ${facility.type}',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  );
-                }
-                
                 if (state is FacilityLoading) {
                   return const Center(
                     child: Padding(
                       padding: EdgeInsets.all(16),
-                      child: CircularProgressIndicator(),
+                      child: CircularProgressIndicator.adaptive(),
                     ),
                   );
                 }
-                
+
                 if (state is FacilityError) {
                   return Padding(
                     padding: const EdgeInsets.all(16),
                     child: Text(
-                      'Error: ${state.message}',
+                      state.message,
                       style: const TextStyle(color: Colors.red),
                     ),
                   );
                 }
-                
+
+                if (state is FacilitySearchLoaded) {
+                  if (state.facilities.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Column(
+                        children: [
+                          Icon(Icons.search_off_rounded,
+                              size: 40, color: Color(0xFFCBD5E1)),
+                          SizedBox(height: 8),
+                          Text(
+                            'No facilities found.\nFacility must be registered on ClinicConnect.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Color(0xFF64748B)),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: state.facilities.length,
+                    itemBuilder: (context, index) {
+                      final facility = state.facilities[index];
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: ListTile(
+                          onTap: () {
+                            setState(() {
+                              _selectedFacility = facility;
+                              _facilitySearchController.clear();
+                            });
+                          },
+                          leading: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2D6A4F)
+                                  .withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.local_hospital_rounded,
+                              color: Color(0xFF2D6A4F),
+                              size: 20,
+                            ),
+                          ),
+                          title: Text(
+                            facility.name,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            '${facility.type} • ${facility.county} County',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: Color(0xFFCBD5E1),
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                }
+
+                // Initial state hint
+                if (_facilitySearchController.text.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Column(
+                      children: [
+                        Icon(Icons.local_hospital_outlined,
+                            size: 40, color: Color(0xFFCBD5E1)),
+                        SizedBox(height: 8),
+                        Text(
+                          'Type to search for a facility',
+                          style: TextStyle(color: Color(0xFF94A3B8)),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
                 return const SizedBox();
               },
             ),
@@ -803,7 +715,9 @@ Special Instructions: ${_instructionsController.text.trim()}
                           : Colors.white,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: isSelected ? color : const Color(0xFFE2E8F0),
+                        color: isSelected
+                            ? color
+                            : const Color(0xFFE2E8F0),
                         width: isSelected ? 2 : 1,
                       ),
                     ),
@@ -836,19 +750,121 @@ Special Instructions: ${_instructionsController.text.trim()}
           ),
           const SizedBox(height: 16),
 
-          _buildField(
+          // Referral reason
+          TextFormField(
             controller: _reasonController,
-            label: 'Referral Reason *',
-            icon: Icons.notes_rounded,
-            hint: 'Why is the patient being referred?',
             maxLines: 3,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+            decoration: InputDecoration(
+              labelText: 'Referral Reason *',
+              hintText: 'Why is the patient being referred?',
+              prefixIcon: const Padding(
+                padding: EdgeInsets.only(bottom: 60),
+                child: Icon(Icons.notes_rounded,
+                    color: Color(0xFF1B4332), size: 20),
+              ),
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey[200]!),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: Colors.grey[200]!),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide:
+                    const BorderSide(color: Color(0xFF2D6A4F), width: 2),
+              ),
+            ),
+            validator: (v) =>
+                v == null || v.isEmpty ? 'Referral reason is required' : null,
           ),
         ],
       ),
     );
   }
 
+  Widget _selectedFacilityCard(Facility facility) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2D6A4F).withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFF2D6A4F).withOpacity(0.3),
+          width: 2,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2D6A4F).withOpacity(0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.local_hospital_rounded,
+              color: Color(0xFF2D6A4F),
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.verified_rounded,
+                        size: 14, color: Color(0xFF2D6A4F)),
+                    const SizedBox(width: 4),
+                    const Text(
+                      'VERIFIED FACILITY',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: Color(0xFF2D6A4F),
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  facility.name,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                Text(
+                  '${facility.type} • ${facility.county} County',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close_rounded,
+                color: Color(0xFF2D6A4F)),
+            onPressed: () => setState(() => _selectedFacility = null),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────
   // Step 3: Clinical Summary
+  // ─────────────────────────────────────────
   Widget _buildStepThree() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -864,7 +880,7 @@ Special Instructions: ${_instructionsController.text.trim()}
             ),
           ),
           const Text(
-            'Provide clinical context for receiving facility',
+            'Provide clinical context for the receiving facility',
             style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
           ),
           const SizedBox(height: 24),
@@ -880,7 +896,7 @@ Special Instructions: ${_instructionsController.text.trim()}
 
           _buildField(
             controller: _diagnosesController,
-            label: 'Diagnoses (optional)',
+            label: 'Diagnoses',
             icon: Icons.sick_outlined,
             hint: 'e.g. Malaria, Hypertension...',
             maxLines: 2,
@@ -889,19 +905,85 @@ Special Instructions: ${_instructionsController.text.trim()}
 
           _buildField(
             controller: _medicationsController,
-            label: 'Current Medications (optional)',
+            label: 'Current Medications',
             icon: Icons.medication_outlined,
-            hint: 'List current medications...',
+            hint: 'List current medications and doses...',
             maxLines: 2,
           ),
           const SizedBox(height: 16),
 
           _buildField(
             controller: _instructionsController,
-            label: 'Special Instructions (optional)',
+            label: 'Special Instructions',
             icon: Icons.info_outline_rounded,
             hint: 'Any special notes for receiving facility...',
             maxLines: 2,
+          ),
+          const SizedBox(height: 16),
+
+          // Summary review card
+          if (_selectedPatient != null && _selectedFacility != null)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1B4332).withOpacity(0.05),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: const Color(0xFF1B4332).withOpacity(0.15),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'REFERRAL SUMMARY',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1B4332),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _summaryRow(Icons.person_rounded,
+                      'Patient', _selectedPatient!.fullName),
+                  _summaryRow(Icons.local_hospital_rounded,
+                      'To', _selectedFacility!.name),
+                  _summaryRow(Icons.flag_rounded,
+                      'Priority', _priority.name.toUpperCase()),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: const Color(0xFF1B4332)),
+          const SizedBox(width: 8),
+          Text(
+            '$label: ',
+            style: const TextStyle(
+              fontSize: 13,
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
         ],
       ),
@@ -914,6 +996,7 @@ Special Instructions: ${_instructionsController.text.trim()}
     required IconData icon,
     String? hint,
     int maxLines = 1,
+    bool required = false,
   }) {
     return TextFormField(
       controller: controller,
@@ -938,7 +1021,8 @@ Special Instructions: ${_instructionsController.text.trim()}
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: const Color(0xFF2D6A4F), width: 2),
+          borderSide: const BorderSide(
+              color: Color(0xFF2D6A4F), width: 2),
         ),
       ),
       validator: (v) {
@@ -950,6 +1034,30 @@ Special Instructions: ${_instructionsController.text.trim()}
     );
   }
 
+  InputDecoration _inputDecoration(String hint, IconData icon) {
+    return InputDecoration(
+      hintText: hint,
+      prefixIcon: Icon(icon),
+      filled: true,
+      fillColor: Colors.white,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey[200]!),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: Colors.grey[200]!),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFF2D6A4F), width: 2),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────
+  // Bottom Actions
+  // ─────────────────────────────────────────
   Widget _buildBottomActions(bool isLoading) {
     return Container(
       padding: const EdgeInsets.all(24),
@@ -965,18 +1073,10 @@ Special Instructions: ${_instructionsController.text.trim()}
       ),
       child: Row(
         children: [
-          if (_currentStep > 0)
+          if (_currentStep > 0) ...[
             Expanded(
               child: OutlinedButton(
-                onPressed: isLoading
-                    ? null
-                    : () {
-                        setState(() => _currentStep--);
-                        _pageController.previousPage(
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeInOut,
-                        );
-                      },
+                onPressed: isLoading ? null : _prevStep,
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
@@ -986,7 +1086,8 @@ Special Instructions: ${_instructionsController.text.trim()}
                 child: const Text('Back'),
               ),
             ),
-          if (_currentStep > 0) const SizedBox(width: 16),
+            const SizedBox(width: 16),
+          ],
           Expanded(
             flex: 2,
             child: ElevatedButton(
@@ -994,30 +1095,7 @@ Special Instructions: ${_instructionsController.text.trim()}
                   ? null
                   : () {
                       if (_currentStep < 2) {
-                        // Validate current step before proceeding
-                        if (_currentStep == 0 && _selectedPatient == null) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Please select a patient'),
-                              backgroundColor: Colors.orange,
-                            ),
-                          );
-                          return;
-                        }
-                        if (_currentStep == 1 && _selectedFacility == null) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Please select a facility'),
-                              backgroundColor: Colors.orange,
-                            ),
-                          );
-                          return;
-                        }
-                        setState(() => _currentStep++);
-                        _pageController.nextPage(
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeInOut,
-                        );
+                        _nextStep();
                       } else {
                         _submit();
                       }

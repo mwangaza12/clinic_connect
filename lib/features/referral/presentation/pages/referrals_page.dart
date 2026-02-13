@@ -22,8 +22,9 @@ class ReferralsPage extends StatelessWidget {
     if (authState is! Authenticated) return const SizedBox();
 
     return BlocProvider(
-      create: (_) => sl<ReferralBloc>()
-        ..add(LoadReferralsEvent(authState.user.facilityId)),
+      create: (_) =>
+          sl<ReferralBloc>()
+            ..add(LoadReferralsEvent(authState.user.facilityId)),
       child: const ReferralsView(),
     );
   }
@@ -50,20 +51,19 @@ class ReferralsView extends StatelessWidget {
           final authState = context.read<AuthBloc>().state;
           if (authState is! Authenticated) return;
 
-          await Navigator.push(
+          // ✅ Wait for result from CreateReferralPage
+          final created = await Navigator.push<bool>(
             context,
             MaterialPageRoute(
-              builder: (_) => BlocProvider.value(
-                value: context.read<ReferralBloc>(),
-                child: CreateReferralPage(user: authState.user),
-              ),
+              builder: (_) => CreateReferralPage(user: authState.user),
             ),
           );
 
-          if (context.mounted) {
-            context
-                .read<ReferralBloc>()
-                .add(LoadReferralsEvent(authState.user.facilityId));
+          // ✅ Reload referrals if a new one was created
+          if (created == true && context.mounted) {
+            context.read<ReferralBloc>().add(
+              LoadReferralsEvent(authState.user.facilityId),
+            );
           }
         },
         backgroundColor: const Color(0xFF2D6A4F),
@@ -97,8 +97,7 @@ class ReferralsView extends StatelessWidget {
               BlocBuilder<ReferralBloc, ReferralState>(
                 builder: (context, state) {
                   if (state is ReferralsLoaded) {
-                    final total =
-                        state.outgoing.length + state.incoming.length;
+                    final total = state.outgoing.length + state.incoming.length;
                     return Text(
                       '$total total referrals',
                       style: const TextStyle(
@@ -117,9 +116,9 @@ class ReferralsView extends StatelessWidget {
             onPressed: () {
               final authState = context.read<AuthBloc>().state;
               if (authState is Authenticated) {
-                context
-                    .read<ReferralBloc>()
-                    .add(LoadReferralsEvent(authState.user.facilityId));
+                context.read<ReferralBloc>().add(
+                  LoadReferralsEvent(authState.user.facilityId),
+                );
               }
             },
             icon: Container(
@@ -161,9 +160,7 @@ class ReferralsView extends StatelessWidget {
                   Icons.send_rounded,
                   0,
                   activeTab,
-                  state is ReferralsLoaded
-                      ? state.outgoing.length
-                      : 0,
+                  state is ReferralsLoaded ? state.outgoing.length : 0,
                 ),
               ),
               Expanded(
@@ -173,9 +170,7 @@ class ReferralsView extends StatelessWidget {
                   Icons.call_received_rounded,
                   1,
                   activeTab,
-                  state is ReferralsLoaded
-                      ? state.incoming.length
-                      : 0,
+                  state is ReferralsLoaded ? state.incoming.length : 0,
                 ),
               ),
             ],
@@ -195,9 +190,8 @@ class ReferralsView extends StatelessWidget {
   ) {
     final isActive = activeTab == index;
     return GestureDetector(
-      onTap: () => context
-          .read<ReferralBloc>()
-          .add(SwitchReferralTabEvent(index)),
+      onTap: () =>
+          context.read<ReferralBloc>().add(SwitchReferralTabEvent(index)),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 12),
@@ -225,8 +219,7 @@ class ReferralsView extends StatelessWidget {
             if (count > 0) ...[
               const SizedBox(width: 6),
               Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: isActive
                       ? Colors.white.withOpacity(0.3)
@@ -238,9 +231,7 @@ class ReferralsView extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
-                    color: isActive
-                        ? Colors.white
-                        : const Color(0xFF2D6A4F),
+                    color: isActive ? Colors.white : const Color(0xFF2D6A4F),
                   ),
                 ),
               ),
@@ -255,9 +246,7 @@ class ReferralsView extends StatelessWidget {
     return BlocBuilder<ReferralBloc, ReferralState>(
       builder: (context, state) {
         if (state is ReferralLoading) {
-          return const Center(
-            child: CircularProgressIndicator.adaptive(),
-          );
+          return const Center(child: CircularProgressIndicator.adaptive());
         }
 
         if (state is ReferralError) {
@@ -265,8 +254,7 @@ class ReferralsView extends StatelessWidget {
         }
 
         if (state is ReferralsLoaded) {
-          final list =
-              state.activeTab == 0 ? state.outgoing : state.incoming;
+          final list = state.activeTab == 0 ? state.outgoing : state.incoming;
 
           if (list.isEmpty) return _buildEmpty(state.activeTab);
 
@@ -285,7 +273,10 @@ class ReferralsView extends StatelessWidget {
   }
 
   Widget _buildReferralCard(
-      BuildContext context, Referral referral, int tabIndex) {
+    BuildContext context,
+    Referral referral,
+    int tabIndex,
+  ) {
     final priorityColor = _getPriorityColor(referral.priority);
 
     return Container(
@@ -293,9 +284,7 @@ class ReferralsView extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border(
-          left: BorderSide(color: priorityColor, width: 4),
-        ),
+        border: Border(left: BorderSide(color: priorityColor, width: 4)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
@@ -451,10 +440,10 @@ class ReferralsView extends StatelessWidget {
   Widget _priorityBadge(ReferralPriority priority) {
     final color = _getPriorityColor(priority);
     // FIXED: Use proper enum value name
-    final priorityText = priority == ReferralPriority.normal 
-        ? 'ROUTINE' 
+    final priorityText = priority == ReferralPriority.normal
+        ? 'ROUTINE'
         : priority.name.toUpperCase();
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
@@ -487,10 +476,7 @@ class ReferralsView extends StatelessWidget {
           Container(
             width: 6,
             height: 6,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 6),
           Text(
@@ -592,19 +578,16 @@ class ReferralsView extends StatelessWidget {
               Text(
                 message,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Color(0xFF64748B),
-                  fontSize: 14,
-                ),
+                style: const TextStyle(color: Color(0xFF64748B), fontSize: 14),
               ),
               const SizedBox(height: 24),
               ElevatedButton.icon(
                 onPressed: () {
                   final authState = context.read<AuthBloc>().state;
                   if (authState is Authenticated) {
-                    context
-                        .read<ReferralBloc>()
-                        .add(LoadReferralsEvent(authState.user.facilityId));
+                    context.read<ReferralBloc>().add(
+                      LoadReferralsEvent(authState.user.facilityId),
+                    );
                   }
                 },
                 icon: const Icon(Icons.refresh_rounded),

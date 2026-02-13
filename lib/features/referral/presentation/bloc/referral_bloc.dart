@@ -29,20 +29,26 @@ class ReferralBloc extends Bloc<ReferralEvent, ReferralState> {
   ) async {
     emit(ReferralLoading());
 
-    final outgoingResult =
-        await getOutgoingReferralsUsecase(event.facilityId);
-    final incomingResult =
-        await getIncomingReferralsUsecase(event.facilityId);
+    final outgoingResult = await getOutgoingReferralsUsecase(event.facilityId);
+    
+    final incomingResult = await getIncomingReferralsUsecase(event.facilityId);
 
     outgoingResult.fold(
-      (failure) => emit(ReferralError(failure.message)),
+      (failure) {
+        emit(ReferralError(failure.message));
+      },
       (outgoing) {
         incomingResult.fold(
-          (failure) => emit(ReferralError(failure.message)),
-          (incoming) => emit(ReferralsLoaded(
-            outgoing: outgoing,
-            incoming: incoming,
-          )),
+          (failure) {
+            emit(ReferralError(failure.message));
+          },
+          (incoming) {
+            emit(ReferralsLoaded(
+              outgoing: outgoing,
+              incoming: incoming,
+              activeTab: 0,
+            ));
+          },
         );
       },
     );
@@ -52,12 +58,23 @@ class ReferralBloc extends Bloc<ReferralEvent, ReferralState> {
     CreateReferralEvent event,
     Emitter<ReferralState> emit,
   ) async {
+    
     emit(ReferralLoading());
-    final result = await createReferralUsecase(event.referral);
-    result.fold(
-      (failure) => emit(ReferralError(failure.message)),
-      (referral) => emit(ReferralCreated(referral)),
-    );
+    
+    try {
+      final result = await createReferralUsecase(event.referral);
+      
+      result.fold(
+        (failure) {
+          emit(ReferralError(failure.message));
+        },
+        (referral) {
+          emit(ReferralCreated(referral));
+        },
+      );
+    } catch (e) {
+      emit(ReferralError(e.toString()));
+    }
   }
 
   Future<void> _onUpdateStatus(
@@ -65,14 +82,20 @@ class ReferralBloc extends Bloc<ReferralEvent, ReferralState> {
     Emitter<ReferralState> emit,
   ) async {
     emit(ReferralLoading());
+    
     final result = await updateReferralStatusUsecase(
       event.referralId,
       event.status,
       feedbackNotes: event.feedbackNotes,
     );
+    
     result.fold(
-      (failure) => emit(ReferralError(failure.message)),
-      (referral) => emit(ReferralUpdated(referral)),
+      (failure) {
+        emit(ReferralError(failure.message));
+      },
+      (referral) {
+        emit(ReferralUpdated(referral));
+      },
     );
   }
 
@@ -81,7 +104,8 @@ class ReferralBloc extends Bloc<ReferralEvent, ReferralState> {
     Emitter<ReferralState> emit,
   ) {
     if (state is ReferralsLoaded) {
-      emit((state as ReferralsLoaded).copyWith(activeTab: event.tabIndex));
+      final currentState = state as ReferralsLoaded;
+      emit(currentState.copyWith(activeTab: event.tabIndex));
     }
   }
 }

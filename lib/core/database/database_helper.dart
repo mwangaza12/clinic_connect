@@ -44,6 +44,7 @@ class DatabaseHelper {
         ward TEXT NOT NULL,
         village TEXT NOT NULL,
         blood_group TEXT,
+        facility_id TEXT,
         allergies TEXT,
         chronic_conditions TEXT,
         next_of_kin_name TEXT,
