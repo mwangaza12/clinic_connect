@@ -1,0 +1,127 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../core/config/firebase_config.dart';
+
+class DashboardStats {
+  final int totalPatients;
+  final int todayVisits;
+  final int pendingReferrals;
+  final int totalReferrals;
+  final int syncedRecords;
+  final int pendingSync;
+
+  const DashboardStats({
+    required this.totalPatients,
+    required this.todayVisits,
+    required this.pendingReferrals,
+    required this.totalReferrals,
+    required this.syncedRecords,
+    required this.pendingSync,
+  });
+
+  factory DashboardStats.empty() => const DashboardStats(
+        totalPatients: 0,
+        todayVisits: 0,
+        pendingReferrals: 0,
+        totalReferrals: 0,
+        syncedRecords: 0,
+        pendingSync: 0,
+      );
+}
+
+class DashboardService {
+  FirebaseFirestore get _db => FirebaseConfig.facilityDb;
+
+  Future<DashboardStats> getStats(String facilityId) async {
+    try {
+      // Run all queries in parallel
+      final results = await Future.wait([
+        _getTotalPatients(facilityId),
+        _getTodayVisits(facilityId),
+        _getPendingReferrals(facilityId),
+        _getTotalReferrals(facilityId),
+      ]);
+
+      return DashboardStats(
+        totalPatients: results[0],
+        todayVisits: results[1],
+        pendingReferrals: results[2],
+        totalReferrals: results[3],
+        syncedRecords: results[0] + results[3],
+        pendingSync: 0,
+      );
+    } catch (e) {
+      return DashboardStats.empty();
+    }
+  }
+
+  Future<int> _getTotalPatients(String facilityId) async {
+    final snap = await _db
+        .collection('patients')
+        .where('facility_id', isEqualTo: facilityId)
+        .count()
+        .get();
+    return snap.count ?? 0;
+  }
+
+  Future<int> _getTodayVisits(String facilityId) async {
+    final now = DateTime.now();
+    final startOfDay =
+        DateTime(now.year, now.month, now.day);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
+
+    final snap = await _db
+        .collection('encounters')
+        .where('facility_id', isEqualTo: facilityId)
+        .where('encounter_date',
+            isGreaterThanOrEqualTo:
+                Timestamp.fromDate(startOfDay))
+        .where('encounter_date',
+            isLessThan: Timestamp.fromDate(endOfDay))
+        .count()
+        .get();
+    return snap.count ?? 0;
+  }
+
+  Future<int> _getPendingReferrals(String facilityId) async {
+    final snap = await _db
+        .collection('referrals')
+        .where('from_facility_id', isEqualTo: facilityId)
+        .where('status', isEqualTo: 'pending')
+        .count()
+        .get();
+    return snap.count ?? 0;
+  }
+
+  Future<int> _getTotalReferrals(String facilityId) async {
+    final outgoing = await _db
+        .collection('referrals')
+        .where('from_facility_id', isEqualTo: facilityId)
+        .count()
+        .get();
+    return outgoing.count ?? 0;
+  }
+
+  // Real-time stream of today's encounters
+  Stream<List<Map<String, dynamic>>> getTodayEncounters(
+      String facilityId) {
+    final now = DateTime.now();
+    final startOfDay =
+        DateTime(now.year, now.month, now.day);
+
+    return _db
+        .collection('encounters')
+        .where('facility_id', isEqualTo: facilityId)
+        .where('encounter_date',
+            isGreaterThanOrEqualTo:
+                Timestamp.fromDate(startOfDay))
+        .orderBy('encounter_date', descending: true)
+        .limit(10)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((doc) => {
+                  ...doc.data(),
+                  'id': doc.id,
+                })
+            .toList());
+  }
+}

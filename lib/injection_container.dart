@@ -18,6 +18,8 @@ import 'features/auth/domain/repositories/auth_repository.dart';
 import 'features/auth/domain/usecases/login.dart';
 import 'features/auth/domain/usecases/logout.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
+import 'features/home/data/dashboard_service.dart';
+import 'features/home/presentation/bloc/dashboard_bloc.dart';
 import 'features/patient/data/datasources/patient_local_datasource.dart';
 import 'features/patient/data/datasources/patient_remote_datasource.dart';
 import 'features/patient/data/repositories/patient_repository_impl.dart';
@@ -190,6 +192,8 @@ Future<void> init() async {
   sl.registerLazySingleton(() => CreateEncounter(sl()));
   sl.registerLazySingleton(() => GetPatientEncounters(sl()));
 
+  sl.registerFactory(() => DashboardBloc(sl()));
+  sl.registerLazySingleton(() => DashboardService());
   // ==================
   // BLOCS
   // ==================
