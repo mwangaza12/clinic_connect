@@ -27,3 +27,7 @@ class NetworkFailure extends Failure {
 class InvalidSearchFailure extends Failure {
   const InvalidSearchFailure(super.message);
 }
+
+class LocalFailure extends Failure {
+  const LocalFailure(super.message);
+}

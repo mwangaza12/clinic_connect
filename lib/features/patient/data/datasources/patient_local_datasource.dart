@@ -1,81 +1,94 @@
 import 'package:sqflite/sqflite.dart';
 import '../../../../core/database/database_helper.dart';
 import '../../../../core/errors/exceptions.dart';
+import '../../../../core/sync/sync_manager.dart';
+import '../../../../core/sync/sync_queue_item.dart';
 import '../models/patient_model.dart';
 
 abstract class PatientLocalDatasource {
-  Future<void> cachePatient(PatientModel patient);
-  Future<PatientModel> getPatient(String patientId);
+  Future<PatientModel> savePatient(PatientModel patient);
   Future<List<PatientModel>> getAllPatients();
-  Future<List<PatientModel>> searchPatients(String query);
+  Future<PatientModel?> getPatientByNupi(String nupi);
+  Future<void> updateSyncStatus(String patientId, String status);
 }
 
 class PatientLocalDatasourceImpl implements PatientLocalDatasource {
-  final DatabaseHelper databaseHelper;
+  final DatabaseHelper dbHelper;
+  final SyncManager syncManager;
 
-  PatientLocalDatasourceImpl({required this.databaseHelper});
+  PatientLocalDatasourceImpl({
+    required this.dbHelper,
+    required this.syncManager,
+  });
 
   @override
-  Future<void> cachePatient(PatientModel patient) async {
+  Future<PatientModel> savePatient(PatientModel patient) async {
     try {
-      final db = await databaseHelper.database;
-      // Use toSqlite() - correct String format
+      final db = await dbHelper.database;
+
+      // Save to SQLite immediately
       await db.insert(
         'patients',
         patient.toSqlite(),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
-    } catch (e) {
-      throw CacheException('Failed to cache patient: ${e.toString()}');
-    }
-  }
 
-  @override
-  Future<PatientModel> getPatient(String patientId) async {
-    try {
-      final db = await databaseHelper.database;
-      final results = await db.query(
-        'patients',
-        where: 'id = ?',
-        whereArgs: [patientId],
+      // Enqueue for Firestore sync
+      await syncManager.enqueue(
+        entityType: SyncEntityType.patient,
+        entityId: patient.id,
+        operation: SyncOperation.create,
+        payload: patient.toSqlite(),
       );
 
-      if (results.isEmpty) throw CacheException('Patient not found in cache');
-
-      return PatientModel.fromSqlite(results.first);
+      return patient;
     } catch (e) {
-      if (e is CacheException) rethrow;
-      throw CacheException('Failed to get patient: ${e.toString()}');
+      throw LocalException('Failed to save patient: $e');
     }
   }
 
   @override
   Future<List<PatientModel>> getAllPatients() async {
     try {
-      final db = await databaseHelper.database;
-      final results = await db.query('patients', orderBy: 'created_at DESC');
-      return results.map((json) => PatientModel.fromSqlite(json)).toList();
+      final db = await dbHelper.database;
+      final rows = await db.query(
+        'patients',
+        orderBy: 'created_at DESC',
+      );
+      return rows
+          .map((row) => PatientModel.fromSqlite(row))
+          .toList();
     } catch (e) {
-      throw CacheException('Failed to get patients: ${e.toString()}');
+      throw LocalException('Failed to get patients: $e');
     }
   }
 
   @override
-  Future<List<PatientModel>> searchPatients(String query) async {
+  Future<PatientModel?> getPatientByNupi(String nupi) async {
     try {
-      final db = await databaseHelper.database;
-      final queryLower = query.toLowerCase();
-
-      final results = await db.query(
+      final db = await dbHelper.database;
+      final rows = await db.query(
         'patients',
-        where:
-            'nupi = ? OR phone_number = ? OR LOWER(first_name) LIKE ? OR LOWER(last_name) LIKE ?',
-        whereArgs: [query, query, '%$queryLower%', '%$queryLower%'],
+        where: 'nupi = ?',
+        whereArgs: [nupi],
+        limit: 1,
       );
-
-      return results.map((json) => PatientModel.fromSqlite(json)).toList();
+      if (rows.isEmpty) return null;
+      return PatientModel.fromSqlite(rows.first);
     } catch (e) {
-      throw CacheException('Failed to search patients: ${e.toString()}');
+      return null;
     }
+  }
+
+  @override
+  Future<void> updateSyncStatus(
+      String patientId, String status) async {
+    final db = await dbHelper.database;
+    await db.update(
+      'patients',
+      {'sync_status': status},
+      where: 'id = ?',
+      whereArgs: [patientId],
+    );
   }
 }

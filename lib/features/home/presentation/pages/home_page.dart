@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../../core/sync/widgets/sync_status_widget.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../../patient/presentation/bloc/patient_bloc.dart';
@@ -89,7 +90,10 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       actions: [
-        _buildSyncStatus(),
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: SyncStatusWidget(),
+        ),
         const SizedBox(width: 8),
         IconButton(
           icon: CircleAvatar(
@@ -100,21 +104,6 @@ class _HomePageState extends State<HomePage> {
         ),
         const SizedBox(width: 12),
       ],
-    );
-  }
-
-  Widget _buildSyncStatus() {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(color: const Color(0xFFDCFCE7), borderRadius: BorderRadius.circular(30)),
-      child: const Row(
-        children: [
-          Icon(Icons.wifi_tethering_rounded, size: 14, color: Color(0xFF166534)),
-          SizedBox(width: 6),
-          Text("OFFLINE-READY", style: TextStyle(color: Color(0xFF166534), fontSize: 10, fontWeight: FontWeight.bold)),
-        ],
-      ),
     );
   }
 

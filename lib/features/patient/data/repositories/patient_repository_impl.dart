@@ -1,9 +1,9 @@
-import 'package:clinic_connect/features/patient/domain/usecases/search_patient.dart';
 import 'package:dartz/dartz.dart';
 import '../../../../core/errors/exceptions.dart';
 import '../../../../core/errors/failures.dart';
 import '../../domain/entities/patient.dart';
 import '../../domain/repositories/patient_repository.dart';
+import '../../domain/usecases/search_patient.dart';
 import '../datasources/patient_local_datasource.dart';
 import '../datasources/patient_remote_datasource.dart';
 import '../models/patient_model.dart';
@@ -15,7 +15,6 @@ class PatientRepositoryImpl implements PatientRepository {
   PatientRepositoryImpl({
     required this.remoteDatasource,
     required this.localDatasource,
-    required Object networkInfo,
   });
 
   @override
@@ -23,15 +22,21 @@ class PatientRepositoryImpl implements PatientRepository {
     try {
       final patientModel = PatientModel.fromEntity(patient);
 
-      // Save to remote (Firestore)
-      final savedPatient = await remoteDatasource.registerPatient(patientModel);
+      // Save to local SQLite first (for offline support)
+      final savedPatient = await localDatasource.savePatient(patientModel);
 
-      // Cache locally
-      await localDatasource.cachePatient(savedPatient);
+      // Attempt remote save (Firestore) through sync manager
+      try {
+        await remoteDatasource.registerPatient(patientModel);
+        await localDatasource.updateSyncStatus(patientModel.id, 'synced');
+      } catch (e) {
+        // If remote fails, mark for later sync
+        await localDatasource.updateSyncStatus(patientModel.id, 'pending');
+      }
 
       return Right(savedPatient);
-    } on ServerException catch (e) {
-      return Left(ServerFailure(e.message));
+    } on LocalException catch (e) {
+      return Left(LocalFailure(e.message));
     } catch (e) {
       return Left(ServerFailure(e.toString()));
     }
@@ -42,16 +47,26 @@ class PatientRepositoryImpl implements PatientRepository {
     try {
       // Try local first
       try {
-        final patient = await localDatasource.getPatient(patientId);
-        return Right(patient);
-      } on CacheException {
-        // If not in cache, get from remote
-        final patient = await remoteDatasource.getPatient(patientId);
-        await localDatasource.cachePatient(patient);
-        return Right(patient);
+        final patient = await localDatasource.getPatientByNupi(patientId);
+        if (patient != null) {
+          return Right(patient);
+        }
+      } on LocalException {
+        // Continue to remote
       }
+
+      // If not in local, get from remote
+      final patient = await remoteDatasource.getPatient(patientId);
+      
+      // Cache locally for future use
+      await localDatasource.savePatient(patient);
+      await localDatasource.updateSyncStatus(patient.id, 'synced');
+
+      return Right(patient);
     } on ServerException catch (e) {
       return Left(ServerFailure(e.message));
+    } on LocalException catch (e) {
+      return Left(LocalFailure(e.message));
     } catch (e) {
       return Left(ServerFailure(e.toString()));
     }
@@ -66,23 +81,38 @@ class PatientRepositoryImpl implements PatientRepository {
     int limit = 20,
   }) async {
     try {
-      // Search remote
-      final patients = await remoteDatasource.searchPatients(query);
-
-      // Cache results
-      for (final patient in patients) {
-        await localDatasource.cachePatient(patient);
-      }
-
-      return Right(patients);
-    } on ServerException catch (e) {
-      // If remote fails, try local
+      // Try remote search first
       try {
-        final patients = await localDatasource.searchPatients(query);
+        final patients = await remoteDatasource.searchPatients(query);
+        
+        // Update local cache with results
+        for (final patient in patients) {
+          await localDatasource.savePatient(patient);
+          await localDatasource.updateSyncStatus(patient.id, 'synced');
+        }
+        
         return Right(patients);
-      } catch (_) {
-        return Left(ServerFailure(e.message));
+      } on ServerException {
+        // If remote fails, search locally
+        final allPatients = await localDatasource.getAllPatients();
+        
+        // Perform local filtering
+        final filteredPatients = allPatients.where((patient) {
+          final fullName = '${patient.firstName} ${patient.lastName}'.toLowerCase();
+          final nupi = patient.nupi.toLowerCase();
+          final searchQuery = query.toLowerCase();
+          
+          return fullName.contains(searchQuery) || 
+                 nupi.contains(searchQuery) ||
+                 patient.phoneNumber.contains(searchQuery);
+        }).toList();
+        
+        return Right(filteredPatients);
       }
+    } on ServerException catch (e) {
+      return Left(ServerFailure(e.message));
+    } on LocalException catch (e) {
+      return Left(LocalFailure(e.message));
     } catch (e) {
       return Left(ServerFailure(e.toString()));
     }
@@ -93,13 +123,21 @@ class PatientRepositoryImpl implements PatientRepository {
     try {
       final patientModel = PatientModel.fromEntity(patient);
 
-      // Update remote
-      final updatedPatient = await remoteDatasource.updatePatient(patientModel);
+      // Update local first
+      await localDatasource.savePatient(patientModel);
 
-      // Update cache
-      await localDatasource.cachePatient(updatedPatient);
-
-      return Right(updatedPatient);
+      // Try remote update
+      try {
+        final updatedPatient = await remoteDatasource.updatePatient(patientModel);
+        await localDatasource.updateSyncStatus(patientModel.id, 'synced');
+        return Right(updatedPatient);
+      } catch (e) {
+        // Mark as pending sync
+        await localDatasource.updateSyncStatus(patientModel.id, 'pending');
+        return Right(patientModel);
+      }
+    } on LocalException catch (e) {
+      return Left(LocalFailure(e.message));
     } on ServerException catch (e) {
       return Left(ServerFailure(e.message));
     } catch (e) {
@@ -110,17 +148,24 @@ class PatientRepositoryImpl implements PatientRepository {
   @override
   Future<Either<Failure, List<Patient>>> getAllPatients() async {
     try {
-      // Use remoteDatasource (no more firestore dependency needed!)
-      final patients = await remoteDatasource.getAllPatients();
-
-      // Cache locally
-      for (final patient in patients) {
-        await localDatasource.cachePatient(patient);
+      // Try remote first
+      try {
+        final patients = await remoteDatasource.getAllPatients();
+        
+        // Update local cache
+        for (final patient in patients) {
+          await localDatasource.savePatient(patient);
+          await localDatasource.updateSyncStatus(patient.id, 'synced');
+        }
+        
+        return Right(patients.map((p) => p.toEntity()).toList());
+      } on ServerException {
+        // Fallback to local
+        final patients = await localDatasource.getAllPatients();
+        return Right(patients.map((p) => p.toEntity()).toList());
       }
-
-      return Right(patients.map((p) => p.toEntity()).toList());
     } catch (e) {
-      // Fallback to local
+      // Final fallback to local
       try {
         final patients = await localDatasource.getAllPatients();
         return Right(patients.map((p) => p.toEntity()).toList());

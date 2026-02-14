@@ -10,6 +10,7 @@ import 'package:internet_connection_checker/internet_connection_checker.dart';
 
 import 'core/database/database_helper.dart';
 import 'core/network/network_info.dart';
+import 'core/sync/sync_manager.dart';
 import 'features/auth/data/datasources/auth_local_datasource.dart';
 import 'features/auth/data/datasources/auth_remote_datasource.dart';
 import 'features/auth/data/repositories/auth_repository_impl.dart';
@@ -70,6 +71,11 @@ Future<void> init() async {
     ),
   );
 
+  // Register SyncManager
+  sl.registerLazySingleton<SyncManager>(
+    () => SyncManager(),
+  );
+
   // ==================
   // DATA SOURCES
   // ==================
@@ -92,9 +98,11 @@ Future<void> init() async {
     () => PatientRemoteDatasourceImpl(),
   );
 
+  // FIXED: Patient Local Datasource with correct parameters
   sl.registerLazySingleton<PatientLocalDatasource>(
     () => PatientLocalDatasourceImpl(
-      databaseHelper: sl(),
+      dbHelper: sl(),  // Changed from databaseHelper to dbHelper
+      syncManager: sl(), // Added missing syncManager
     ),
   );
 
@@ -103,7 +111,7 @@ Future<void> init() async {
     () => ReferralRemoteDatasourceImpl(),
   );
 
-  // FACILITY DATA SOURCES - REGISTER ONLY ONCE!
+  // FACILITY DATA SOURCES
   sl.registerLazySingleton<FacilityRemoteDatasource>(
     () => FacilityRemoteDatasourceImpl(),
   );
@@ -129,7 +137,7 @@ Future<void> init() async {
     () => PatientRepositoryImpl(
       remoteDatasource: sl(),
       localDatasource: sl(),
-      networkInfo: sl<NetworkInfo>(),
+      // Removed networkInfo as it's not in the constructor
     ),
   );
 
@@ -149,9 +157,10 @@ Future<void> init() async {
 
   // Encounter Repository
   sl.registerLazySingleton<EncounterRepository>(
-    () => EncounterRepositoryImpl(remoteDatasource: sl()),
+    () => EncounterRepositoryImpl(
+      remoteDatasource: sl(),
+    ),
   );
-
 
   // ==================
   // USE CASES
