@@ -215,55 +215,59 @@ class _FhirExportViewState extends State<_FhirExportView> {
   }
 
   Widget _buildPatientHeader() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: primary,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            backgroundColor: Colors.white.withOpacity(0.2),
-            radius: 30,
-            child: Text(
-              widget.patient.firstName.substring(0, 1).toUpperCase(),
-              style: const TextStyle(
-                fontSize: 24,
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+  return Container(
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      color: primary,
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: Row(
+      children: [
+        CircleAvatar(
+          backgroundColor: Colors.white.withOpacity(0.2),
+          radius: 30,
+          child: Text(
+            widget.patient.firstName.substring(0, 1).toUpperCase(),
+            style: const TextStyle(
+              fontSize: 24,
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.patient.fullName,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
-            ),
+              const SizedBox(height: 4),
+              // Fixed: Wrap the Row of chips in a Wrap widget to handle overflow
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  _headerChip('NUPI: ${widget.patient.nupi}'),
+                  _headerChip(
+                      '${widget.patient.age} yrs • ${widget.patient.gender}'),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.patient.fullName,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    _headerChip('NUPI: ${widget.patient.nupi}'),
-                    const SizedBox(width: 8),
-                    _headerChip(
-                        '${widget.patient.age} yrs • ${widget.patient.gender}'),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _headerChip(String label) {
     return Container(
@@ -605,6 +609,7 @@ class _FhirExportViewState extends State<_FhirExportView> {
       ),
       child: Row(
         children: [
+          // ID Container - fixed width based on content
           Container(
             padding: const EdgeInsets.symmetric(
                 horizontal: 8, vertical: 3),
@@ -624,6 +629,7 @@ class _FhirExportViewState extends State<_FhirExportView> {
             ),
           ),
           const SizedBox(width: 10),
+          // Subtitle Text - takes remaining space with ellipsis
           Expanded(
             child: Text(
               subtitle,
@@ -632,6 +638,7 @@ class _FhirExportViewState extends State<_FhirExportView> {
                 color: Color(0xFF64748B),
               ),
               overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
           ),
         ],
@@ -680,16 +687,19 @@ class _FhirExportViewState extends State<_FhirExportView> {
             ],
           ),
           const SizedBox(height: 12),
-          Text(
-            // Show first 3000 chars to avoid performance issues
-            _generatedJson!.length > 3000
-                ? '${_generatedJson!.substring(0, 3000)}\n\n... (${_generatedJson!.length} chars total - copy to see full bundle)'
-                : _generatedJson!,
-            style: const TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 11,
-              color: Color(0xFF86EFAC),
-              height: 1.5,
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Text(
+              // Show first 3000 chars to avoid performance issues
+              _generatedJson!.length > 3000
+                  ? '${_generatedJson!.substring(0, 3000)}\n\n... (${_generatedJson!.length} chars total - copy to see full bundle)'
+                  : _generatedJson!,
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 11,
+                color: Color(0xFF86EFAC),
+                height: 1.5,
+              ),
             ),
           ),
         ],

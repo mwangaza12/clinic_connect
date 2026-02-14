@@ -546,6 +546,7 @@ class _ProfileTab extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(height: 8),
               GestureDetector(
                 onTap: () => Navigator.push(
                   context,
