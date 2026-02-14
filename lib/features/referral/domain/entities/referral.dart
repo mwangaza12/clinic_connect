@@ -1,7 +1,5 @@
-// lib/features/referral/domain/entities/referral.dart
-
 enum ReferralPriority { normal, urgent, emergency }
-enum ReferralStatus { pending, accepted, rejected, completed }
+enum ReferralStatus { pending, accepted, rejected, completed, inTransit, arrived, cancelled }
 
 class Referral {
   final String id;

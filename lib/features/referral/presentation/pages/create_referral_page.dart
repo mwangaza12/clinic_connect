@@ -996,7 +996,6 @@ class _CreateReferralViewState extends State<_CreateReferralView> {
     required IconData icon,
     String? hint,
     int maxLines = 1,
-    bool required = false,
   }) {
     return TextFormField(
       controller: controller,

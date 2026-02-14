@@ -9,6 +9,7 @@ import '../../../encounter/presentation/bloc/encounter_state.dart';
 import '../../../encounter/presentation/pages/create_encounter_page.dart';
 import '../../../encounter/presentation/pages/encounter_detail_page.dart';
 import '../../domain/entities/patient.dart';
+import '../../../fhir/presentation/pages/fhir_export_page.dart';
 
 class PatientDetailPage extends StatelessWidget {
   final Patient patient;
@@ -542,6 +543,39 @@ class _ProfileTab extends StatelessWidget {
                   const Color(0xFF0EA5E9),
                   () => ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Coming soon!')),
+                  ),
+                ),
+              ),
+              GestureDetector(
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => FhirExportPage(patient: patient),
+                  ),
+                ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1B4332).withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: const Color(0xFF1B4332).withOpacity(0.2),
+                    ),
+                  ),
+                  child: const Column(
+                    children: [
+                      Icon(Icons.file_download_rounded,
+                          color: Color(0xFF1B4332), size: 24),
+                      SizedBox(height: 8),
+                      Text(
+                        'FHIR Export',
+                        style: TextStyle(
+                          color: Color(0xFF1B4332),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

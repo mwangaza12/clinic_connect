@@ -625,13 +625,19 @@ class ReferralsView extends StatelessWidget {
   Color _getStatusColor(ReferralStatus status) {
     switch (status) {
       case ReferralStatus.pending:
-        return const Color(0xFFF59E0B);
+        return const Color(0xFFF59E0B); // Amber/Warning
       case ReferralStatus.accepted:
-        return const Color(0xFF6366F1);
-      case ReferralStatus.rejected: // FIXED: Changed from inTransit/cancelled
-        return const Color(0xFFE11D48);
+        return const Color(0xFF6366F1); // Indigo/Info
+      case ReferralStatus.rejected:
+        return const Color(0xFFE11D48); // Red/Error
       case ReferralStatus.completed:
-        return const Color(0xFF2D6A4F);
+        return const Color(0xFF10B981); // Bright Green/Success
+      case ReferralStatus.inTransit:
+        return const Color(0xFF0EA5E9); // Sky Blue/Action
+      case ReferralStatus.arrived:
+        return const Color(0xFF8B5CF6); // Violet/Milestone
+      case ReferralStatus.cancelled:
+        return const Color(0xFF64748B); // Slate Grey/Neutral
     }
   }
 }
