@@ -40,6 +40,15 @@ import 'features/facility/domain/usecases/get_facility.dart';
 import 'features/facility/domain/usecases/search_facilities.dart';
 import 'features/facility/presentation/bloc/facility_bloc.dart';
 
+// Encounter imports
+import 'features/encounter/data/datasources/encounter_remote_datasource.dart';
+import 'features/encounter/data/repositories/encounter_repository_impl.dart';
+import 'features/encounter/domain/repositories/encounter_repository.dart';
+import 'features/encounter/domain/usecases/create_encounter.dart';
+import 'features/encounter/domain/usecases/get_patient_encounters.dart';
+import 'features/encounter/presentation/bloc/encounter_bloc.dart';
+
+
 final sl = GetIt.instance;
 
 Future<void> init() async {
@@ -99,6 +108,11 @@ Future<void> init() async {
     () => FacilityRemoteDatasourceImpl(),
   );
 
+  // Encounter Datasource
+  sl.registerLazySingleton<EncounterRemoteDatasource>(
+    () => EncounterRemoteDatasourceImpl(),
+  );
+
   // ==================
   // REPOSITORIES
   // ==================
@@ -133,6 +147,12 @@ Future<void> init() async {
     ),
   );
 
+  // Encounter Repository
+  sl.registerLazySingleton<EncounterRepository>(
+    () => EncounterRepositoryImpl(remoteDatasource: sl()),
+  );
+
+
   // ==================
   // USE CASES
   // ==================
@@ -157,6 +177,10 @@ Future<void> init() async {
   sl.registerLazySingleton(() => GetFacility(sl()));
   sl.registerLazySingleton(() => GetAllFacilities(sl()));
 
+  // Encounter Use Cases
+  sl.registerLazySingleton(() => CreateEncounter(sl()));
+  sl.registerLazySingleton(() => GetPatientEncounters(sl()));
+
   // ==================
   // BLOCS
   // ==================
@@ -166,6 +190,13 @@ Future<void> init() async {
       logoutUsecase: sl(),
     ),
   );
+
+  // Encounter BLoC
+  sl.registerFactory(() => EncounterBloc(
+        createEncounterUsecase: sl(),
+        getPatientEncountersUsecase: sl(),
+        repository: sl(),
+      ));
 
   sl.registerFactory(
     () => PatientBloc(

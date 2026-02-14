@@ -3,10 +3,10 @@ import '../../../../core/errors/failures.dart';
 import '../entities/encounter.dart';
 import '../repositories/encounter_repository.dart';
 
-class CreateEncounter {
+class GetPatientEncounters {
   final EncounterRepository repository;
-  CreateEncounter(this.repository);
+  GetPatientEncounters(this.repository);
 
-  Future<Either<Failure, Encounter>> call(Encounter encounter) =>
-      repository.createEncounter(encounter);
+  Future<Either<Failure, List<Encounter>>> call(String patientId) =>
+      repository.getPatientEncounters(patientId);
 }
