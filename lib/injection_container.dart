@@ -1,6 +1,7 @@
 import 'package:clinic_connect/features/facility/data/datasources/facility_remote_datasource.dart';
 import 'package:clinic_connect/features/facility/data/repositories/facility_repository_impl.dart';
 import 'package:clinic_connect/features/facility/domain/repositories/facility_repository.dart';
+import 'package:clinic_connect/features/patient/data/datasources/patient_lookup_datasource.dart';
 import 'package:clinic_connect/features/patient/domain/usecases/get_all_patients.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -8,6 +9,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:get_it/get_it.dart';
 import 'package:internet_connection_checker/internet_connection_checker.dart';
 
+import 'core/config/facility_info.dart';
 import 'core/database/database_helper.dart';
 import 'core/network/network_info.dart';
 import 'core/sync/sync_manager.dart';
@@ -26,6 +28,7 @@ import 'features/patient/data/repositories/patient_repository_impl.dart';
 import 'features/patient/domain/repositories/patient_repository.dart';
 import 'features/patient/domain/usecases/register_patient.dart';
 import 'features/patient/domain/usecases/search_patient.dart';
+import 'features/patient/presentation/bloc/lookup_bloc.dart';
 import 'features/patient/presentation/bloc/patient_bloc.dart';
 import 'features/referral/data/datasources/referral_remote_datasource.dart';
 import 'features/referral/data/datasources/referral_remote_datasource_impl.dart';
@@ -36,7 +39,7 @@ import 'features/referral/domain/usecases/get_referrals.dart';
 import 'features/referral/domain/usecases/update_referral_status.dart';
 import 'features/referral/presentation/bloc/referral_bloc.dart';
 
-// FACILITY IMPORTS
+// Facility imports
 import 'features/facility/domain/usecases/get_all_facilities.dart';
 import 'features/facility/domain/usecases/get_facilities_by_county.dart';
 import 'features/facility/domain/usecases/get_facility.dart';
@@ -51,7 +54,6 @@ import 'features/encounter/domain/usecases/create_encounter.dart';
 import 'features/encounter/domain/usecases/get_patient_encounters.dart';
 import 'features/encounter/presentation/bloc/encounter_bloc.dart';
 
-
 final sl = GetIt.instance;
 
 Future<void> init() async {
@@ -60,20 +62,19 @@ Future<void> init() async {
   // ==================
   sl.registerLazySingleton(() => FirebaseAuth.instance);
   sl.registerLazySingleton(() => FirebaseFirestore.instance);
-  sl.registerLazySingleton(() => const FlutterSecureStorage());
+  sl.registerLazySingleton(
+      () => const FlutterSecureStorage());
   sl.registerLazySingleton(() => DatabaseHelper());
-  sl.registerLazySingleton(() => InternetConnectionChecker());
+  sl.registerLazySingleton(
+      () => InternetConnectionChecker());
 
   // ==================
   // CORE
   // ==================
   sl.registerLazySingleton<NetworkInfo>(
-    () => NetworkInfoImpl(
-      connectionChecker: sl(),
-    ),
+    () => NetworkInfoImpl(connectionChecker: sl()),
   );
 
-  // Register SyncManager
   sl.registerLazySingleton<SyncManager>(
     () => SyncManager(),
   );
@@ -81,7 +82,8 @@ Future<void> init() async {
   // ==================
   // DATA SOURCES
   // ==================
-  // Auth Data Sources
+
+  // Auth
   sl.registerLazySingleton<AuthRemoteDatasource>(
     () => AuthRemoteDatasourceImpl(
       firebaseAuth: sl(),
@@ -95,38 +97,47 @@ Future<void> init() async {
     ),
   );
 
-  // Patient Data Sources
-  sl.registerLazySingleton<PatientRemoteDatasource>(
-    () => PatientRemoteDatasourceImpl(),
-  );
-
-  // FIXED: Patient Local Datasource with correct parameters
-  sl.registerLazySingleton<PatientLocalDatasource>(
-    () => PatientLocalDatasourceImpl(
-      dbHelper: sl(),  // Changed from databaseHelper to dbHelper
-      syncManager: sl(), // Added missing syncManager
+  // ✅ Patient remote — uses FacilityInfo singleton
+  // registered as factory so it reads fresh values
+  // every time it's needed after login
+  sl.registerFactory<PatientRemoteDatasource>(
+    () => PatientRemoteDatasourceImpl(
+      facilityId: FacilityInfo().facilityId,
+      facilityName: FacilityInfo().facilityName,
+      facilityCounty: FacilityInfo().facilityCounty,
     ),
   );
 
-  // Referral Data Sources
+  sl.registerLazySingleton<PatientLocalDatasource>(
+    () => PatientLocalDatasourceImpl(
+      dbHelper: sl(),
+      syncManager: sl(),
+    ),
+  );
+
+  // Referral
   sl.registerLazySingleton<ReferralRemoteDatasource>(
     () => ReferralRemoteDatasourceImpl(),
   );
 
-  // FACILITY DATA SOURCES
+  // Facility
   sl.registerLazySingleton<FacilityRemoteDatasource>(
     () => FacilityRemoteDatasourceImpl(),
   );
 
-  // Encounter Datasource
+  // Encounter
   sl.registerLazySingleton<EncounterRemoteDatasource>(
     () => EncounterRemoteDatasourceImpl(),
+  );
+
+  // Lookup
+  sl.registerLazySingleton<PatientLookupDatasource>(
+    () => PatientLookupDatasourceImpl(),
   );
 
   // ==================
   // REPOSITORIES
   // ==================
-  // Auth Repository
   sl.registerLazySingleton<AuthRepository>(
     () => AuthRepositoryImpl(
       remoteDatasource: sl(),
@@ -134,30 +145,25 @@ Future<void> init() async {
     ),
   );
 
-  // Patient Repository
   sl.registerLazySingleton<PatientRepository>(
     () => PatientRepositoryImpl(
       remoteDatasource: sl(),
       localDatasource: sl(),
-      // Removed networkInfo as it's not in the constructor
     ),
   );
 
-  // Referral Repository
   sl.registerLazySingleton<ReferralRepository>(
     () => ReferralRepositoryImpl(
       remoteDatasource: sl(),
     ),
   );
 
-  // FACILITY REPOSITORY
   sl.registerLazySingleton<FacilityRepository>(
     () => FacilityRepositoryImpl(
       remoteDatasource: sl(),
     ),
   );
 
-  // Encounter Repository
   sl.registerLazySingleton<EncounterRepository>(
     () => EncounterRepositoryImpl(
       remoteDatasource: sl(),
@@ -167,33 +173,39 @@ Future<void> init() async {
   // ==================
   // USE CASES
   // ==================
-  // Auth Use Cases
   sl.registerLazySingleton(() => Login(sl()));
   sl.registerLazySingleton(() => Logout(sl()));
-  
-  // Patient Use Cases
+
   sl.registerLazySingleton(() => RegisterPatient(sl()));
   sl.registerLazySingleton(() => SearchPatient(sl()));
   sl.registerLazySingleton(() => GetAllPatients(sl()));
 
-  // Referral Use Cases
   sl.registerLazySingleton(() => CreateReferral(sl()));
-  sl.registerLazySingleton(() => GetOutgoingReferrals(sl()));
-  sl.registerLazySingleton(() => GetIncomingReferrals(sl()));
-  sl.registerLazySingleton(() => UpdateReferralStatus(sl()));
+  sl.registerLazySingleton(
+      () => GetOutgoingReferrals(sl()));
+  sl.registerLazySingleton(
+      () => GetIncomingReferrals(sl()));
+  sl.registerLazySingleton(
+      () => UpdateReferralStatus(sl()));
 
-  // FACILITY USE CASES
-  sl.registerLazySingleton(() => SearchFacilities(sl()));
-  sl.registerLazySingleton(() => GetFacilitiesByCounty(sl()));
+  sl.registerLazySingleton(
+      () => SearchFacilities(sl()));
+  sl.registerLazySingleton(
+      () => GetFacilitiesByCounty(sl()));
   sl.registerLazySingleton(() => GetFacility(sl()));
-  sl.registerLazySingleton(() => GetAllFacilities(sl()));
+  sl.registerLazySingleton(
+      () => GetAllFacilities(sl()));
 
-  // Encounter Use Cases
-  sl.registerLazySingleton(() => CreateEncounter(sl()));
-  sl.registerLazySingleton(() => GetPatientEncounters(sl()));
+  sl.registerLazySingleton(
+      () => CreateEncounter(sl()));
+  sl.registerLazySingleton(
+      () => GetPatientEncounters(sl()));
 
-  sl.registerFactory(() => DashboardBloc(sl()));
+  // ==================
+  // SERVICES
+  // ==================
   sl.registerLazySingleton(() => DashboardService());
+
   // ==================
   // BLOCS
   // ==================
@@ -203,13 +215,6 @@ Future<void> init() async {
       logoutUsecase: sl(),
     ),
   );
-
-  // Encounter BLoC
-  sl.registerFactory(() => EncounterBloc(
-        createEncounterUsecase: sl(),
-        getPatientEncountersUsecase: sl(),
-        repository: sl(),
-      ));
 
   sl.registerFactory(
     () => PatientBloc(
@@ -228,7 +233,23 @@ Future<void> init() async {
     ),
   );
 
-  // FACILITY BLOC
+  // ✅ EncounterBloc — explicit type on registerFactory
+  sl.registerFactory<EncounterBloc>(
+    () => EncounterBloc(
+      createEncounterUsecase: sl(),
+      getPatientEncountersUsecase: sl(),
+      repository: sl(),
+    ),
+  );
+
+  sl.registerFactory<DashboardBloc>(
+    () => DashboardBloc(sl()),
+  );
+
+  sl.registerFactory<LookupBloc>(
+    () => LookupBloc(datasource: sl()),
+  );
+
   sl.registerFactory(
     () => FacilityBloc(
       searchFacilities: sl(),
