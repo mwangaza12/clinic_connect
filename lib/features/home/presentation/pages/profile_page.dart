@@ -4,6 +4,7 @@ import '../../../../seed/seed_demo_data.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_event.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
+import 'settings_page.dart';
 
 class ProfilePage extends StatelessWidget {
   final Authenticated state;
@@ -58,6 +59,7 @@ class ProfilePage extends StatelessWidget {
                       _buildFloatingProfile(),
                       const SizedBox(height: 16),
 
+                      // ── Clinical Identity ──
                       _buildSectionTitle(
                           'CLINICAL IDENTITY'),
                       _buildModernItem(
@@ -74,15 +76,24 @@ class ProfilePage extends StatelessWidget {
                           state.user.facilityId),
 
                       const SizedBox(height: 24),
+
+                      // ── System Preferences ──
                       _buildSectionTitle(
                           'SYSTEM PREFERENCES'),
                       _buildActionItem(
+                        Icons.settings_rounded,
+                        'Settings',
+                        () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                const SettingsPage(),
+                          ),
+                        ),
+                      ),
+                      _buildActionItem(
                           Icons.security_rounded,
                           'Security & PIN',
-                          () {}),
-                      _buildActionItem(
-                          Icons.language_rounded,
-                          'Language Settings',
                           () {}),
                       _buildActionItem(
                           Icons.help_center_outlined,
@@ -91,7 +102,7 @@ class ProfilePage extends StatelessWidget {
 
                       const SizedBox(height: 24),
 
-                      // ✅ Seed Demo Data section
+                      // ── Thesis Demo ──
                       _buildSectionTitle(
                           'THESIS DEMO'),
                       _buildSeedButton(context),
@@ -123,7 +134,175 @@ class ProfilePage extends StatelessWidget {
     );
   }
 
-  // ✅ Seed button — matches your design language
+  // ── Floating Profile Header ────────────
+  Widget _buildFloatingProfile() {
+    return Transform.translate(
+      offset: const Offset(0, -45),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+            child: CircleAvatar(
+              radius: 45,
+              backgroundColor: primaryColor,
+              child: Text(
+                state.user.name
+                    .substring(0, 1)
+                    .toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 36,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Padding(
+            padding:
+                const EdgeInsets.only(bottom: 8.0),
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  state.user.name,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF0F172A),
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                Text(
+                  state.user.role.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: primaryColor,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Section Title ──────────────────────
+  Widget _buildSectionTitle(String title) {
+    return Padding(
+      padding:
+          const EdgeInsets.only(left: 4, bottom: 20),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
+          color: Color(0xFF94A3B8),
+          letterSpacing: 1.5,
+        ),
+      ),
+    );
+  }
+
+  // ── Info Item ──────────────────────────
+  Widget _buildModernItem(
+      IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                  color: const Color(0xFFE2E8F0)),
+            ),
+            child: Icon(icon,
+                size: 20,
+                color: const Color(0xFF64748B)),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFF94A3B8),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: Color(0xFF1E293B),
+                    fontWeight: FontWeight.w700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Action Item ────────────────────────
+  Widget _buildActionItem(
+      IconData icon, String title, VoidCallback onTap) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+              vertical: 12, horizontal: 8),
+          child: Row(
+            children: [
+              Icon(icon,
+                  size: 22,
+                  color: const Color(0xFF334155)),
+              const SizedBox(width: 16),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF334155),
+                ),
+              ),
+              const Spacer(),
+              const Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 14,
+                color: Color(0xFFCBD5E1),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Seed Button ────────────────────────
   Widget _buildSeedButton(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -190,8 +369,8 @@ class ProfilePage extends StatelessWidget {
     );
   }
 
+  // ── Seed Runner ────────────────────────
   Future<void> _runSeed(BuildContext context) async {
-    // Confirm dialog
     final confirm = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -211,8 +390,8 @@ class ProfilePage extends StatelessWidget {
                 Navigator.pop(context, false),
             child: const Text(
               'CANCEL',
-              style:
-                  TextStyle(fontWeight: FontWeight.w700),
+              style: TextStyle(
+                  fontWeight: FontWeight.w700),
             ),
           ),
           ElevatedButton(
@@ -231,7 +410,6 @@ class ProfilePage extends StatelessWidget {
 
     if (confirm != true || !context.mounted) return;
 
-    // Show progress
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Row(
@@ -285,170 +463,7 @@ class ProfilePage extends StatelessWidget {
     }
   }
 
-  Widget _buildFloatingProfile() {
-    return Transform.translate(
-      offset: const Offset(0, -45),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-            ),
-            child: CircleAvatar(
-              radius: 45,
-              backgroundColor: primaryColor,
-              child: Text(
-                state.user.name
-                    .substring(0, 1)
-                    .toUpperCase(),
-                style: const TextStyle(
-                  fontSize: 36,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Padding(
-            padding:
-                const EdgeInsets.only(bottom: 8.0),
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  state.user.name,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF0F172A),
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                Text(
-                  state.user.role.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: primaryColor,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding:
-          const EdgeInsets.only(left: 4, bottom: 20),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w900,
-          color: Color(0xFF94A3B8),
-          letterSpacing: 1.5,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildModernItem(
-      IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 24),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                  color: const Color(0xFFE2E8F0)),
-            ),
-            child: Icon(icon,
-                size: 20,
-                color: const Color(0xFF64748B)),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF94A3B8),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    color: Color(0xFF1E293B),
-                    fontWeight: FontWeight.w700,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionItem(
-      IconData icon, String title, VoidCallback onTap) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-              vertical: 12, horizontal: 8),
-          child: Row(
-            children: [
-              Icon(icon,
-                  size: 22,
-                  color: const Color(0xFF334155)),
-              const SizedBox(width: 16),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF334155),
-                ),
-              ),
-              const Spacer(),
-              const Icon(
-                Icons.arrow_forward_ios_rounded,
-                size: 14,
-                color: Color(0xFFCBD5E1),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
+  // ── Logout Button ──────────────────────
   Widget _buildEnhancedLogout(BuildContext context) {
     return InkWell(
       onTap: () => _confirmLogout(context),
@@ -458,8 +473,8 @@ class ProfilePage extends StatelessWidget {
         decoration: BoxDecoration(
           color: const Color(0xFFFFF1F2),
           borderRadius: BorderRadius.circular(20),
-          border:
-              Border.all(color: const Color(0xFFFECDD3)),
+          border: Border.all(
+              color: const Color(0xFFFECDD3)),
         ),
         child: const Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -482,6 +497,7 @@ class ProfilePage extends StatelessWidget {
     );
   }
 
+  // ── Logout Confirm ─────────────────────
   void _confirmLogout(BuildContext context) {
     showDialog(
       context: context,
@@ -501,8 +517,8 @@ class ProfilePage extends StatelessWidget {
             onPressed: () => Navigator.pop(ctx),
             child: const Text(
               'CANCEL',
-              style:
-                  TextStyle(fontWeight: FontWeight.w700),
+              style: TextStyle(
+                  fontWeight: FontWeight.w700),
             ),
           ),
           ElevatedButton(
