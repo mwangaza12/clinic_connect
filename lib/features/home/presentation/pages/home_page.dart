@@ -26,13 +26,21 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _currentIndex = 0;
   final PageController _pageController = PageController();
+  late final DashboardBloc _dashboardBloc;
 
   final Color primaryDark = const Color(0xFF1B4332);
   final Color lightBg = const Color(0xFFF8FAFC);
 
   @override
+  void initState() {
+    super.initState();
+    _dashboardBloc = sl<DashboardBloc>();
+  }
+
+  @override
   void dispose() {
     _pageController.dispose();
+    _dashboardBloc.close();
     super.dispose();
   }
 
@@ -53,39 +61,46 @@ class _HomePageState extends State<HomePage> {
       body: BlocBuilder<AuthBloc, AuthState>(
         builder: (context, state) {
           if (state is Authenticated) {
-            return PageView(
-              controller: _pageController,
-              physics: const NeverScrollableScrollPhysics(),
-              onPageChanged: (index) =>
-                  setState(() => _currentIndex = index),
-              children: [
-                // ✅ onNavigate instead of onSearchClick
-                _DashboardTab(
-                  state: state,
-                  primaryColor: primaryDark,
-                  onNavigate: _navigateToTab,
-                ),
-                BlocProvider(
-                  create: (_) => sl<PatientBloc>()
-                    ..add(const LoadPatientsEvent()),
-                  child: const PatientListView(),
-                ),
-                const _ReferralsTab(),
-                ProfilePage(
-                  state: state,
-                  primaryColor: primaryDark,
-                ),
-              ],
+            // ✅ Provide DashboardBloc ONCE here
+            // not inside PageView children
+            return BlocProvider.value(
+              value: _dashboardBloc
+                ..add(LoadDashboardEvent(
+                    state.user.facilityId)),
+              child: PageView(
+                controller: _pageController,
+                physics:
+                    const NeverScrollableScrollPhysics(),
+                onPageChanged: (index) => setState(
+                    () => _currentIndex = index),
+                children: [
+                  _DashboardTab(
+                    state: state,
+                    primaryColor: primaryDark,
+                    onNavigate: _navigateToTab,
+                  ),
+                  BlocProvider(
+                    create: (_) => sl<PatientBloc>()
+                      ..add(const LoadPatientsEvent()),
+                    child: const PatientListView(),
+                  ),
+                  const _ReferralsTab(),
+                  ProfilePage(
+                    state: state,
+                    primaryColor: primaryDark,
+                  ),
+                ],
+              ),
             );
           }
           return const Center(
-              child: CircularProgressIndicator.adaptive());
+              child:
+                  CircularProgressIndicator.adaptive());
         },
       ),
       bottomNavigationBar: _buildAnimatedBottomNav(),
     );
   }
-
   PreferredSizeWidget _buildAppBar(BuildContext context) {
     return AppBar(
       backgroundColor: Colors.white,
@@ -215,7 +230,7 @@ class _HomePageState extends State<HomePage> {
 class _DashboardTab extends StatelessWidget {
   final Authenticated state;
   final Color primaryColor;
-  final Function(int) onNavigate; // ✅ replaces onSearchClick
+  final Function(int) onNavigate;
 
   const _DashboardTab({
     required this.state,
@@ -225,15 +240,12 @@ class _DashboardTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ Wrap with DashboardBloc provider
-    return BlocProvider(
-      create: (_) => sl<DashboardBloc>()
-        ..add(LoadDashboardEvent(state.user.facilityId)),
-      child: _DashboardContent(
-        state: state,
-        primaryColor: primaryColor,
-        onNavigate: onNavigate,
-      ),
+    // ✅ No BlocProvider here anymore
+    // DashboardBloc is already provided above
+    return _DashboardContent(
+      state: state,
+      primaryColor: primaryColor,
+      onNavigate: onNavigate,
     );
   }
 }

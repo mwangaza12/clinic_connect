@@ -16,6 +16,7 @@ class SyncManager {
 
   StreamSubscription? _connectivitySub;
   bool _isSyncing = false;
+  bool _initialized = false; 
 
   // Stream to broadcast sync status to UI
   final _syncStatusController =
@@ -32,6 +33,9 @@ class SyncManager {
   SyncStatus get currentStatus => _currentStatus;
 
   Future<void> init() async {
+    if (_initialized) return; // ✅ prevent double init
+    _initialized = true;
+
     await _connectivity.init();
 
     // Listen for connectivity changes
@@ -90,11 +94,23 @@ class SyncManager {
   // Trigger sync (debounced)
   // ─────────────────────────────────────────
   Timer? _syncDebounceTimer;
+  DateTime? _lastSyncTime; // ✅ ADD
+
   void _triggerSync() {
+    // ✅ Don't sync more than once every 30 seconds
+    final now = DateTime.now();
+    if (_lastSyncTime != null &&
+        now.difference(_lastSyncTime!).inSeconds < 30) {
+      return;
+    }
+
     _syncDebounceTimer?.cancel();
     _syncDebounceTimer = Timer(
       const Duration(milliseconds: 500),
-      () => _processQueue(),
+      () {
+        _lastSyncTime = DateTime.now(); // ✅ record time
+        _processQueue();
+      },
     );
   }
 
