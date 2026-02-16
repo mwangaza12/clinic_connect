@@ -2,6 +2,8 @@ import 'package:clinic_connect/core/config/firebase_config.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/config/facility_info.dart';
+
 const uuid = Uuid();
 
 FirebaseFirestore get _facilityDb => FirebaseConfig.facilityDb;
@@ -11,6 +13,15 @@ FirebaseFirestore get _sharedDb => FirebaseConfig.sharedDb;
 // FACILITIES — shared index
 // ─────────────────────────────────────────
 Future<void> seedFacilities() async {
+   // ✅ Check if already seeded
+  final existing = await _sharedDb
+      .collection('facilities')
+      .limit(1)
+      .get();
+  if (existing.docs.isNotEmpty) {
+    print('⏭️ Facilities already seeded — skipping');
+    return;
+  }
   print('🏥 Seeding facilities...');
 
   final facilities = [
@@ -97,6 +108,24 @@ Future<void> seedFacilities() async {
 // PATIENTS — facility DB + shared index
 // ─────────────────────────────────────────
 Future<List<Map<String, dynamic>>> seedPatients() async {
+  // ✅ Check if NUPI already exists
+  final existing = await _facilityDb
+      .collection('patients')
+      .where('nupi', isEqualTo: 'KE-2024-100001')
+      .limit(1)
+      .get();
+  if (existing.docs.isNotEmpty) {
+    print('⏭️ Patients already seeded — skipping');
+    // ✅ Return existing patients so encounters/referrals
+    // can still use them
+    final all = await _facilityDb
+        .collection('patients')
+        .get();
+    return all.docs
+        .map((d) => {...d.data(), 'id': d.id})
+        .toList();
+  }
+
   print('👥 Seeding patients...');
 
   const facilityId = 'facility_knh_001';
@@ -475,6 +504,15 @@ Future<List<Map<String, dynamic>>> seedPatients() async {
 // ─────────────────────────────────────────
 Future<void> seedEncounters(
     List<Map<String, dynamic>> patients) async {
+      // ✅ Check if already seeded
+  final existing = await _facilityDb
+      .collection('encounters')
+      .limit(1)
+      .get();
+  if (existing.docs.isNotEmpty) {
+    print('⏭️ Encounters already seeded — skipping');
+    return;
+  }
   print('🩺 Seeding encounters...');
 
   const facilityId = 'facility_knh_001';
@@ -750,6 +788,17 @@ Future<void> seedEncounters(
 // ─────────────────────────────────────────
 Future<void> seedReferrals(
     List<Map<String, dynamic>> patients) async {
+      // ✅ Check if already seeded
+  final existing = await _facilityDb
+      .collection('referrals')
+      .where('from_facility_id',
+          isEqualTo: 'facility_knh_001')
+      .limit(1)
+      .get();
+  if (existing.docs.isNotEmpty) {
+    print('⏭️ Referrals already seeded — skipping');
+    return;
+  }
   print('📤 Seeding referrals...');
 
   final now = Timestamp.now();
@@ -879,4 +928,87 @@ Future<void> seedReferrals(
   await facilityBatch.commit();
   await sharedBatch.commit();
   print('  ✅ ${referrals.length} referrals seeded');
+}
+
+Future<void> seedIncomingReferral() async {
+  print('📨 Seeding incoming referral...');
+
+  final facilityId = FacilityInfo().facilityId;
+  final facilityName = FacilityInfo().facilityName;
+
+  // ✅ Simulates a referral FROM Mathare HC TO your facility
+  final referralId = uuid.v4();
+  final now = Timestamp.now();
+
+  // Pick a random patient from shared index
+  final patients = [
+    {
+      'nupi': 'KE-2024-100003',
+      'name': 'Cynthia Achieng Otieno',
+      'condition': 'Severe anaemia — Hb 6.2 g/dL. Requires transfusion and specialist review.',
+      'priority': 'urgent',
+    },
+    {
+      'nupi': 'KE-2024-100008',
+      'name': 'Hassan Ali Mohamed',
+      'condition': 'Sickle cell crisis. Severe pain, dehydrated. Requires IV fluids and haematology review.',
+      'priority': 'emergency',
+    },
+    {
+      'nupi': 'KE-2024-100009',
+      'name': 'Irene Chebet Koech',
+      'condition': 'Breakthrough seizures on Phenobarbitone. Requires neurology review and medication adjustment.',
+      'priority': 'urgent',
+    },
+  ];
+
+  // Rotate through patients based on time
+  final patient =
+      patients[DateTime.now().second % patients.length];
+
+  final referral = {
+    'id': referralId,
+    'patient_nupi': patient['nupi'],
+    'patient_name': patient['name'],
+    'from_facility_id': 'facility_mathare_006',
+    'from_facility_name': 'Mathare North Health Centre',
+    'to_facility_id': facilityId,
+    'to_facility_name': facilityName,
+    'reason': patient['condition'],
+    'priority': patient['priority'],
+    'status': 'pending',
+    'clinical_notes':
+        'Patient stable for transfer. Vitals attached. Please review urgently upon arrival.',
+    'created_by': 'sim_clinician_001',
+    'created_by_name': 'Dr. Mercy Wanjiku',
+    'sync_status': 'synced',
+    'created_at': now,
+    'updated_at': now,
+  };
+
+  // ✅ Write to facility DB (incoming referrals live here)
+  final facilityBatch = _facilityDb.batch();
+  final facilityRef = _facilityDb
+      .collection('referrals')
+      .doc(referralId);
+  facilityBatch.set(facilityRef, referral);
+  await facilityBatch.commit();
+
+  // ✅ Write notification to shared index
+  final sharedBatch = _sharedDb.batch();
+  final sharedRef = _sharedDb
+      .collection('referral_notifications')
+      .doc(referralId);
+  sharedBatch.set(sharedRef, {
+    'id': referralId,
+    'to_facility_id': facilityId,
+    'from_facility_id': 'facility_mathare_006',
+    'patient_nupi': patient['nupi'],
+    'priority': patient['priority'],
+    'status': 'pending',
+    'created_at': now,
+  });
+  await sharedBatch.commit();
+
+  print('  ✅ Incoming referral seeded for ${patient['name']}');
 }

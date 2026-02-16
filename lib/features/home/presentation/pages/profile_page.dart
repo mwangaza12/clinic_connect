@@ -106,6 +106,7 @@ class ProfilePage extends StatelessWidget {
                       _buildSectionTitle(
                           'THESIS DEMO'),
                       _buildSeedButton(context),
+                      _buildIncomingReferralButton(context), // ✅ ADD
 
                       const SizedBox(height: 48),
                       _buildEnhancedLogout(context),
@@ -369,6 +370,164 @@ class ProfilePage extends StatelessWidget {
     );
   }
 
+  // ── Incoming Referral Simulator ────────
+Widget _buildIncomingReferralButton(
+    BuildContext context) {
+  return Container(
+    margin: const EdgeInsets.only(bottom: 12),
+    child: InkWell(
+      onTap: () => _simulateIncomingReferral(context),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+              color: Colors.orange.withOpacity(0.4)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.08),
+                borderRadius:
+                    BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.call_received_rounded,
+                size: 20,
+                color: Colors.orange,
+              ),
+            ),
+            const SizedBox(width: 16),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Simulate Incoming Referral',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.orange,
+                    ),
+                  ),
+                  Text(
+                    'From Mathare HC → your facility',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF94A3B8),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 14,
+              color: Colors.orange.withOpacity(0.5),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+Future<void> _simulateIncomingReferral(
+    BuildContext context) async {
+  final confirm = await showDialog<bool>(
+    context: context,
+    builder: (_) => AlertDialog(
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(28)),
+      title: const Text(
+        'Simulate Incoming Referral',
+        style: TextStyle(fontWeight: FontWeight.w900),
+      ),
+      content: const Text(
+        'This creates a pending referral from '
+        'Mathare North Health Centre to your '
+        'facility.\n\nIt will appear immediately '
+        'in your Referrals tab.\n\nContinue?',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () =>
+              Navigator.pop(context, false),
+          child: const Text('CANCEL',
+              style: TextStyle(
+                  fontWeight: FontWeight.w700)),
+        ),
+        ElevatedButton(
+          onPressed: () =>
+              Navigator.pop(context, true),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.orange,
+            foregroundColor: Colors.white,
+            shape: const StadiumBorder(),
+          ),
+          child: const Text('SIMULATE'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirm != true || !context.mounted) return;
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+          ),
+          SizedBox(width: 12),
+          Text('📨 Creating incoming referral...'),
+        ],
+      ),
+      duration: Duration(seconds: 10),
+    ),
+  );
+
+  try {
+    await seedIncomingReferral();
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '✅ Incoming referral created! '
+            'Check your Referrals tab.',
+          ),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+}
+
   // ── Seed Runner ────────────────────────
   Future<void> _runSeed(BuildContext context) async {
     final confirm = await showDialog<bool>(
@@ -430,6 +589,7 @@ class ProfilePage extends StatelessWidget {
       ),
     );
 
+    // In _runSeed() — update the try block
     try {
       await seedFacilities();
       final patients = await seedPatients();
@@ -437,12 +597,13 @@ class ProfilePage extends StatelessWidget {
       await seedReferrals(patients);
 
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .clearSnackBars();
+        ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-                '✅ Demo data seeded successfully!'),
+              '✅ Done! New data seeded or already '
+              'exists — no duplicates created.',
+            ),
             backgroundColor: Color(0xFF2D6A4F),
             duration: Duration(seconds: 4),
           ),
