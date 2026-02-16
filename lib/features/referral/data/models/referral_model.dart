@@ -56,7 +56,8 @@ class ReferralModel extends Referral {
   // ─────────────────────────────────────────
   // FROM NOTIFICATION (minimal data)
   // ─────────────────────────────────────────
-  factory ReferralModel.fromNotification(Map<String, dynamic> map) {
+  factory ReferralModel.fromNotification(
+      Map<String, dynamic> map) {
     return ReferralModel(
       id: map['referral_id'] ?? '',
       patientNupi: map['patient_nupi'] ?? '',
@@ -68,10 +69,14 @@ class ReferralModel extends Referral {
       reason: map['reason'] ?? '',
       priority: _priorityFromString(map['priority']),
       status: _statusFromString(map['status']),
-      createdAt: (map['created_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      updatedAt: (map['updated_at'] as Timestamp?)?.toDate(),
-      createdBy: map['created_by'] ?? '',
-      createdByName: map['created_by_name'] ?? '',
+      createdAt: (map['created_at'] as Timestamp?)
+              ?.toDate() ??
+          DateTime.now(),
+      updatedAt:
+          (map['updated_at'] as Timestamp?)?.toDate(),
+      createdBy: map['created_by'] ?? 'unknown',   // ✅ fallback
+      createdByName:
+          map['created_by_name'] ?? 'Unknown',     // ✅ fallback
     );
   }
 
@@ -107,7 +112,7 @@ class ReferralModel extends Referral {
   // ─────────────────────────────────────────
   Map<String, dynamic> toFirestore() {
     return {
-      'referral_id': id,
+      'id': id,
       'patient_nupi': patientNupi,
       'patient_name': patientName,
       'from_facility_id': fromFacilityId,
@@ -284,6 +289,12 @@ class ReferralModel extends Referral {
         return ReferralStatus.rejected;
       case 'completed':
         return ReferralStatus.completed;
+      case 'inTransit':         
+        return ReferralStatus.inTransit;
+      case 'arrived':           
+        return ReferralStatus.arrived;
+      case 'cancelled':         
+        return ReferralStatus.cancelled;
       default:
         return ReferralStatus.pending;
     }

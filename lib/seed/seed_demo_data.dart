@@ -936,37 +936,38 @@ Future<void> seedIncomingReferral() async {
   final facilityId = FacilityInfo().facilityId;
   final facilityName = FacilityInfo().facilityName;
 
-  // ✅ Simulates a referral FROM Mathare HC TO your facility
   final referralId = uuid.v4();
   final now = Timestamp.now();
 
-  // Pick a random patient from shared index
   final patients = [
     {
       'nupi': 'KE-2024-100003',
       'name': 'Cynthia Achieng Otieno',
-      'condition': 'Severe anaemia — Hb 6.2 g/dL. Requires transfusion and specialist review.',
+      'condition':
+          'Severe anaemia — Hb 6.2 g/dL. Requires transfusion and specialist review.',
       'priority': 'urgent',
     },
     {
       'nupi': 'KE-2024-100008',
       'name': 'Hassan Ali Mohamed',
-      'condition': 'Sickle cell crisis. Severe pain, dehydrated. Requires IV fluids and haematology review.',
+      'condition':
+          'Sickle cell crisis. Severe pain, dehydrated. Requires IV fluids and haematology review.',
       'priority': 'emergency',
     },
     {
       'nupi': 'KE-2024-100009',
       'name': 'Irene Chebet Koech',
-      'condition': 'Breakthrough seizures on Phenobarbitone. Requires neurology review and medication adjustment.',
+      'condition':
+          'Breakthrough seizures on Phenobarbitone. Requires neurology review.',
       'priority': 'urgent',
     },
   ];
 
-  // Rotate through patients based on time
   final patient =
       patients[DateTime.now().second % patients.length];
 
-  final referral = {
+  // ✅ Full referral data — used by both copies
+  final referralData = {
     'id': referralId,
     'patient_nupi': patient['nupi'],
     'patient_name': patient['name'],
@@ -986,29 +987,39 @@ Future<void> seedIncomingReferral() async {
     'updated_at': now,
   };
 
-  // ✅ Write to facility DB (incoming referrals live here)
-  final facilityBatch = _facilityDb.batch();
-  final facilityRef = _facilityDb
+  // ✅ 1. Write to facility DB so getReferral() finds it
+  await _facilityDb
       .collection('referrals')
-      .doc(referralId);
-  facilityBatch.set(facilityRef, referral);
-  await facilityBatch.commit();
+      .doc(referralId)
+      .set(referralData);
 
-  // ✅ Write notification to shared index
-  final sharedBatch = _sharedDb.batch();
-  final sharedRef = _sharedDb
+  // ✅ 2. Write to referral_copies in shared DB
+  // so getIncomingReferrals() finds the full data
+  await _sharedDb
+      .collection('referral_copies')
+      .doc(referralId)
+      .set(referralData);
+
+  // ✅ 3. Write notification to shared DB
+  // referral_id field must match what getIncomingReferrals() reads
+  await _sharedDb
       .collection('referral_notifications')
-      .doc(referralId);
-  sharedBatch.set(sharedRef, {
-    'id': referralId,
-    'to_facility_id': facilityId,
+      .doc(referralId)
+      .set({
+    'referral_id': referralId, // ✅ KEY — datasource reads this
     'from_facility_id': 'facility_mathare_006',
+    'from_facility_name': 'Mathare North Health Centre',
+    'to_facility_id': facilityId,
+    'to_facility_name': facilityName,
     'patient_nupi': patient['nupi'],
+    'patient_name': patient['name'],
     'priority': patient['priority'],
     'status': 'pending',
+    'reason': patient['condition'],
     'created_at': now,
+    'updated_at': now,
   });
-  await sharedBatch.commit();
 
-  print('  ✅ Incoming referral seeded for ${patient['name']}');
+  print(
+      '  ✅ Incoming referral seeded for ${patient['name']}');
 }
