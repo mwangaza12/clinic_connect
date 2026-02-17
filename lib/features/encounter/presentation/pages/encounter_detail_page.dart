@@ -124,22 +124,30 @@ class EncounterDetailPage extends StatelessWidget {
   Widget _buildVitalsCard(Vitals vitals) {
     final vitalItems = <Map<String, String>>[];
 
-    if (vitals.bpDisplay != null)
+    if (vitals.bpDisplay != null) {
       vitalItems.add({'label': 'Blood Pressure', 'value': vitals.bpDisplay!, 'unit': ''});
-    if (vitals.temperature != null)
+    }
+    if (vitals.temperature != null) {
       vitalItems.add({'label': 'Temperature', 'value': '${vitals.temperature}', 'unit': '°C'});
-    if (vitals.pulseRate != null)
+    }
+    if (vitals.pulseRate != null) {
       vitalItems.add({'label': 'Pulse', 'value': '${vitals.pulseRate}', 'unit': 'bpm'});
-    if (vitals.oxygenSaturation != null)
+    }
+    if (vitals.oxygenSaturation != null) {
       vitalItems.add({'label': 'O₂ Sat', 'value': '${vitals.oxygenSaturation}', 'unit': '%'});
-    if (vitals.weight != null)
+    }
+    if (vitals.weight != null) {
       vitalItems.add({'label': 'Weight', 'value': '${vitals.weight}', 'unit': 'kg'});
-    if (vitals.height != null)
+    }
+    if (vitals.height != null) {
       vitalItems.add({'label': 'Height', 'value': '${vitals.height}', 'unit': 'cm'});
-    if (vitals.bmi != null)
+    }
+    if (vitals.bmi != null) {
       vitalItems.add({'label': 'BMI', 'value': vitals.bmi!.toStringAsFixed(1), 'unit': ''});
-    if (vitals.bloodGlucose != null)
+    }
+    if (vitals.bloodGlucose != null) {
       vitalItems.add({'label': 'Glucose', 'value': '${vitals.bloodGlucose}', 'unit': 'mmol/L'});
+    }
 
     if (vitalItems.isEmpty) return const SizedBox();
 
