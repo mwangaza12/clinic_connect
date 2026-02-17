@@ -44,7 +44,7 @@ class PatientRemoteDatasourceImpl
           .doc(patient.nupi)
           .set({
         'nupi': patient.nupi,
-        'facility_id': patient.facilityId ?? facilityId,
+        'facility_id': patient.facilityId,
         'facility_name': facilityName,
         'facility_county': facilityCounty,
         'full_name': patient.fullName,

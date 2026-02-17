@@ -19,8 +19,6 @@ class PatientLookupDatasourceImpl
   // Summary fetched from the registering facility DB
   // (in real system this would be an API call)
   // For thesis demo: we use shared index summary
-  FirebaseFirestore get _facilityDb =>
-      FirebaseConfig.facilityDb;
 
   @override
   Future<PatientLookupResult?> lookupByNupi(

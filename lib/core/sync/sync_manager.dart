@@ -140,6 +140,7 @@ class SyncManager {
         return;
       }
 
+      // ignore: unused_local_variable
       int successCount = 0;
       int failCount = 0;
 
