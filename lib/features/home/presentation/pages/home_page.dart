@@ -8,6 +8,7 @@ import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../../patient/presentation/bloc/patient_bloc.dart';
 import '../../../patient/presentation/bloc/patient_event.dart';
+import '../../../patient/presentation/pages/nupi_lookup_page.dart';
 import '../../../patient/presentation/pages/patient_list_page.dart';
 import '../../../patient/presentation/pages/patient_registration_page.dart';
 import '../../../referral/presentation/pages/referrals_page.dart';
@@ -417,10 +418,22 @@ class _DashboardContent extends StatelessWidget {
             ),
             _actionRow(
               context,
-              Icons.search_rounded,
-              'Search Patient',
-              'Find by NUPI or Name',
+              Icons.manage_search_rounded,
+              'Search Local Patients',
+              'Find by Name or NUPI',
               () => onNavigate(1),
+            ),
+            _actionRow(
+              context,
+              Icons.travel_explore_rounded,
+              'Cross-Facility Lookup',
+              'Search Shared Patient Index',
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const NupiLookupPage(),
+                ),
+              ),
             ),
             const SizedBox(height: 32),
 
