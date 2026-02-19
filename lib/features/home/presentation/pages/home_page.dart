@@ -61,18 +61,13 @@ class _HomePageState extends State<HomePage> {
       body: BlocBuilder<AuthBloc, AuthState>(
         builder: (context, state) {
           if (state is Authenticated) {
-            // ✅ Provide DashboardBloc ONCE here
-            // not inside PageView children
             return BlocProvider.value(
               value: _dashboardBloc
-                ..add(LoadDashboardEvent(
-                    state.user.facilityId)),
+                ..add(LoadDashboardEvent(state.user.facilityId)),
               child: PageView(
                 controller: _pageController,
-                physics:
-                    const NeverScrollableScrollPhysics(),
-                onPageChanged: (index) => setState(
-                    () => _currentIndex = index),
+                physics: const NeverScrollableScrollPhysics(),
+                onPageChanged: (index) => setState(() => _currentIndex = index),
                 children: [
                   _DashboardTab(
                     state: state,
@@ -80,8 +75,8 @@ class _HomePageState extends State<HomePage> {
                     onNavigate: _navigateToTab,
                   ),
                   BlocProvider(
-                    create: (_) => sl<PatientBloc>()
-                      ..add(const LoadPatientsEvent()),
+                    create: (_) =>
+                        sl<PatientBloc>()..add(const LoadPatientsEvent()),
                     child: const PatientListView(),
                   ),
                   const _ReferralsTab(),
@@ -93,14 +88,13 @@ class _HomePageState extends State<HomePage> {
               ),
             );
           }
-          return const Center(
-              child:
-                  CircularProgressIndicator.adaptive());
+          return const Center(child: CircularProgressIndicator.adaptive());
         },
       ),
-      bottomNavigationBar: _buildAnimatedBottomNav(),
+      bottomNavigationBar: _buildModernBottomNav(),
     );
   }
+
   PreferredSizeWidget _buildAppBar(BuildContext context) {
     return AppBar(
       backgroundColor: Colors.white,
@@ -129,95 +123,126 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       actions: [
-        // ✅ Real sync status replaces hardcoded chip
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 12),
           child: SyncStatusWidget(),
         ),
         const SizedBox(width: 8),
+        // ✅ Notification bell instead of profile icon
         IconButton(
-          icon: CircleAvatar(
-            backgroundColor: primaryDark.withOpacity(0.1),
-            child: Icon(
-              Icons.person_outline,
-              color: primaryDark,
-              size: 20,
-            ),
+          icon: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              CircleAvatar(
+                backgroundColor: primaryDark.withOpacity(0.1),
+                child: Icon(
+                  Icons.notifications_outlined,
+                  color: primaryDark,
+                  size: 20,
+                ),
+              ),
+              Positioned(
+                right: -2,
+                top: -2,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 16,
+                    minHeight: 16,
+                  ),
+                  child: const Text(
+                    '3',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            ],
           ),
-          onPressed: () => _navigateToTab(3),
+          onPressed: () => _navigateToTab(2),
         ),
         const SizedBox(width: 12),
       ],
     );
   }
 
-  Widget _buildAnimatedBottomNav() {
+  // ✅ Modern floating bottom navigation
+  Widget _buildModernBottomNav() {
     return Container(
-      height: 85,
+      margin: const EdgeInsets.all(20),
+      height: 70,
       decoration: BoxDecoration(
         color: Colors.white,
+        borderRadius: BorderRadius.circular(35),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 20,
-            offset: const Offset(0, -5),
+            color: primaryDark.withOpacity(0.15),
+            blurRadius: 30,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _navItem(Icons.dashboard_rounded, 'Home', 0),
-          _navItem(Icons.groups_rounded, 'Patients', 1),
-          _navItem(
-            Icons.swap_horizontal_circle_rounded,
-            'Referrals',
-            2,
-          ),
-          _navItem(Icons.person_rounded, 'Profile', 3),
-        ],
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(35),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _modernNavItem(Icons.dashboard_rounded, 0),
+            _modernNavItem(Icons.people_rounded, 1),
+            _modernNavItem(Icons.swap_horiz_rounded, 2),
+            _modernNavItem(Icons.person_rounded, 3),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _navItem(IconData icon, String label, int index) {
+  Widget _modernNavItem(IconData icon, int index) {
     final bool isSelected = _currentIndex == index;
-    return GestureDetector(
-      onTap: () => _navigateToTab(index),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        padding: const EdgeInsets.symmetric(
-            horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? primaryDark.withOpacity(0.1)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isSelected
-                  ? primaryDark
-                  : Colors.grey[400],
-              size: 26,
-            ),
-            const SizedBox(height: 4),
-            AnimatedOpacity(
-              duration: const Duration(milliseconds: 300),
-              opacity: isSelected ? 1 : 0,
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: primaryDark,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => _navigateToTab(index),
+        child: Container(
+          color: Colors.transparent,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? primaryDark.withOpacity(0.1)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  icon,
+                  color: isSelected ? primaryDark : Colors.grey[400],
+                  size: isSelected ? 28 : 24,
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 4),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: isSelected ? 6 : 0,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: primaryDark,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -240,8 +265,6 @@ class _DashboardTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ No BlocProvider here anymore
-    // DashboardBloc is already provided above
     return _DashboardContent(
       state: state,
       primaryColor: primaryColor,
@@ -251,7 +274,7 @@ class _DashboardTab extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────
-// Dashboard Content — your original design
+// Dashboard Content
 // ─────────────────────────────────────────
 class _DashboardContent extends StatelessWidget {
   final Authenticated state;
@@ -269,14 +292,12 @@ class _DashboardContent extends StatelessWidget {
     return RefreshIndicator(
       color: primaryColor,
       onRefresh: () async {
-        context.read<DashboardBloc>().add(
-            RefreshDashboardEvent(
-                state.user.facilityId));
-        await Future.delayed(
-            const Duration(milliseconds: 800));
+        context
+            .read<DashboardBloc>()
+            .add(RefreshDashboardEvent(state.user.facilityId));
+        await Future.delayed(const Duration(milliseconds: 800));
       },
       child: SingleChildScrollView(
-        // ✅ AlwaysScrollable so RefreshIndicator works
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -290,12 +311,10 @@ class _DashboardContent extends StatelessWidget {
                 borderRadius: BorderRadius.circular(24),
               ),
               child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    state.user.facilityName
-                        .toUpperCase(),
+                    state.user.facilityName.toUpperCase(),
                     style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 10,
@@ -323,16 +342,11 @@ class _DashboardContent extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 24),
-
-                  // ✅ Real stats replacing hardcoded ones
-                  BlocBuilder<DashboardBloc,
-                      DashboardState>(
+                  BlocBuilder<DashboardBloc, DashboardState>(
                     builder: (context, dashState) {
                       if (dashState is DashboardLoaded) {
                         return Row(
-                          mainAxisAlignment:
-                              MainAxisAlignment
-                                  .spaceBetween,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             _miniStat(
                               '${dashState.stats.totalPatients}',
@@ -349,12 +363,8 @@ class _DashboardContent extends StatelessWidget {
                           ],
                         );
                       }
-                      // Loading state —
-                      // keep your original layout
                       return Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment
-                                .spaceBetween,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           _miniStat('...', 'Patients'),
                           _miniStat('...', 'Today'),
@@ -387,8 +397,7 @@ class _DashboardContent extends StatelessWidget {
               () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) =>
-                      const PatientRegistrationPage(),
+                  builder: (_) => const PatientRegistrationPage(),
                 ),
               ),
             ),
@@ -404,35 +413,30 @@ class _DashboardContent extends StatelessWidget {
               Icons.send_rounded,
               'Inter-facility Referral',
               'FHIR R4 Compliant Transfer',
-              () => onNavigate(2), // ✅ goes to referrals
+              () => onNavigate(2),
             ),
             _actionRow(
               context,
               Icons.search_rounded,
               'Search Patient',
               'Find by NUPI or Name',
-              () => onNavigate(1), // ✅ goes to patients
+              () => onNavigate(1),
             ),
             const SizedBox(height: 32),
 
             // ─── Today's Encounters ────────────────
             BlocBuilder<DashboardBloc, DashboardState>(
               builder: (context, dashState) {
-                // Only show if there are encounters
                 if (dashState is! DashboardLoaded ||
-                    dashState
-                        .todayEncounters.isEmpty) {
+                    dashState.todayEncounters.isEmpty) {
                   return const SizedBox();
                 }
 
                 return Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      mainAxisAlignment:
-                          MainAxisAlignment
-                              .spaceBetween,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text(
                           "Today's Encounters",
@@ -443,8 +447,7 @@ class _DashboardContent extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          DateFormat('dd MMM')
-                              .format(DateTime.now()),
+                          DateFormat('dd MMM').format(DateTime.now()),
                           style: const TextStyle(
                             fontSize: 12,
                             color: Color(0xFF94A3B8),
@@ -454,8 +457,7 @@ class _DashboardContent extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     ...dashState.todayEncounters
-                        .map((e) =>
-                            _buildEncounterCard(e)),
+                        .map((e) => _buildEncounterCard(e)),
                     const SizedBox(height: 16),
                   ],
                 );
@@ -486,21 +488,17 @@ class _DashboardContent extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 100),
+            const SizedBox(height: 120), // Extra padding for floating nav
           ],
         ),
       ),
     );
   }
 
-  // ✅ Today's encounter card
-  Widget _buildEncounterCard(
-      Map<String, dynamic> encounter) {
-    final date =
-        encounter['encounter_date'] is Timestamp
-            ? (encounter['encounter_date'] as Timestamp)
-                .toDate()
-            : DateTime.now();
+  Widget _buildEncounterCard(Map<String, dynamic> encounter) {
+    final date = encounter['encounter_date'] is Timestamp
+        ? (encounter['encounter_date'] as Timestamp).toDate()
+        : DateTime.now();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -508,8 +506,7 @@ class _DashboardContent extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border:
-            Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Row(
         children: [
@@ -528,12 +525,10 @@ class _DashboardContent extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  encounter['patient_name'] ??
-                      'Unknown',
+                  encounter['patient_name'] ?? 'Unknown',
                   style: const TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 14,
@@ -564,8 +559,6 @@ class _DashboardContent extends StatelessWidget {
       ),
     );
   }
-
-  // ── Your original helpers ──────────────────
 
   Widget _miniStat(String val, String label) {
     return Column(
@@ -602,8 +595,7 @@ class _DashboardContent extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border:
-            Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: ListTile(
         onTap: onTap,
@@ -640,13 +632,11 @@ class _DashboardContent extends StatelessWidget {
   Widget _chip(String label, Color color) {
     return Container(
       margin: const EdgeInsets.only(right: 8),
-      padding:
-          const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(20),
-        border:
-            Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Center(
         child: Text(
