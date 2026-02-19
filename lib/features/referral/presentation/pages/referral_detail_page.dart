@@ -20,6 +20,8 @@ class ReferralDetailPage extends StatelessWidget {
     final authState = context.read<AuthBloc>().state;
     final isReceivingFacility = authState is Authenticated &&
         authState.user.facilityId == referral.toFacilityId;
+    final isSendingFacility = authState is Authenticated &&
+        authState.user.facilityId == referral.fromFacilityId;
 
     return BlocListener<ReferralBloc, ReferralState>(
       listener: (context, state) {
@@ -30,7 +32,7 @@ class ReferralDetailPage extends StatelessWidget {
               backgroundColor: Color(0xFF2D6A4F),
             ),
           );
-          Navigator.pop(context);
+          Navigator.pop(context, true); // Return true to trigger reload
         } else if (state is ReferralError) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -56,8 +58,7 @@ class ReferralDetailPage extends StatelessWidget {
                     gradient: LinearGradient(
                       colors: [
                         _getPriorityColor(referral.priority),
-                        _getPriorityColor(referral.priority)
-                            .withOpacity(0.7),
+                        _getPriorityColor(referral.priority).withOpacity(0.7),
                       ],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
@@ -105,7 +106,6 @@ class ReferralDetailPage extends StatelessWidget {
               padding: const EdgeInsets.all(20),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
-
                   // Facility Route Card
                   _sectionCard(
                     title: 'Transfer Route',
@@ -164,6 +164,25 @@ class ReferralDetailPage extends StatelessWidget {
                             Icons.check_circle_rounded,
                             const Color(0xFF2D6A4F),
                           ),
+                        if (referral.status == ReferralStatus.inTransit ||
+                            referral.status == ReferralStatus.arrived ||
+                            referral.status == ReferralStatus.completed)
+                          _timelineItem(
+                            'Patient In Transit',
+                            DateFormat('dd MMM yyyy, HH:mm')
+                                .format(referral.updatedAt ?? DateTime.now()),
+                            Icons.local_shipping_rounded,
+                            const Color(0xFF0EA5E9),
+                          ),
+                        if (referral.status == ReferralStatus.arrived ||
+                            referral.status == ReferralStatus.completed)
+                          _timelineItem(
+                            'Patient Arrived',
+                            DateFormat('dd MMM yyyy, HH:mm')
+                                .format(referral.updatedAt ?? DateTime.now()),
+                            Icons.location_on_rounded,
+                            const Color(0xFF8B5CF6),
+                          ),
                         if (referral.completedAt != null)
                           _timelineItem(
                             'Completed',
@@ -187,7 +206,7 @@ class ReferralDetailPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
 
-                  // Referral Reason - FIXED: changed from referralReason to reason
+                  // Referral Reason
                   _sectionCard(
                     title: 'Referral Reason',
                     child: Text(
@@ -201,10 +220,10 @@ class ReferralDetailPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
 
-                  // Clinical Summary - FIXED: using clinicalNotes
+                  // Clinical Notes
                   if (referral.clinicalNotes != null) ...[
                     _sectionCard(
-                      title: 'Clinical Summary',
+                      title: 'Clinical Notes',
                       child: Text(
                         referral.clinicalNotes!,
                         style: const TextStyle(
@@ -217,35 +236,39 @@ class ReferralDetailPage extends StatelessWidget {
                     const SizedBox(height: 16),
                   ],
 
-                  // Additional Notes Section - extracting from clinicalNotes
-                  if (referral.clinicalNotes != null && 
-                      referral.clinicalNotes!.contains('Diagnoses:')) ...[
-                    _extractSectionFromNotes('Diagnoses', referral.clinicalNotes!),
-                    const SizedBox(height: 16),
-                  ],
-
-                  if (referral.clinicalNotes != null && 
-                      referral.clinicalNotes!.contains('Current Medications:')) ...[
-                    _extractSectionFromNotes('Current Medications', referral.clinicalNotes!),
-                    const SizedBox(height: 16),
-                  ],
-
-                  if (referral.clinicalNotes != null && 
-                      referral.clinicalNotes!.contains('Special Instructions:')) ...[
-                    _extractSectionFromNotes('Special Instructions', referral.clinicalNotes!),
-                    const SizedBox(height: 16),
-                  ],
-
                   // Feedback Notes
                   if (referral.feedbackNotes != null) ...[
                     _sectionCard(
                       title: 'Feedback Notes',
-                      child: Text(
-                        referral.feedbackNotes!,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF475569),
-                          height: 1.6,
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0F9FF),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: const Color(0xFF0EA5E9).withOpacity(0.3),
+                          ),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.feedback_outlined,
+                              color: Color(0xFF0EA5E9),
+                              size: 20,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                referral.feedbackNotes!,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Color(0xFF475569),
+                                  height: 1.6,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -258,13 +281,13 @@ class ReferralDetailPage extends StatelessWidget {
                     child: Row(
                       children: [
                         CircleAvatar(
-                          radius: 16,
+                          radius: 18,
                           backgroundColor: const Color(0xFF6366F1),
                           child: Text(
                             referral.createdByName[0].toUpperCase(),
                             style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 12,
+                              fontSize: 14,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -279,12 +302,13 @@ class ReferralDetailPage extends StatelessWidget {
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                   color: Color(0xFF0F172A),
+                                  fontSize: 14,
                                 ),
                               ),
                               Text(
-                                'ID: ${referral.createdBy}',
+                                referral.fromFacilityName,
                                 style: const TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: Color(0xFF94A3B8),
                                 ),
                               ),
@@ -299,8 +323,10 @@ class ReferralDetailPage extends StatelessWidget {
 
                   // Action Buttons
                   if (referral.status != ReferralStatus.completed &&
-                      referral.status != ReferralStatus.rejected)
-                    _buildActionButtons(context, isReceivingFacility),
+                      referral.status != ReferralStatus.rejected &&
+                      referral.status != ReferralStatus.cancelled)
+                    _buildActionButtons(
+                        context, isReceivingFacility, isSendingFacility),
 
                   const SizedBox(height: 40),
                 ]),
@@ -312,37 +338,11 @@ class ReferralDetailPage extends StatelessWidget {
     );
   }
 
-  // Helper to extract sections from clinicalNotes
-  Widget _extractSectionFromNotes(String sectionTitle, String notes) {
-    try {
-      final pattern = '$sectionTitle: (.*?)(?=\\n\\w|\\n\\n|\$)';
-      final regExp = RegExp(pattern, dotAll: true);
-      final match = regExp.firstMatch(notes);
-      
-      if (match != null) {
-        final content = match.group(1)?.trim() ?? '';
-        if (content.isNotEmpty) {
-          return _sectionCard(
-            title: sectionTitle,
-            child: Text(
-              content,
-              style: const TextStyle(
-                fontSize: 14,
-                color: Color(0xFF475569),
-                height: 1.6,
-              ),
-            ),
-          );
-        }
-      }
-      return const SizedBox.shrink();
-    } catch (e) {
-      return const SizedBox.shrink();
-    }
-  }
-
   Widget _buildActionButtons(
-      BuildContext context, bool isReceivingFacility) {
+    BuildContext context,
+    bool isReceivingFacility,
+    bool isSendingFacility,
+  ) {
     return BlocBuilder<ReferralBloc, ReferralState>(
       builder: (context, state) {
         final isLoading = state is ReferralLoading;
@@ -350,7 +350,7 @@ class ReferralDetailPage extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Receiving facility actions
+            // ✅ RECEIVING FACILITY: Accept pending referral
             if (isReceivingFacility &&
                 referral.status == ReferralStatus.pending)
               ElevatedButton.icon(
@@ -374,16 +374,12 @@ class ReferralDetailPage extends StatelessWidget {
                 ),
               ),
 
+            // ✅ RECEIVING FACILITY: Reject pending referral
             if (isReceivingFacility &&
-                referral.status == ReferralStatus.pending)
+                referral.status == ReferralStatus.pending) ...[
               const SizedBox(height: 12),
-
-            if (isReceivingFacility &&
-                referral.status == ReferralStatus.pending)
               OutlinedButton.icon(
-                onPressed: isLoading
-                    ? null
-                    : () => _showRejectDialog(context),
+                onPressed: isLoading ? null : () => _showRejectDialog(context),
                 icon: const Icon(Icons.cancel_outlined),
                 label: const Text('Reject Referral'),
                 style: OutlinedButton.styleFrom(
@@ -395,14 +391,68 @@ class ReferralDetailPage extends StatelessWidget {
                   ),
                 ),
               ),
+            ],
 
-            if (isReceivingFacility &&
+            // ✅ SENDING FACILITY: Mark as In Transit after acceptance
+            if (isSendingFacility &&
                 referral.status == ReferralStatus.accepted) ...[
-              const SizedBox(height: 12),
               ElevatedButton.icon(
                 onPressed: isLoading
                     ? null
-                    : () => _showCompleteDialog(context),
+                    : () => context.read<ReferralBloc>().add(
+                          UpdateReferralStatusEvent(
+                            referral.id,
+                            ReferralStatus.inTransit,
+                            feedbackNotes: 'Patient dispatched to facility',
+                          ),
+                        ),
+                icon: const Icon(Icons.local_shipping_rounded),
+                label: const Text('Mark as In Transit'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0EA5E9),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ],
+
+            // ✅ RECEIVING FACILITY: Confirm patient arrived
+            if (isReceivingFacility &&
+                referral.status == ReferralStatus.inTransit) ...[
+              ElevatedButton.icon(
+                onPressed: isLoading
+                    ? null
+                    : () => context.read<ReferralBloc>().add(
+                          UpdateReferralStatusEvent(
+                            referral.id,
+                            ReferralStatus.arrived,
+                            feedbackNotes: 'Patient arrived safely',
+                          ),
+                        ),
+                icon: const Icon(Icons.location_on_rounded),
+                label: const Text('Confirm Patient Arrived'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF8B5CF6),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ],
+
+            // ✅ RECEIVING FACILITY: Complete referral after arrival
+            if (isReceivingFacility &&
+                (referral.status == ReferralStatus.accepted ||
+                    referral.status == ReferralStatus.arrived)) ...[
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed:
+                    isLoading ? null : () => _showCompleteDialog(context),
                 icon: const Icon(Icons.task_alt_rounded),
                 label: const Text('Complete Referral'),
                 style: ElevatedButton.styleFrom(
@@ -416,19 +466,17 @@ class ReferralDetailPage extends StatelessWidget {
               ),
             ],
 
-            // Sending facility actions
-            if (!isReceivingFacility &&
+            // ✅ SENDING FACILITY: Cancel pending referral
+            if (isSendingFacility &&
                 referral.status == ReferralStatus.pending) ...[
               const SizedBox(height: 12),
               OutlinedButton.icon(
-                onPressed: isLoading
-                    ? null
-                    : () => _showCancelDialog(context),
+                onPressed: isLoading ? null : () => _showCancelDialog(context),
                 icon: const Icon(Icons.cancel_outlined),
                 label: const Text('Cancel Referral'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFFE11D48),
-                  side: const BorderSide(color: Color(0xFFE11D48)),
+                  foregroundColor: const Color(0xFF64748B),
+                  side: const BorderSide(color: Color(0xFF64748B)),
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
@@ -448,9 +496,7 @@ class ReferralDetailPage extends StatelessWidget {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Reject Referral'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -482,7 +528,7 @@ class ReferralDetailPage extends StatelessWidget {
                       referral.id,
                       ReferralStatus.rejected,
                       feedbackNotes: feedbackController.text.trim().isEmpty
-                          ? null
+                          ? 'Rejected by receiving facility'
                           : feedbackController.text.trim(),
                     ),
                   );
@@ -502,9 +548,7 @@ class ReferralDetailPage extends StatelessWidget {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Cancel Referral'),
         content: const Text('Are you sure you want to cancel this referral?'),
         actions: [
@@ -518,13 +562,13 @@ class ReferralDetailPage extends StatelessWidget {
               context.read<ReferralBloc>().add(
                     UpdateReferralStatusEvent(
                       referral.id,
-                      ReferralStatus.rejected,
-                      feedbackNotes: 'Cancelled by sender',
+                      ReferralStatus.cancelled,
+                      feedbackNotes: 'Cancelled by sending facility',
                     ),
                   );
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE11D48),
+              backgroundColor: const Color(0xFF64748B),
               foregroundColor: Colors.white,
             ),
             child: const Text('Yes, Cancel'),
@@ -540,9 +584,7 @@ class ReferralDetailPage extends StatelessWidget {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Complete Referral'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -574,7 +616,7 @@ class ReferralDetailPage extends StatelessWidget {
                       referral.id,
                       ReferralStatus.completed,
                       feedbackNotes: feedbackController.text.trim().isEmpty
-                          ? null
+                          ? 'Patient successfully treated'
                           : feedbackController.text.trim(),
                     ),
                   );
@@ -617,12 +659,7 @@ class ReferralDetailPage extends StatelessWidget {
     );
   }
 
-  Widget _facilityInfo(
-    String label,
-    String name,
-    IconData icon,
-    Color color,
-  ) {
+  Widget _facilityInfo(String label, String name, IconData icon, Color color) {
     return Column(
       children: [
         Container(
@@ -716,10 +753,10 @@ class ReferralDetailPage extends StatelessWidget {
   }
 
   Widget _priorityBadge(ReferralPriority priority) {
-    final priorityText = priority == ReferralPriority.normal 
-        ? 'ROUTINE' 
+    final priorityText = priority == ReferralPriority.normal
+        ? 'ROUTINE'
         : priority.name.toUpperCase();
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
