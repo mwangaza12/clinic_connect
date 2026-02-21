@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 class DiabetesEnrollmentForm extends StatefulWidget {
-  const DiabetesEnrollmentForm({super.key});
+  const DiabetesEnrollmentForm({super.key, required void Function(dynamic data) onDataChanged});
 
   @override
   State<DiabetesEnrollmentForm> createState() => _DiabetesEnrollmentFormState();
@@ -151,7 +151,7 @@ class _DiabetesEnrollmentFormState extends State<DiabetesEnrollmentForm> {
 
 // ==================== HYPERTENSION ====================
 class HypertensionEnrollmentForm extends StatefulWidget {
-  const HypertensionEnrollmentForm({super.key});
+  const HypertensionEnrollmentForm({super.key, required void Function(dynamic data) onDataChanged});
 
   @override
   State<HypertensionEnrollmentForm> createState() => _HypertensionEnrollmentFormState();
@@ -274,7 +274,7 @@ class _HypertensionEnrollmentFormState extends State<HypertensionEnrollmentForm>
 
 // ==================== MALARIA ====================
 class MalariaEnrollmentForm extends StatefulWidget {
-  const MalariaEnrollmentForm({super.key});
+  const MalariaEnrollmentForm({super.key, required void Function(dynamic data) onDataChanged});
 
   @override
   State<MalariaEnrollmentForm> createState() => _MalariaEnrollmentFormState();
@@ -385,7 +385,7 @@ class _MalariaEnrollmentFormState extends State<MalariaEnrollmentForm> {
 
 // ==================== TB ====================
 class TbEnrollmentForm extends StatefulWidget {
-  const TbEnrollmentForm({super.key});
+  const TbEnrollmentForm({super.key, required void Function(dynamic data) onDataChanged});
 
   @override
   State<TbEnrollmentForm> createState() => _TbEnrollmentFormState();
@@ -506,7 +506,7 @@ class _TbEnrollmentFormState extends State<TbEnrollmentForm> {
 
 // ==================== MCH ====================
 class MchEnrollmentForm extends StatefulWidget {
-  const MchEnrollmentForm({super.key});
+  const MchEnrollmentForm({super.key, required void Function(dynamic data) onDataChanged});
 
   @override
   State<MchEnrollmentForm> createState() => _MchEnrollmentFormState();

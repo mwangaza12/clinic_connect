@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 class HivEnrollmentForm extends StatefulWidget {
-  const HivEnrollmentForm({super.key});
+  const HivEnrollmentForm({super.key, required void Function(dynamic data) onDataChanged});
 
   @override
   State<HivEnrollmentForm> createState() => _HivEnrollmentFormState();
