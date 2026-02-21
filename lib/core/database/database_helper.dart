@@ -19,7 +19,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 4, // ✅ Increment version for new tables                  
+      version: 1, // ✅ Increment version for new tables                  
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
