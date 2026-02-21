@@ -1,5 +1,3 @@
-// lib/features/disease_program/presentation/pages/enroll_patient_page.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
@@ -7,12 +5,8 @@ import '../../domain/entities/disease_program.dart';
 import '../bloc/program_bloc.dart';
 import '../bloc/program_event.dart';
 import '../bloc/program_state.dart';
-import '../widgets/hiv_enrollment_form.dart';
 import '../widgets/diabetes_enrollment_form.dart';
-import '../widgets/hypertension_enrollment_form.dart';
-import '../widgets/malaria_enrollment_form.dart';
-import '../widgets/tb_enrollment_form.dart';
-import '../widgets/mch_enrollment_form.dart';
+import '../widgets/hiv_enrollment_form.dart';
 
 class EnrollPatientPage extends StatefulWidget {
   final String patientNupi;

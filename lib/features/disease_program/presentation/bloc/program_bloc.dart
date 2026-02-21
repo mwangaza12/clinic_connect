@@ -30,7 +30,7 @@ class ProgramBloc extends Bloc<ProgramEvent, ProgramState> {
   ) async {
     emit(ProgramLoading());
 
-    final result = await enrollPatient(event.enrollment);
+    final result = await enrollPatient(event.enrollment as EnrollPatientParams);
 
     result.fold(
       (failure) => emit(const ProgramError('Failed to enroll patient')),
@@ -44,7 +44,7 @@ class ProgramBloc extends Bloc<ProgramEvent, ProgramState> {
   ) async {
     emit(ProgramLoading());
 
-    final result = await getFacilityEnrollments(event.facilityId);
+    final result = await getFacilityEnrollments(event.facilityId as GetFacilityEnrollmentsParams);
 
     result.fold(
       (failure) => emit(const ProgramError('Failed to load enrollments')),
@@ -76,7 +76,7 @@ class ProgramBloc extends Bloc<ProgramEvent, ProgramState> {
 
     result.fold(
       (failure) => emit(const ProgramError('Failed to load statistics')),
-      (stats) => emit(ProgramStatsLoaded(stats)),
+      (stats) => emit(ProgramStatsLoaded(stats as Map<String, int>)),
     );
   }
 
