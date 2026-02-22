@@ -10,10 +10,12 @@ import '../bloc/program_state.dart';
 
 class ProgramDashboardPage extends StatefulWidget {
   final String facilityId;
+  final DiseaseProgram? initialFilter; // Optional initial filter
 
   const ProgramDashboardPage({
     super.key,
     required this.facilityId,
+    this.initialFilter, // Optional
   });
 
   @override
@@ -26,6 +28,7 @@ class _ProgramDashboardPageState extends State<ProgramDashboardPage> {
   @override
   void initState() {
     super.initState();
+    _selectedFilter = widget.initialFilter; // Set initial filter if provided
     context.read<ProgramBloc>().add(LoadFacilityEnrollments(widget.facilityId));
   }
 

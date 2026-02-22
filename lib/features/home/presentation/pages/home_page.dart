@@ -12,6 +12,8 @@ import '../../../patient/presentation/pages/nupi_lookup_page.dart';
 import '../../../patient/presentation/pages/patient_list_page.dart';
 import '../../../patient/presentation/pages/patient_registration_page.dart';
 import '../../../referral/presentation/pages/referrals_page.dart';
+import '../../../disease_program/presentation/bloc/program_bloc.dart';
+import '../../../disease_program/presentation/pages/program_dashboard_page.dart';
 import '../bloc/dashboard_bloc.dart';
 import '../bloc/dashboard_event.dart';
 import '../bloc/dashboard_state.dart';
@@ -129,7 +131,6 @@ class _HomePageState extends State<HomePage> {
           child: SyncStatusWidget(),
         ),
         const SizedBox(width: 8),
-        // ✅ Notification bell instead of profile icon
         IconButton(
           icon: Stack(
             clipBehavior: Clip.none,
@@ -175,7 +176,6 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // ✅ Modern floating bottom navigation
   Widget _buildModernBottomNav() {
     return Container(
       margin: const EdgeInsets.all(20),
@@ -477,14 +477,39 @@ class _DashboardContent extends StatelessWidget {
               },
             ),
 
-            // ─── Programs ──────────────────────────
-            const Text(
-              'Disease Programs',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w900,
-                color: Color(0xFF0F172A),
-              ),
+            // ─── Disease Programs (NOW CLICKABLE) ──────────────────────────
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Disease Programs',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => BlocProvider(
+                          create: (_) => sl<ProgramBloc>(),
+                          child: ProgramDashboardPage(
+                            facilityId: state.user.facilityId,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.arrow_forward_ios, size: 14),
+                  label: const Text('View All'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: primaryColor,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             SizedBox(
@@ -492,12 +517,84 @@ class _DashboardContent extends StatelessWidget {
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
-                  _chip('HIV/ART', Colors.red),
-                  _chip('NCD/Diabetes', Colors.blue),
-                  _chip('Hypertension', Colors.orange),
-                  _chip('Malaria', Colors.green),
-                  _chip('TB', Colors.purple),
-                  _chip('MCH', Colors.pink),
+                  _chip('HIV/ART', Colors.red, () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => BlocProvider(
+                          create: (_) => sl<ProgramBloc>(),
+                          child: ProgramDashboardPage(
+                            facilityId: state.user.facilityId,
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                  _chip('NCD/Diabetes', Colors.blue, () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => BlocProvider(
+                          create: (_) => sl<ProgramBloc>(),
+                          child: ProgramDashboardPage(
+                            facilityId: state.user.facilityId,
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                  _chip('Hypertension', Colors.orange, () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => BlocProvider(
+                          create: (_) => sl<ProgramBloc>(),
+                          child: ProgramDashboardPage(
+                            facilityId: state.user.facilityId,
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                  _chip('Malaria', Colors.green, () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => BlocProvider(
+                          create: (_) => sl<ProgramBloc>(),
+                          child: ProgramDashboardPage(
+                            facilityId: state.user.facilityId,
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                  _chip('TB', Colors.purple, () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => BlocProvider(
+                          create: (_) => sl<ProgramBloc>(),
+                          child: ProgramDashboardPage(
+                            facilityId: state.user.facilityId,
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                  _chip('MCH', Colors.pink, () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => BlocProvider(
+                          create: (_) => sl<ProgramBloc>(),
+                          child: ProgramDashboardPage(
+                            facilityId: state.user.facilityId,
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
                 ],
               ),
             ),
@@ -642,22 +739,25 @@ class _DashboardContent extends StatelessWidget {
     );
   }
 
-  Widget _chip(String label, Color color) {
-    return Container(
-      margin: const EdgeInsets.only(right: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Center(
-        child: Text(
-          label,
-          style: TextStyle(
-            color: color,
-            fontWeight: FontWeight.bold,
-            fontSize: 12,
+  Widget _chip(String label, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+            ),
           ),
         ),
       ),
