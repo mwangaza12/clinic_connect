@@ -54,6 +54,15 @@ import 'features/encounter/domain/usecases/create_encounter.dart';
 import 'features/encounter/domain/usecases/get_patient_encounters.dart';
 import 'features/encounter/presentation/bloc/encounter_bloc.dart';
 
+// ✅ Disease Program imports
+import 'features/disease_program/data/datasources/program_local_datasource.dart';
+import 'features/disease_program/data/datasources/program_remote_datasource.dart';
+import 'features/disease_program/data/repositories/program_repository_impl.dart';
+import 'features/disease_program/domain/repositories/program_repository.dart';
+import 'features/disease_program/domain/usecases/enroll_patient.dart';
+import 'features/disease_program/domain/usecases/get_facility_enrollments.dart';
+import 'features/disease_program/presentation/bloc/program_bloc.dart';
+
 final sl = GetIt.instance;
 
 Future<void> init() async {
@@ -135,6 +144,15 @@ Future<void> init() async {
     () => PatientLookupDatasourceImpl(),
   );
 
+  // ✅ Disease Program Data Sources
+  sl.registerLazySingleton<ProgramLocalDatasource>(
+    () => ProgramLocalDatasourceImpl(databaseHelper: sl()),
+  );
+
+  sl.registerLazySingleton<ProgramRemoteDatasource>(
+    () => ProgramRemoteDatasourceImpl(firestore: sl()),
+  );
+
   // ==================
   // REPOSITORIES
   // ==================
@@ -170,6 +188,15 @@ Future<void> init() async {
     ),
   );
 
+  // ✅ Disease Program Repository
+  sl.registerLazySingleton<ProgramRepository>(
+    () => ProgramRepositoryImpl(
+      localDatasource: sl(),
+      remoteDatasource: sl(),
+      networkInfo: sl(),
+    ),
+  );
+
   // ==================
   // USE CASES
   // ==================
@@ -200,6 +227,10 @@ Future<void> init() async {
       () => CreateEncounter(sl()));
   sl.registerLazySingleton(
       () => GetPatientEncounters(sl()));
+
+  // ✅ Disease Program Use Cases
+  sl.registerLazySingleton(() => EnrollPatient(sl()));
+  sl.registerLazySingleton(() => GetFacilityEnrollments(sl()));
 
   // ==================
   // SERVICES
@@ -256,6 +287,15 @@ Future<void> init() async {
       getFacilitiesByCounty: sl(),
       getFacility: sl(),
       getAllFacilities: sl(),
+    ),
+  );
+
+  // ✅ Disease Program BLoC
+  sl.registerFactory(
+    () => ProgramBloc(
+      enrollPatient: sl(),
+      getFacilityEnrollments: sl(),
+      repository: sl(),
     ),
   );
 }
