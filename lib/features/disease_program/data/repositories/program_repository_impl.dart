@@ -6,6 +6,20 @@ import '../../domain/repositories/program_repository.dart';
 import '../datasources/program_local_datasource.dart';
 import '../datasources/program_remote_datasource.dart';
 import '../models/program_enrollment_model.dart';
+import '../../domain/entities/program_statistics.dart';
+
+// Simple ProgramStatistics class if not defined elsewhere
+class ProgramStatistics {
+  final int totalEnrollments;
+  final int activeEnrollments;
+  final Map<String, int> enrollmentsByProgram;
+
+  ProgramStatistics({
+    required this.totalEnrollments,
+    required this.activeEnrollments,
+    required this.enrollmentsByProgram,
+  });
+}
 
 class ProgramRepositoryImpl implements ProgramRepository {
   final ProgramLocalDatasource localDatasource;
@@ -19,7 +33,7 @@ class ProgramRepositoryImpl implements ProgramRepository {
   });
 
   @override
-  Future<Either<Failure, void>> enrollPatient(ProgramEnrollment enrollment) async {
+  Future<Either<Failure, ProgramEnrollment>> enrollPatient(ProgramEnrollment enrollment) async {
     try {
       final model = ProgramEnrollmentModel.fromEntity(enrollment);
       
@@ -36,9 +50,9 @@ class ProgramRepositoryImpl implements ProgramRepository {
         }
       }
       
-      return const Right(null);
+      return Right(enrollment);
     } catch (e) {
-      return Left(CacheFailure());
+      return Left(CacheFailure('Failed to enroll patient: ${e.toString()}'));
     }
   }
 
@@ -48,7 +62,7 @@ class ProgramRepositoryImpl implements ProgramRepository {
       final enrollments = await localDatasource.getPatientEnrollments(patientNupi);
       return Right(enrollments);
     } catch (e) {
-      return Left(CacheFailure());
+      return Left(CacheFailure('Failed to get patient enrollments: ${e.toString()}'));
     }
   }
 
@@ -59,17 +73,26 @@ class ProgramRepositoryImpl implements ProgramRepository {
       final enrollments = await localDatasource.getFacilityEnrollments(facilityId);
       return Right(enrollments);
     } catch (e) {
-      return Left(CacheFailure());
+      return Left(CacheFailure('Failed to get facility enrollments: ${e.toString()}'));
     }
   }
 
   @override
-  Future<Either<Failure, Map<String, int>>> getProgramStats(String facilityId) async {
+  Future<Either<Failure, ProgramStatistics>> getProgramStats(String facilityId) async {
     try {
       final stats = await localDatasource.getProgramStats(facilityId);
-      return Right(stats);
+      
+      // Convert Map<String, int> to ProgramStatistics
+      // Assuming ProgramStatistics is a class - adjust as needed
+      final programStats = ProgramStatistics(
+        totalEnrollments: stats.values.fold(0, (sum, count) => sum + count),
+        activeEnrollments: stats.values.fold(0, (sum, count) => sum + count),
+        enrollmentsByProgram: stats,
+      );
+      
+      return Right(programStats);
     } catch (e) {
-      return Left(CacheFailure());
+      return Left(CacheFailure('Failed to get program stats: ${e.toString()}'));
     }
   }
 
@@ -83,17 +106,15 @@ class ProgramRepositoryImpl implements ProgramRepository {
       await localDatasource.updateEnrollmentStatus(enrollmentId, status.name, notes);
       return const Right(null);
     } catch (e) {
-      return Left(CacheFailure());
+      return Left(CacheFailure('Failed to update enrollment status: ${e.toString()}'));
     }
   }
 
   // ✅ Additional methods that might be in your interface
   
   @override
-  Future<Either<Failure, ProgramEnrollment?>> getEnrollmentById(String enrollmentId) async {
+  Future<Either<Failure, ProgramEnrollment>> getEnrollmentById(String enrollmentId) async {
     try {
-      // You'll need to add this method to your datasource
-      // For now, return a simple implementation
       final allEnrollments = await localDatasource.getFacilityEnrollments('');
       final enrollment = allEnrollments.firstWhere(
         (e) => e.id == enrollmentId,
@@ -101,7 +122,7 @@ class ProgramRepositoryImpl implements ProgramRepository {
       );
       return Right(enrollment);
     } catch (e) {
-      return Left(CacheFailure());
+      return Left(CacheFailure('Failed to get enrollment by ID: ${e.toString()}'));
     }
   }
 
@@ -112,7 +133,7 @@ class ProgramRepositoryImpl implements ProgramRepository {
       final count = stats[program.name] ?? 0;
       return Right(count);
     } catch (e) {
-      return Left(CacheFailure());
+      return Left(CacheFailure('Failed to get active enrollments count: ${e.toString()}'));
     }
   }
 
@@ -134,12 +155,12 @@ class ProgramRepositoryImpl implements ProgramRepository {
       final rate = (completedCount / programEnrollments.length) * 100;
       return Right(rate);
     } catch (e) {
-      return Left(CacheFailure());
+      return Left(CacheFailure('Failed to calculate completion rate: ${e.toString()}'));
     }
   }
 
   @override
-  Future<Either<Failure, Map<String, dynamic>>> generateEnrollmentReport(
+  Future<Either<Failure, String>> generateEnrollmentReport(
     String facilityId,
     DateTime startDate,
     DateTime endDate,
@@ -177,13 +198,13 @@ class ProgramRepositoryImpl implements ProgramRepository {
         };
       }
       
-      return Right(report);
+      // Return as JSON string
+      return Right(report.toString());
     } catch (e) {
-      return Left(CacheFailure());
+      return Left(CacheFailure('Failed to generate report: ${e.toString()}'));
     }
   }
 
-  @override
   Future<Either<Failure, List<ProgramEnrollment>>> getEnrollmentsByProgram(
     String facilityId,
     DiseaseProgram program,
@@ -193,11 +214,10 @@ class ProgramRepositoryImpl implements ProgramRepository {
       final filtered = allEnrollments.where((e) => e.program == program).toList();
       return Right(filtered);
     } catch (e) {
-      return Left(CacheFailure());
+      return Left(CacheFailure('Failed to get enrollments by program: ${e.toString()}'));
     }
   }
 
-  @override
   Future<Either<Failure, List<ProgramEnrollment>>> getEnrollmentsByStatus(
     String facilityId,
     ProgramEnrollmentStatus status,
@@ -207,18 +227,96 @@ class ProgramRepositoryImpl implements ProgramRepository {
       final filtered = allEnrollments.where((e) => e.status == status).toList();
       return Right(filtered);
     } catch (e) {
-      return Left(CacheFailure());
+      return Left(CacheFailure('Failed to get enrollments by status: ${e.toString()}'));
     }
   }
 
-  @override
   Future<Either<Failure, void>> deleteEnrollment(String enrollmentId) async {
     try {
       // You'll need to add this to your datasource
       // For now, return success
       return const Right(null);
     } catch (e) {
-      return Left(CacheFailure());
+      return Left(CacheFailure('Failed to delete enrollment: ${e.toString()}'));
+    }
+  }
+
+  @override
+  Future<Either<Failure, List<ProgramEnrollment>>> getPatientEnrollmentHistory(
+    String patientNupi,
+  ) async {
+    try {
+      // Get all enrollments for patient including completed/closed ones
+      final enrollments = await localDatasource.getPatientEnrollments(patientNupi);
+      return Right(enrollments);
+    } catch (e) {
+      return Left(CacheFailure('Failed to get enrollment history: ${e.toString()}'));
+    }
+  }
+
+  @override
+  Future<Either<Failure, bool>> isPatientEnrolled(
+    String patientNupi,
+    DiseaseProgram program,
+  ) async {
+    try {
+      final enrollments = await localDatasource.getPatientEnrollments(patientNupi);
+      final isEnrolled = enrollments.any((e) => 
+        e.program == program && e.status == ProgramEnrollmentStatus.active
+      );
+      return Right(isEnrolled);
+    } catch (e) {
+      return Left(CacheFailure('Failed to check enrollment status: ${e.toString()}'));
+    }
+  }
+
+  @override
+  Future<Either<Failure, List<ProgramEnrollment>>> searchEnrollments({
+    String? facilityId,
+    String? searchTerm,
+    DiseaseProgram? program,
+    ProgramEnrollmentStatus? status,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    try {
+      // Get all enrollments for the facility
+      final allEnrollments = facilityId != null
+          ? await localDatasource.getFacilityEnrollments(facilityId)
+          : <ProgramEnrollment>[];
+      
+      // Apply filters
+      var filtered = allEnrollments;
+      
+      // Filter by search term (patient name or NUPI)
+      if (searchTerm != null && searchTerm.isNotEmpty) {
+        filtered = filtered.where((e) =>
+          e.patientName.toLowerCase().contains(searchTerm.toLowerCase()) ||
+          e.patientNupi.toLowerCase().contains(searchTerm.toLowerCase())
+        ).toList();
+      }
+      
+      // Filter by program
+      if (program != null) {
+        filtered = filtered.where((e) => e.program == program).toList();
+      }
+      
+      // Filter by status
+      if (status != null) {
+        filtered = filtered.where((e) => e.status == status).toList();
+      }
+      
+      // Filter by date range
+      if (startDate != null) {
+        filtered = filtered.where((e) => e.enrollmentDate.isAfter(startDate)).toList();
+      }
+      if (endDate != null) {
+        filtered = filtered.where((e) => e.enrollmentDate.isBefore(endDate)).toList();
+      }
+      
+      return Right(filtered);
+    } catch (e) {
+      return Left(CacheFailure('Failed to search enrollments: ${e.toString()}'));
     }
   }
 }
