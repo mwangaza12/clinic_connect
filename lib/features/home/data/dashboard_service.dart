@@ -9,6 +9,7 @@ class DashboardStats {
   final int syncedRecords;
   final int pendingSync;
 
+  // generative constructor with named parameters
   const DashboardStats({
     required this.totalPatients,
     required this.todayVisits,
@@ -18,6 +19,7 @@ class DashboardStats {
     required this.pendingSync,
   });
 
+  // factory constructor for empty stats
   factory DashboardStats.empty() => const DashboardStats(
         totalPatients: 0,
         todayVisits: 0,
@@ -55,7 +57,7 @@ class DashboardService {
 
   Future<int> _getTotalPatients(String facilityId) async {
     try {
-      // ✅ Try with facility_id first
+      // gets patients based on the facilityId
       final snap = await _db
           .collection('patients')
           .where('facility_id', isEqualTo: facilityId)
@@ -64,7 +66,6 @@ class DashboardService {
       final count = snap.count ?? 0;
 
       // ✅ Fallback: if 0, count ALL patients in DB
-      // (covers demo seed data with different facility_id)
       if (count == 0) {
         final all = await _db
             .collection('patients')
@@ -86,6 +87,7 @@ class DashboardService {
       final endOfDay =
           startOfDay.add(const Duration(days: 1));
 
+      // get visits using the encounters collection
       final snap = await _db
           .collection('encounters')
           .where('facility_id', isEqualTo: facilityId)
@@ -125,13 +127,12 @@ class DashboardService {
     }
   }
 
-  Future<int> _getPendingReferrals(
-      String facilityId) async {
+  Future<int> _getPendingReferrals(String facilityId) async {
     try {
+      // get pending referrals based on the facilityId
       final snap = await _db
           .collection('referrals')
-          .where('from_facility_id',
-              isEqualTo: facilityId)
+          .where('from_facility_id', isEqualTo: facilityId)
           .where('status', isEqualTo: 'pending')
           .count()
           .get();
@@ -152,9 +153,9 @@ class DashboardService {
     }
   }
 
-  Future<int> _getTotalReferrals(
-      String facilityId) async {
+  Future<int> _getTotalReferrals(String facilityId) async {
     try {
+      // get total referrals based on the facilityId
       final snap = await _db
           .collection('referrals')
           .where('from_facility_id',
@@ -177,8 +178,7 @@ class DashboardService {
     }
   }
 
-  Stream<List<Map<String, dynamic>>> getTodayEncounters(
-      String facilityId) {
+  Stream<List<Map<String, dynamic>>> getTodayEncounters(String facilityId) {
     final now = DateTime.now();
     final startOfDay =
         DateTime(now.year, now.month, now.day);
