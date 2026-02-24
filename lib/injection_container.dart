@@ -26,6 +26,7 @@ import 'features/patient/data/datasources/patient_local_datasource.dart';
 import 'features/patient/data/datasources/patient_remote_datasource.dart';
 import 'features/patient/data/repositories/patient_repository_impl.dart';
 import 'features/patient/domain/repositories/patient_repository.dart';
+import 'features/patient/domain/usecases/get_all_patients_by_facility.dart';
 import 'features/patient/domain/usecases/register_patient.dart';
 import 'features/patient/domain/usecases/search_patient.dart';
 import 'features/patient/presentation/bloc/lookup_bloc.dart';
@@ -71,11 +72,9 @@ Future<void> init() async {
   // ==================
   sl.registerLazySingleton(() => FirebaseAuth.instance);
   sl.registerLazySingleton(() => FirebaseFirestore.instance);
-  sl.registerLazySingleton(
-      () => const FlutterSecureStorage());
+  sl.registerLazySingleton(() => const FlutterSecureStorage());
   sl.registerLazySingleton(() => DatabaseHelper());
-  sl.registerLazySingleton(
-      () => InternetConnectionChecker());
+  sl.registerLazySingleton(() => InternetConnectionChecker());
 
   // ==================
   // CORE
@@ -106,15 +105,9 @@ Future<void> init() async {
     ),
   );
 
-  // ✅ Patient remote — uses FacilityInfo singleton
-  // registered as factory so it reads fresh values
-  // every time it's needed after login
-  sl.registerFactory<PatientRemoteDatasource>(
-    () => PatientRemoteDatasourceImpl(
-      facilityId: FacilityInfo().facilityId,
-      facilityName: FacilityInfo().facilityName,
-      facilityCounty: FacilityInfo().facilityCounty,
-    ),
+  // ✅ FIXED: Patient remote datasource - now uses getters for facility info
+  sl.registerLazySingleton<PatientRemoteDatasource>(
+    () => PatientRemoteDatasourceImpl(), // No parameters needed
   );
 
   sl.registerLazySingleton<PatientLocalDatasource>(
@@ -206,27 +199,20 @@ Future<void> init() async {
   sl.registerLazySingleton(() => RegisterPatient(sl()));
   sl.registerLazySingleton(() => SearchPatient(sl()));
   sl.registerLazySingleton(() => GetAllPatients(sl()));
+  sl.registerLazySingleton(() => GetAllPatientsByFacility(sl()));
 
   sl.registerLazySingleton(() => CreateReferral(sl()));
-  sl.registerLazySingleton(
-      () => GetOutgoingReferrals(sl()));
-  sl.registerLazySingleton(
-      () => GetIncomingReferrals(sl()));
-  sl.registerLazySingleton(
-      () => UpdateReferralStatus(sl()));
+  sl.registerLazySingleton(() => GetOutgoingReferrals(sl()));
+  sl.registerLazySingleton(() => GetIncomingReferrals(sl()));
+  sl.registerLazySingleton(() => UpdateReferralStatus(sl()));
 
-  sl.registerLazySingleton(
-      () => SearchFacilities(sl()));
-  sl.registerLazySingleton(
-      () => GetFacilitiesByCounty(sl()));
+  sl.registerLazySingleton(() => SearchFacilities(sl()));
+  sl.registerLazySingleton(() => GetFacilitiesByCounty(sl()));
   sl.registerLazySingleton(() => GetFacility(sl()));
-  sl.registerLazySingleton(
-      () => GetAllFacilities(sl()));
+  sl.registerLazySingleton(() => GetAllFacilities(sl()));
 
-  sl.registerLazySingleton(
-      () => CreateEncounter(sl()));
-  sl.registerLazySingleton(
-      () => GetPatientEncounters(sl()));
+  sl.registerLazySingleton(() => CreateEncounter(sl()));
+  sl.registerLazySingleton(() => GetPatientEncounters(sl()));
 
   // ✅ Disease Program Use Cases
   sl.registerLazySingleton(() => EnrollPatient(sl()));
@@ -252,6 +238,7 @@ Future<void> init() async {
       registerPatientUsecase: sl(),
       searchPatientUsecase: sl(),
       getAllPatientsUsecase: sl(),
+      getAllPatientsByFacilityUsecase: sl(),
     ),
   );
 
@@ -264,7 +251,6 @@ Future<void> init() async {
     ),
   );
 
-  // ✅ EncounterBloc — explicit type on registerFactory
   sl.registerFactory<EncounterBloc>(
     () => EncounterBloc(
       createEncounterUsecase: sl(),
@@ -290,7 +276,6 @@ Future<void> init() async {
     ),
   );
 
-  // ✅ Disease Program BLoC
   sl.registerFactory(
     () => ProgramBloc(
       enrollPatient: sl(),

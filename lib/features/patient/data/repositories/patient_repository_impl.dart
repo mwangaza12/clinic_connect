@@ -1,4 +1,5 @@
 import 'package:dartz/dartz.dart';
+import '../../../../core/config/facility_info.dart';
 import '../../../../core/errors/exceptions.dart';
 import '../../../../core/errors/failures.dart';
 import '../../domain/entities/patient.dart';
@@ -57,7 +58,7 @@ class PatientRepositoryImpl implements PatientRepository {
 
       // If not in local, get from remote
       final patient = await remoteDatasource.getPatient(patientId);
-      
+
       // Cache locally for future use
       await localDatasource.savePatient(patient);
       await localDatasource.updateSyncStatus(patient.id, 'synced');
@@ -84,29 +85,30 @@ class PatientRepositoryImpl implements PatientRepository {
       // Try remote search first
       try {
         final patients = await remoteDatasource.searchPatients(query);
-        
+
         // Update local cache with results
         for (final patient in patients) {
           await localDatasource.savePatient(patient);
           await localDatasource.updateSyncStatus(patient.id, 'synced');
         }
-        
+
         return Right(patients);
       } on ServerException {
         // If remote fails, search locally
         final allPatients = await localDatasource.getAllPatients();
-        
+
         // Perform local filtering
         final filteredPatients = allPatients.where((patient) {
-          final fullName = '${patient.firstName} ${patient.lastName}'.toLowerCase();
+          final fullName = '${patient.firstName} ${patient.lastName}'
+              .toLowerCase();
           final nupi = patient.nupi.toLowerCase();
           final searchQuery = query.toLowerCase();
-          
-          return fullName.contains(searchQuery) || 
-                 nupi.contains(searchQuery) ||
-                 patient.phoneNumber.contains(searchQuery);
+
+          return fullName.contains(searchQuery) ||
+              nupi.contains(searchQuery) ||
+              patient.phoneNumber.contains(searchQuery);
         }).toList();
-        
+
         return Right(filteredPatients);
       }
     } on ServerException catch (e) {
@@ -128,7 +130,9 @@ class PatientRepositoryImpl implements PatientRepository {
 
       // Try remote update
       try {
-        final updatedPatient = await remoteDatasource.updatePatient(patientModel);
+        final updatedPatient = await remoteDatasource.updatePatient(
+          patientModel,
+        );
         await localDatasource.updateSyncStatus(patientModel.id, 'synced');
         return Right(updatedPatient);
       } catch (e) {
@@ -151,13 +155,13 @@ class PatientRepositoryImpl implements PatientRepository {
       // Try remote first
       try {
         final patients = await remoteDatasource.getAllPatients();
-        
+
         // Update local cache
         for (final patient in patients) {
           await localDatasource.savePatient(patient);
           await localDatasource.updateSyncStatus(patient.id, 'synced');
         }
-        
+
         return Right(patients.map((p) => p.toEntity()).toList());
       } on ServerException {
         // Fallback to local
@@ -169,6 +173,51 @@ class PatientRepositoryImpl implements PatientRepository {
       try {
         final patients = await localDatasource.getAllPatients();
         return Right(patients.map((p) => p.toEntity()).toList());
+      } catch (cacheError) {
+        return Left(ServerFailure(e.toString()));
+      }
+    }
+  }
+
+  @override
+  Future<Either<Failure, List<Patient>>> getPatientsByFacility() async {
+    print('🏥 REPOSITORY - getPatientsByFacility called');
+
+    try {
+      // Try remote first
+      try {
+        final patients = await remoteDatasource.getPatientsByFacility();
+        
+        // Update local cache
+        for (final patient in patients) {
+          await localDatasource.savePatient(patient);
+          await localDatasource.updateSyncStatus(patient.id, 'synced');
+        }
+        
+        return Right(patients.map((p) => p.toEntity()).toList());
+      } on ServerException {
+        // ✅ FIX: Filter local patients by facility ID
+        final allPatients = await localDatasource.getAllPatients();
+        final facilityId = FacilityInfo().facilityId.trim();
+        
+        // Filter patients by facility ID
+        final facilityPatients = allPatients.where((patient) => 
+          patient.facilityId == facilityId
+        ).toList();
+        
+        return Right(facilityPatients.map((p) => p.toEntity()).toList());
+      }
+    } catch (e) {
+      // ✅ FIX: Also filter here
+      try {
+        final allPatients = await localDatasource.getAllPatients();
+        final facilityId = FacilityInfo().facilityId.trim();
+        
+        final facilityPatients = allPatients.where((patient) => 
+          patient.facilityId == facilityId
+        ).toList();
+        
+        return Right(facilityPatients.map((p) => p.toEntity()).toList());
       } catch (cacheError) {
         return Left(ServerFailure(e.toString()));
       }

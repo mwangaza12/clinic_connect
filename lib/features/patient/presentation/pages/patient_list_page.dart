@@ -16,7 +16,7 @@ class PatientListPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) =>
-          sl<PatientBloc>()..add(const LoadPatientsEvent()),
+          sl<PatientBloc>()..add(const LoadPatientsByFacilityEvent()),
       child: const PatientListView(),
     );
   }
@@ -30,8 +30,7 @@ class PatientListView extends StatefulWidget {
       _PatientListViewState();
 }
 
-class _PatientListViewState
-    extends State<PatientListView> {
+class _PatientListViewState extends State<PatientListView> {
   final _searchController = TextEditingController();
   final Color primaryGreen = const Color(0xFF1B4332);
   final Color slateBg = const Color(0xFFF1F5F9);

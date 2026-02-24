@@ -12,6 +12,10 @@ class LoadPatientsEvent extends PatientEvent {
   const LoadPatientsEvent();
 }
 
+class LoadPatientsByFacilityEvent extends PatientEvent {
+  const LoadPatientsByFacilityEvent();
+}
+
 class RegisterPatientEvent extends PatientEvent {
   final Patient patient;
   const RegisterPatientEvent(this.patient);

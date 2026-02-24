@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 // Required for blur effects
+import '../../../../core/config/facility_info.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
@@ -54,6 +55,8 @@ class _LoginViewState extends State<LoginView> {
       backgroundColor: const Color(0xFFF1F5F9),
       body: BlocConsumer<AuthBloc, AuthState>(
         listener: (context, state) {
+          print('AuthState changed: $state'); // ✅ See all states
+
           if (state is AuthError) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -63,6 +66,17 @@ class _LoginViewState extends State<LoginView> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
             );
+          }
+          // ✅ When login succeeds
+          if (state is Authenticated) {
+            // Set the FacilityInfo singleton
+            FacilityInfo().set(
+              facilityId: state.user.facilityId,
+              facilityName: state.user.facilityName,
+            );
+            
+            print('FacilityInfo after login: ${FacilityInfo().toString()}');
+
           }
         },
         builder: (context, state) {

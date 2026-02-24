@@ -79,7 +79,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                   BlocProvider(
                     create: (_) =>
-                        sl<PatientBloc>()..add(const LoadPatientsEvent()),
+                        sl<PatientBloc>()..add(const LoadPatientsByFacilityEvent()),
                     child: const PatientListView(),
                   ),
                   const _ReferralsTab(),

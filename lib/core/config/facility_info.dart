@@ -1,6 +1,5 @@
 class FacilityInfo {
-  static final FacilityInfo _instance =
-      FacilityInfo._internal();
+  static final FacilityInfo _instance = FacilityInfo._internal();
   factory FacilityInfo() => _instance;
   FacilityInfo._internal();
 
@@ -14,10 +13,11 @@ class FacilityInfo {
 
   bool get isSet => _facilityId.isNotEmpty;
 
+  // ✅ facilityCounty is now optional
   void set({
     required String facilityId,
     required String facilityName,
-    required String facilityCounty,
+    String facilityCounty = '',
   }) {
     _facilityId = facilityId;
     _facilityName = facilityName;
