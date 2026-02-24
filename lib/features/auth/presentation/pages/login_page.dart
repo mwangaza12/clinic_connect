@@ -55,7 +55,6 @@ class _LoginViewState extends State<LoginView> {
       backgroundColor: const Color(0xFFF1F5F9),
       body: BlocConsumer<AuthBloc, AuthState>(
         listener: (context, state) {
-          print('AuthState changed: $state'); // ✅ See all states
 
           if (state is AuthError) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -75,8 +74,6 @@ class _LoginViewState extends State<LoginView> {
               facilityName: state.user.facilityName,
             );
             
-            print('FacilityInfo after login: ${FacilityInfo().toString()}');
-
           }
         },
         builder: (context, state) {

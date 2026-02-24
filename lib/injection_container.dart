@@ -9,7 +9,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:get_it/get_it.dart';
 import 'package:internet_connection_checker/internet_connection_checker.dart';
 
-import 'core/config/facility_info.dart';
 import 'core/database/database_helper.dart';
 import 'core/network/network_info.dart';
 import 'core/sync/sync_manager.dart';
