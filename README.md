@@ -102,10 +102,11 @@ lib/
 │   ├── auth/                # Authentication
 │   ├── patient/             # Patient management
 │   ├── encounter/           # Clinical visits
+│   ├── home/                # Dashboard
+│   ├── facility/            # Facility Info
+|   ├── disease_program/     # Diesese Specific
 │   ├── referral/            # Inter-facility referrals
 │   ├── medication/          # Prescriptions
-│   ├── lab/                 # Laboratory
-│   ├── appointment/         # Scheduling
 │   ├── interop/             # FHIR interoperability
 │   └── sync/                # Data synchronization
 │
@@ -188,7 +189,6 @@ ClinicConnect stores all data in FHIR R4 format:
 - MedicationRequest
 - ServiceRequest
 - DiagnosticReport
-- Appointment
 - Practitioner
 - Organization
 
@@ -329,20 +329,19 @@ flutterfire configure
 
 ## Roadmap
 
-- [ ] Phase 1: Core Features (Q1 2024)
+- [ ] Phase 1: Core Features
   - [x] Patient Registration
   - [x] Clinical Records
   - [x] Referrals
   - [ ] Medications
-  - [ ] Lab Tests
 
-- [ ] Phase 2: Advanced Features (Q2 2024)
+- [ ] Phase 2: Advanced Features
   - [ ] Appointments
   - [ ] Analytics Dashboard
   - [ ] Billing
   - [ ] Reports
 
-- [ ] Phase 3: Integration (Q3 2024)
+- [ ] Phase 3: Integration
   - [ ] MPR/NUPI Integration
   - [ ] M-Pesa Integration
   - [ ] SMS Notifications
@@ -361,9 +360,9 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 
 ## Contact
 
-**Project Maintainer:** [Your Name]
+**Project Maintainer:** [Joseph Mwangaza]
 
-- Email: your.email@example.com
+- Email: josephmwangaza1@gmail.com
 - GitHub: [@mwangaza12](https://github.com/mwangaza12)
 - Project Link: [https://github.com/mwangaza12/clinicconnect](https://github.com/mwangaza12/clinicconnect)
 
@@ -377,10 +376,10 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) file for
 
 If you use ClinicConnect in your research, please cite:
 ```bibtex
-@software{clinicconnect2024,
+@software{clinicconnect2026,
   title={ClinicConnect: Interoperable EHR System for Kenya},
-  author={Your Name},
-  year={2024},
+  author={Joseph Mwangaza},
+  year={2026},
   url={https://github.com/mwangaza12/clinicconnect}
 }
 ```

@@ -179,7 +179,7 @@ class _HomePageState extends State<HomePage> {
   Widget _buildModernBottomNav() {
     return Container(
       margin: const EdgeInsets.all(20),
-      height: 70,
+      height: 50,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(35),
@@ -192,7 +192,7 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(35),
+        // borderRadius: BorderRadius.circular(35),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [

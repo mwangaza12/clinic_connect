@@ -9,8 +9,6 @@ class GetAllPatientsByFacility {
   GetAllPatientsByFacility(this.repository);
 
   Future<Either<Failure, List<Patient>>> call() async {
-    print('🔵 USE CASE: Getting patients by facility');
-
     return await repository.getPatientsByFacility();
   }
 }

@@ -19,10 +19,8 @@ Future<void> seedFacilities() async {
       .limit(1)
       .get();
   if (existing.docs.isNotEmpty) {
-    print('⏭️ Facilities already seeded — skipping');
     return;
   }
-  print('🏥 Seeding facilities...');
 
   final facilities = [
     {
@@ -101,7 +99,6 @@ Future<void> seedFacilities() async {
     batch.set(ref, f, SetOptions(merge: true));
   }
   await batch.commit();
-  print('  ✅ ${facilities.length} facilities seeded');
 }
 
 // ─────────────────────────────────────────
@@ -115,7 +112,6 @@ Future<List<Map<String, dynamic>>> seedPatients() async {
       .limit(1)
       .get();
   if (existing.docs.isNotEmpty) {
-    print('⏭️ Patients already seeded — skipping');
     // ✅ Return existing patients so encounters/referrals
     // can still use them
     final all = await _facilityDb
@@ -125,8 +121,6 @@ Future<List<Map<String, dynamic>>> seedPatients() async {
         .map((d) => {...d.data(), 'id': d.id})
         .toList();
   }
-
-  print('👥 Seeding patients...');
 
   const facilityId = 'facility_knh_001';
   const facilityName = 'Kenyatta National Hospital';
@@ -495,7 +489,6 @@ Future<List<Map<String, dynamic>>> seedPatients() async {
 
   await facilityBatch.commit();
   await sharedBatch.commit();
-  print('  ✅ ${patients.length} patients seeded');
   return patients;
 }
 
@@ -510,10 +503,8 @@ Future<void> seedEncounters(
       .limit(1)
       .get();
   if (existing.docs.isNotEmpty) {
-    print('⏭️ Encounters already seeded — skipping');
     return;
   }
-  print('🩺 Seeding encounters...');
 
   const facilityId = 'facility_knh_001';
   const facilityName = 'Kenyatta National Hospital';
@@ -780,7 +771,6 @@ Future<void> seedEncounters(
     batch.set(ref, e);
   }
   await batch.commit();
-  print('  ✅ ${encounters.length} encounters seeded');
 }
 
 // ─────────────────────────────────────────
@@ -796,10 +786,8 @@ Future<void> seedReferrals(
       .limit(1)
       .get();
   if (existing.docs.isNotEmpty) {
-    print('⏭️ Referrals already seeded — skipping');
     return;
   }
-  print('📤 Seeding referrals...');
 
   final now = Timestamp.now();
 
@@ -927,12 +915,9 @@ Future<void> seedReferrals(
 
   await facilityBatch.commit();
   await sharedBatch.commit();
-  print('  ✅ ${referrals.length} referrals seeded');
 }
 
 Future<void> seedIncomingReferral() async {
-  print('📨 Seeding incoming referral...');
-
   final facilityId = FacilityInfo().facilityId;
   final facilityName = FacilityInfo().facilityName;
 
@@ -1020,6 +1005,4 @@ Future<void> seedIncomingReferral() async {
     'updated_at': now,
   });
 
-  print(
-      '  ✅ Incoming referral seeded for ${patient['name']}');
 }

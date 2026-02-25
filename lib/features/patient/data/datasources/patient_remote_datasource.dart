@@ -25,7 +25,6 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
   @override
   Future<PatientModel> registerPatient(PatientModel patient) async {
     try {
-      print('📝 REGISTER: Saving patient with facility_id: "$facilityId"');
       
       // Ensure patient has the current facility_id
       final patientWithFacility = patient.copyWith(
@@ -180,10 +179,8 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
   @override
   Future<List<PatientModel>> getPatientsByFacility() async {
     final currentFacilityId = facilityId;
-    print('🔥 REMOTE: Getting patients for facility: "$currentFacilityId"');
     
     if (currentFacilityId.isEmpty) {
-      print('❌ REMOTE: Facility ID is empty!');
       throw ServerException('Facility ID not set');
     }
     
@@ -194,15 +191,12 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
           .orderBy('created_at', descending: true)
           .get();
 
-      print('✅ REMOTE: Found ${snapshot.docs.length} patients');
-
       return snapshot.docs.map((doc) {
         final data = doc.data();
         data['id'] = doc.id;
         return PatientModel.fromFirestore(data);
       }).toList();
     } catch (e) {
-      print('❌ REMOTE: Error - $e');
       throw ServerException('Failed to get patients by facility: $e');
     }
   }

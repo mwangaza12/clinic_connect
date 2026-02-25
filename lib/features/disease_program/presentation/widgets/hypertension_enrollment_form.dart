@@ -185,7 +185,7 @@ class _HypertensionEnrollmentFormState extends State<HypertensionEnrollmentForm>
 
             // Risk Category
             DropdownButtonFormField<String>(
-              value: _riskCategory,
+              initialValue: _riskCategory,
               decoration: InputDecoration(
                 labelText: 'Risk Category',
                 prefixIcon: const Icon(Icons.warning, size: 20),

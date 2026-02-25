@@ -181,8 +181,6 @@ class PatientRepositoryImpl implements PatientRepository {
 
   @override
   Future<Either<Failure, List<Patient>>> getPatientsByFacility() async {
-    print('🏥 REPOSITORY - getPatientsByFacility called');
-
     try {
       // Try remote first
       try {
