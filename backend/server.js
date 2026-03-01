@@ -1,6 +1,7 @@
-const express = require('express');
-const cors = require('cors');
-const admin = require('firebase-admin');
+import express from 'express';
+import cors from 'cors';
+import admin from 'firebase-admin';
+import 'dotenv/config';
 
 admin.initializeApp({
     credential: admin.credential.cert({
