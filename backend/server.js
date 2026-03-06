@@ -1,100 +1,41 @@
 import express from 'express';
-import cors from 'cors';
-import admin from 'firebase-admin';
+import cors    from 'cors';
+import helmet  from 'helmet';
 import 'dotenv/config';
 
-admin.initializeApp({
-    credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    }),
-});
+import patientRoutes              from './patient.routes.js';
+import { startGatewayKeepAlive } from './patient.service.js';
 
-const db = admin.firestore();
 const app = express();
 
+app.use(helmet());
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
+// ── Routes ────────────────────────────────────────────────────────
+app.use('/api/patients', patientRoutes);
 
-app.get('/api/patients/:nupi', async (req, res) => {
-    try {
-        const { nupi } = req.params;
-        
-        console.log(`📡 Fetching patient: ${nupi}`);
-        
-        const snapshot = await db
-            .collection('patients')
-            .where('nupi', '==', nupi)
-            .limit(1)
-            .get();
-        
-        if (snapshot.empty) {
-            return res.status(404).json({
-                success: false,
-                error: 'Patient not found'
-            });
-        }
-        
-        const patientData = snapshot.docs[0].data();
-        
-        res.json({
-            success: true,
-            data: patientData
-        });
-        
-    } catch (error) {
-        console.error('Error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-app.get('/api/encounters/:nupi', async (req, res) => {
-    try {
-        const { nupi } = req.params;
-    
-        console.log(`📋 Fetching encounters for: ${nupi}`);
-    
-        const snapshot = await db
-            .collection('encounters')
-            .where('patient_nupi', '==', nupi)
-            .orderBy('encounter_date', 'desc')
-            .get();
-    
-        const encounters = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-            source: 'ClinicConnect'
-        }));
-    
-        res.json({
-            success: true,
-            data: encounters,
-            count: encounters.length
-        });
-    
-    } catch (error) {
-        console.error('Error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-    });
-
-// Health check
+// ── Health check ──────────────────────────────────────────────────
 app.get('/health', (req, res) => {
-    res.json({
-        status: 'ok',
-        service: 'ClinicConnect API'
-    });
+  res.json({
+    status:     'ok',
+    service:    'ClinicConnect API',
+    facilityId: process.env.FACILITY_ID   || 'NOT_SET',
+    gateway:    process.env.HIE_GATEWAY_URL || 'NOT_SET',
+    timestamp:  new Date().toISOString(),
+  });
 });
 
+// ── Start ─────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-    console.log(`CLINICCONNECT API 🚀 Running: http://localhost:${PORT}`);
+  console.log(`\n🏥 ClinicConnect API`);
+  console.log(`   http://localhost:${PORT}`);
+  console.log(`\n   Register patient:  POST /api/patients`);
+  console.log(`   Get question:      GET  /api/patients/verify/question?nationalId=X&dob=Y`);
+  console.log(`   Verify + token:    POST /api/patients/verify/answer`);
+  console.log(`   Federated chart:   GET  /api/patients/:nupi/federated`);
+  console.log(`   Record visit:      POST /api/patients/:nupi/visit\n`);
+
+  startGatewayKeepAlive();
 });
