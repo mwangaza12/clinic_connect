@@ -61,13 +61,8 @@ class _PatientDetailViewState extends State<_PatientDetailView>
       body: SafeArea(
         child: Column(
           children: [
-            // ── Compact Fixed Header ──────────────────
             _buildHeader(context, p),
-
-            // ── Tab Bar ───────────────────────────────
             _buildTabBar(),
-
-            // ── Tab Content ───────────────────────────
             Expanded(
               child: TabBarView(
                 controller: _tabController,
@@ -80,8 +75,6 @@ class _PatientDetailViewState extends State<_PatientDetailView>
           ],
         ),
       ),
-
-      // ── FAB ───────────────────────────────────────
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
           final created = await Navigator.push<bool>(
@@ -107,9 +100,6 @@ class _PatientDetailViewState extends State<_PatientDetailView>
     );
   }
 
-  // ─────────────────────────────────────────
-  // Header — compact, information-dense
-  // ─────────────────────────────────────────
   Widget _buildHeader(BuildContext context, Patient p) {
     final initials = '${p.firstName[0]}${p.lastName[0]}'.toUpperCase();
     final genderColor = p.gender == 'female'
@@ -145,7 +135,7 @@ class _PatientDetailViewState extends State<_PatientDetailView>
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Avatar with gender color ring
+              // Avatar with gender colour ring
               Container(
                 width: 64,
                 height: 64,
@@ -180,16 +170,20 @@ class _PatientDetailViewState extends State<_PatientDetailView>
                         color: Color(0xFF0F172A),
                         letterSpacing: -0.5,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
-                    Row(
+
+                    // Identifier chips — use Wrap so they reflow on small screens
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
                       children: [
                         _identifierChip(
                           Icons.fingerprint_rounded,
                           p.nupi,
                           const Color(0xFF6366F1),
                         ),
-                        const SizedBox(width: 6),
                         _identifierChip(
                           p.gender == 'female'
                               ? Icons.female_rounded
@@ -200,27 +194,37 @@ class _PatientDetailViewState extends State<_PatientDetailView>
                       ],
                     ),
                     const SizedBox(height: 6),
+
+                    // FIX: was a plain Row — both Text widgets would overflow
+                    // the ~210 px Expanded column on narrow phones.
+                    // Now each item is Flexible so it ellipsizes instead.
                     Row(
                       children: [
                         Icon(Icons.location_on_outlined,
                             size: 12, color: Colors.grey[500]),
                         const SizedBox(width: 4),
-                        Text(
-                          '${p.county} County',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[500],
+                        Flexible(
+                          child: Text(
+                            '${p.county} County',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[500],
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 10),
                         Icon(Icons.phone_outlined,
                             size: 12, color: Colors.grey[500]),
                         const SizedBox(width: 4),
-                        Text(
-                          p.phoneNumber,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[500],
+                        Flexible(
+                          child: Text(
+                            p.phoneNumber,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[500],
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
@@ -235,11 +239,9 @@ class _PatientDetailViewState extends State<_PatientDetailView>
           // Stats strip
           BlocBuilder<EncounterBloc, EncounterState>(
             builder: (context, state) {
-              final visitCount = state is EncountersLoaded
-                  ? state.encounters.length
-                  : 0;
+              final visitCount =
+                  state is EncountersLoaded ? state.encounters.length : 0;
 
-              // Last visit date
               String lastVisit = 'None';
               if (state is EncountersLoaded &&
                   state.encounters.isNotEmpty) {
@@ -252,32 +254,21 @@ class _PatientDetailViewState extends State<_PatientDetailView>
                 decoration: BoxDecoration(
                   color: _primary.withOpacity(0.04),
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: _primary.withOpacity(0.08),
-                  ),
+                  border: Border.all(color: _primary.withOpacity(0.08)),
                 ),
                 child: Row(
                   children: [
-                    _statCell(
-                      '$visitCount',
-                      'Visits',
-                      Icons.medical_services_outlined,
-                      const Color(0xFF6366F1),
-                    ),
+                    _statCell('$visitCount', 'Visits',
+                        Icons.medical_services_outlined,
+                        const Color(0xFF6366F1)),
                     _statDivider(),
-                    _statCell(
-                      p.bloodGroup ?? 'N/A',
-                      'Blood',
-                      Icons.bloodtype_outlined,
-                      const Color(0xFFE11D48),
-                    ),
+                    _statCell(p.bloodGroup ?? 'N/A', 'Blood',
+                        Icons.bloodtype_outlined,
+                        const Color(0xFFE11D48)),
                     _statDivider(),
-                    _statCell(
-                      lastVisit,
-                      'Last Visit',
-                      Icons.calendar_today_outlined,
-                      const Color(0xFF2D6A4F),
-                    ),
+                    _statCell(lastVisit, 'Last Visit',
+                        Icons.calendar_today_outlined,
+                        const Color(0xFF2D6A4F)),
                     _statDivider(),
                     _statCell(
                       p.chronicConditions.isNotEmpty
@@ -310,12 +301,15 @@ class _PatientDetailViewState extends State<_PatientDetailView>
         children: [
           Icon(icon, size: 12, color: color),
           const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: color,
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
@@ -337,6 +331,7 @@ class _PatientDetailViewState extends State<_PatientDetailView>
               fontWeight: FontWeight.w900,
               color: color,
             ),
+            overflow: TextOverflow.ellipsis,
           ),
           Text(
             label,
@@ -351,15 +346,14 @@ class _PatientDetailViewState extends State<_PatientDetailView>
     );
   }
 
-  Widget _statDivider() {
-    return Container(
-      width: 1,
-      height: 36,
-      color: _primary.withOpacity(0.1),
-    );
-  }
+  Widget _statDivider() => Container(
+        width: 1,
+        height: 36,
+        color: _primary.withOpacity(0.1),
+      );
 
-  Widget _actionIcon(IconData icon, String tooltip, VoidCallback onTap) {
+  Widget _actionIcon(
+      IconData icon, String tooltip, VoidCallback onTap) {
     return Tooltip(
       message: tooltip,
       child: GestureDetector(
@@ -376,9 +370,6 @@ class _PatientDetailViewState extends State<_PatientDetailView>
     );
   }
 
-  // ─────────────────────────────────────────
-  // Tab Bar
-  // ─────────────────────────────────────────
   Widget _buildTabBar() {
     return Container(
       color: Colors.white,
@@ -439,7 +430,6 @@ class _ProfileTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Alerts banner (allergies / chronic conditions)
           if (patient.allergies.isNotEmpty ||
               patient.chronicConditions.isNotEmpty)
             _alertsBanner(),
@@ -451,18 +441,14 @@ class _ProfileTab extends StatelessWidget {
             iconColor: const Color(0xFF6366F1),
             rows: [
               _InfoRow(Icons.fingerprint, 'NUPI', patient.nupi),
-              _InfoRow(Icons.badge_outlined, 'Full Name',
-                  patient.fullName),
+              _InfoRow(Icons.badge_outlined, 'Full Name', patient.fullName),
               _InfoRow(
                   Icons.calendar_today_outlined,
                   'Date of Birth',
-                  DateFormat('dd MMMM yyyy')
-                      .format(patient.dateOfBirth)),
-              _InfoRow(Icons.phone_outlined, 'Phone',
-                  patient.phoneNumber),
+                  DateFormat('dd MMMM yyyy').format(patient.dateOfBirth)),
+              _InfoRow(Icons.phone_outlined, 'Phone', patient.phoneNumber),
               if (patient.email != null)
-                _InfoRow(Icons.email_outlined, 'Email',
-                    patient.email!),
+                _InfoRow(Icons.email_outlined, 'Email', patient.email!),
               if (patient.bloodGroup != null)
                 _InfoRow(Icons.bloodtype_outlined, 'Blood Group',
                     patient.bloodGroup!),
@@ -478,10 +464,8 @@ class _ProfileTab extends StatelessWidget {
               _InfoRow(Icons.map_outlined, 'County', patient.county),
               _InfoRow(Icons.location_city_outlined, 'Sub-County',
                   patient.subCounty),
-              _InfoRow(
-                  Icons.explore_outlined, 'Ward', patient.ward),
-              _InfoRow(
-                  Icons.home_outlined, 'Village', patient.village),
+              _InfoRow(Icons.explore_outlined, 'Ward', patient.ward),
+              _InfoRow(Icons.home_outlined, 'Village', patient.village),
             ],
           ),
 
@@ -492,8 +476,7 @@ class _ProfileTab extends StatelessWidget {
               icon: Icons.contacts_outlined,
               iconColor: const Color(0xFFF59E0B),
               rows: [
-                _InfoRow(Icons.person_outline, 'Name',
-                    patient.nextOfKinName!),
+                _InfoRow(Icons.person_outline, 'Name', patient.nextOfKinName!),
                 if (patient.nextOfKinPhone != null)
                   _InfoRow(Icons.phone_outlined, 'Phone',
                       patient.nextOfKinPhone!),
@@ -504,10 +487,12 @@ class _ProfileTab extends StatelessWidget {
             ),
           ],
 
-          // Clinical quick actions
           const SizedBox(height: 16),
           _sectionLabel('Clinical Actions'),
           const SizedBox(height: 8),
+
+          // FIX: was Row + a stray SizedBox(height:8) child (should have been
+          // width). Replaced with a proper Row of four equal Expanded tiles.
           Row(
             children: [
               Expanded(
@@ -517,8 +502,7 @@ class _ProfileTab extends StatelessWidget {
                   'Refer',
                   const Color(0xFFF59E0B),
                   () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text('Go to Referrals tab')),
+                    const SnackBar(content: Text('Go to Referrals tab')),
                   ),
                 ),
               ),
@@ -546,37 +530,39 @@ class _ProfileTab extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
-              GestureDetector(
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => FhirExportPage(patient: patient),
-                  ),
-                ),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1B4332).withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: const Color(0xFF1B4332).withOpacity(0.2),
+              const SizedBox(width: 8),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FhirExportPage(patient: patient),
                     ),
                   ),
-                  child: const Column(
-                    children: [
-                      Icon(Icons.file_download_rounded,
-                          color: Color(0xFF1B4332), size: 24),
-                      SizedBox(height: 8),
-                      Text(
-                        'FHIR Export',
-                        style: TextStyle(
-                          color: Color(0xFF1B4332),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1B4332).withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: const Color(0xFF1B4332).withOpacity(0.2),
                       ),
-                    ],
+                    ),
+                    child: const Column(
+                      children: [
+                        Icon(Icons.file_download_rounded,
+                            color: Color(0xFF1B4332), size: 22),
+                        SizedBox(height: 6),
+                        Text(
+                          'FHIR',
+                          style: TextStyle(
+                            color: Color(0xFF1B4332),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -667,7 +653,6 @@ class _ProfileTab extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Section header
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Row(
@@ -693,8 +678,6 @@ class _ProfileTab extends StatelessWidget {
             ),
           ),
           const Divider(height: 1, color: Color(0xFFF1F5F9)),
-
-          // Rows
           ...rows.asMap().entries.map(
                 (entry) => Column(
                   children: [
@@ -715,8 +698,7 @@ class _ProfileTab extends StatelessWidget {
 
   Widget _buildRow(_InfoRow row) {
     return Padding(
-      padding: const EdgeInsets.symmetric(
-          horizontal: 16, vertical: 11),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
       child: Row(
         children: [
           Container(
@@ -810,27 +792,20 @@ class _VisitHistoryTab extends StatelessWidget {
     return BlocBuilder<EncounterBloc, EncounterState>(
       builder: (context, state) {
         if (state is EncounterLoading) {
-          return const Center(
-              child: CircularProgressIndicator.adaptive());
+          return const Center(child: CircularProgressIndicator.adaptive());
         }
-
         if (state is EncounterError) {
           return _buildError(context, state.message);
         }
-
         if (state is EncountersLoaded) {
           if (state.encounters.isEmpty) return _buildEmpty();
-
           return ListView.builder(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
             itemCount: state.encounters.length,
-            itemBuilder: (context, index) {
-              final encounter = state.encounters[index];
-              return _encounterCard(context, encounter, index);
-            },
+            itemBuilder: (context, index) =>
+                _encounterCard(context, state.encounters[index], index),
           );
         }
-
         return const SizedBox();
       },
     );
@@ -846,9 +821,8 @@ class _VisitHistoryTab extends StatelessWidget {
                 ? const Color(0xFFF59E0B)
                 : const Color(0xFF2D6A4F);
 
-    final primaryDx = encounter.diagnoses
-        .where((d) => d.isPrimary)
-        .firstOrNull;
+    final primaryDx =
+        encounter.diagnoses.where((d) => d.isPrimary).firstOrNull;
 
     return GestureDetector(
       onTap: () => Navigator.push(
@@ -867,7 +841,7 @@ class _VisitHistoryTab extends StatelessWidget {
         child: IntrinsicHeight(
           child: Row(
             children: [
-              // Color strip + icon
+              // Colour strip + icon
               Container(
                 width: 52,
                 decoration: BoxDecoration(
@@ -883,8 +857,7 @@ class _VisitHistoryTab extends StatelessWidget {
                     Icon(
                       encounter.type == EncounterType.emergency
                           ? Icons.emergency_rounded
-                          : encounter.type ==
-                                  EncounterType.inpatient
+                          : encounter.type == EncounterType.inpatient
                               ? Icons.bed_outlined
                               : Icons.chair_alt_outlined,
                       color: typeColor,
@@ -892,8 +865,7 @@ class _VisitHistoryTab extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      DateFormat('dd\nMMM')
-                          .format(encounter.encounterDate),
+                      DateFormat('dd\nMMM').format(encounter.encounterDate),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 10,
@@ -913,18 +885,15 @@ class _VisitHistoryTab extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Type badge + time
                       Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.spaceBetween,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
                               color: typeColor.withOpacity(0.1),
-                              borderRadius:
-                                  BorderRadius.circular(20),
+                              borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
                               encounter.type.name.toUpperCase(),
@@ -937,8 +906,7 @@ class _VisitHistoryTab extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            DateFormat('HH:mm').format(
-                                encounter.encounterDate),
+                            DateFormat('HH:mm').format(encounter.encounterDate),
                             style: const TextStyle(
                               fontSize: 11,
                               color: Color(0xFF94A3B8),
@@ -948,10 +916,8 @@ class _VisitHistoryTab extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
 
-                      // Chief complaint
                       Text(
-                        encounter.chiefComplaint ??
-                            'No chief complaint recorded',
+                        encounter.chiefComplaint ?? 'No chief complaint recorded',
                         style: const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
@@ -961,7 +927,6 @@ class _VisitHistoryTab extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
 
-                      // Primary diagnosis
                       if (primaryDx != null) ...[
                         const SizedBox(height: 4),
                         Row(
@@ -970,10 +935,8 @@ class _VisitHistoryTab extends StatelessWidget {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF6366F1)
-                                    .withOpacity(0.1),
-                                borderRadius:
-                                    BorderRadius.circular(4),
+                                color: const Color(0xFF6366F1).withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 primaryDx.code,
@@ -1000,22 +963,17 @@ class _VisitHistoryTab extends StatelessWidget {
                       ],
 
                       const SizedBox(height: 8),
-
-                      // Vitals row
                       if (encounter.vitals != null)
                         _vitalsStrip(encounter.vitals!),
 
-                      // Footer
                       const SizedBox(height: 6),
                       Row(
-                        mainAxisAlignment:
-                            MainAxisAlignment.spaceBetween,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Row(
                             children: [
                               const Icon(Icons.person_outline,
-                                  size: 12,
-                                  color: Color(0xFF94A3B8)),
+                                  size: 12, color: Color(0xFF94A3B8)),
                               const SizedBox(width: 4),
                               Text(
                                 encounter.clinicianName,
@@ -1027,8 +985,7 @@ class _VisitHistoryTab extends StatelessWidget {
                             ],
                           ),
                           if (encounter.disposition != null)
-                            _dispositionBadge(
-                                encounter.disposition!),
+                            _dispositionBadge(encounter.disposition!),
                         ],
                       ),
                     ],
@@ -1051,36 +1008,18 @@ class _VisitHistoryTab extends StatelessWidget {
 
   Widget _vitalsStrip(Vitals vitals) {
     final items = <Map<String, dynamic>>[];
-
     if (vitals.bpDisplay != null) {
-      items.add({
-        'icon': Icons.favorite_outline,
-        'value': vitals.bpDisplay!,
-        'color': const Color(0xFFE11D48),
-      });
+      items.add({'icon': Icons.favorite_outline, 'value': vitals.bpDisplay!, 'color': const Color(0xFFE11D48)});
     }
     if (vitals.temperature != null) {
-      items.add({
-        'icon': Icons.thermostat_outlined,
-        'value': '${vitals.temperature}°C',
-        'color': const Color(0xFFF59E0B),
-      });
+      items.add({'icon': Icons.thermostat_outlined, 'value': '${vitals.temperature}°C', 'color': const Color(0xFFF59E0B)});
     }
     if (vitals.oxygenSaturation != null) {
-      items.add({
-        'icon': Icons.air_outlined,
-        'value': '${vitals.oxygenSaturation}%',
-        'color': const Color(0xFF0EA5E9),
-      });
+      items.add({'icon': Icons.air_outlined, 'value': '${vitals.oxygenSaturation}%', 'color': const Color(0xFF0EA5E9)});
     }
     if (vitals.pulseRate != null) {
-      items.add({
-        'icon': Icons.monitor_heart_outlined,
-        'value': '${vitals.pulseRate}bpm',
-        'color': const Color(0xFF8B5CF6),
-      });
+      items.add({'icon': Icons.monitor_heart_outlined, 'value': '${vitals.pulseRate}bpm', 'color': const Color(0xFF8B5CF6)});
     }
-
     if (items.isEmpty) return const SizedBox();
 
     return Wrap(
@@ -1089,21 +1028,16 @@ class _VisitHistoryTab extends StatelessWidget {
       children: items
           .take(3)
           .map((item) => Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 7, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(
-                  color:
-                      (item['color'] as Color).withOpacity(0.08),
+                  color: (item['color'] as Color).withOpacity(0.08),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      item['icon'] as IconData,
-                      size: 10,
-                      color: item['color'] as Color,
-                    ),
+                    Icon(item['icon'] as IconData,
+                        size: 10, color: item['color'] as Color),
                     const SizedBox(width: 3),
                     Text(
                       item['value'] as String,
@@ -1158,29 +1092,20 @@ class _VisitHistoryTab extends StatelessWidget {
               color: const Color(0xFF2D6A4F).withOpacity(0.06),
               shape: BoxShape.circle,
             ),
-            child: const Icon(
-              Icons.medical_services_outlined,
-              size: 48,
-              color: Color(0xFF2D6A4F),
-            ),
+            child: const Icon(Icons.medical_services_outlined,
+                size: 48, color: Color(0xFF2D6A4F)),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'No Visits Yet',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF0F172A),
-            ),
-          ),
+          const Text('No Visits Yet',
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0F172A))),
           const SizedBox(height: 6),
           const Text(
             'Tap "New Visit" to record\nthe first encounter',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Color(0xFF64748B),
-              height: 1.5,
-            ),
+            style: TextStyle(color: Color(0xFF64748B), height: 1.5),
           ),
         ],
       ),

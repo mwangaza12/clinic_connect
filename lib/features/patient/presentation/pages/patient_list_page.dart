@@ -26,8 +26,7 @@ class PatientListView extends StatefulWidget {
   const PatientListView({super.key});
 
   @override
-  State<PatientListView> createState() =>
-      _PatientListViewState();
+  State<PatientListView> createState() => _PatientListViewState();
 }
 
 class _PatientListViewState extends State<PatientListView> {
@@ -41,8 +40,7 @@ class _PatientListViewState extends State<PatientListView> {
     super.dispose();
   }
 
-  int _getAge(DateTime dob) =>
-      DateTime.now().year - dob.year;
+  int _getAge(DateTime dob) => DateTime.now().year - dob.year;
 
   @override
   Widget build(BuildContext context) {
@@ -55,20 +53,13 @@ class _PatientListViewState extends State<PatientListView> {
           Expanded(child: _buildPatientContent()),
         ],
       ),
-      floatingActionButton:
-          FloatingActionButton.extended(
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) =>
-                const PatientRegistrationPage(),
-          ),
+          MaterialPageRoute(builder: (_) => const PatientRegistrationPage()),
         ),
         backgroundColor: primaryGreen,
-        icon: const Icon(
-          Icons.person_add_rounded,
-          color: Colors.white,
-        ),
+        icon: const Icon(Icons.person_add_rounded, color: Colors.white),
         label: const Text(
           'REGISTER',
           style: TextStyle(
@@ -81,8 +72,7 @@ class _PatientListViewState extends State<PatientListView> {
     );
   }
 
-  PreferredSizeWidget _buildProfessionalHeader(
-      BuildContext context) {
+  PreferredSizeWidget _buildProfessionalHeader(BuildContext context) {
     return AppBar(
       backgroundColor: Colors.white,
       elevation: 0.5,
@@ -109,26 +99,16 @@ class _PatientListViewState extends State<PatientListView> {
         ],
       ),
       actions: [
-        // ✅ Cross-facility lookup button
         IconButton(
-          icon: Icon(
-            Icons.manage_search_rounded,
-            color: primaryGreen,
-          ),
+          icon: Icon(Icons.manage_search_rounded, color: primaryGreen),
           tooltip: 'Cross-Facility NUPI Lookup',
           onPressed: () => Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) =>
-                  const PatientLookupPage(),
-            ),
+            MaterialPageRoute(builder: (_) => const PatientLookupPage()),
           ),
         ),
         IconButton(
-          icon: Icon(
-            Icons.filter_list_rounded,
-            color: primaryGreen,
-          ),
+          icon: Icon(Icons.filter_list_rounded, color: primaryGreen),
           onPressed: () {},
         ),
         const SizedBox(width: 8),
@@ -140,33 +120,21 @@ class _PatientListViewState extends State<PatientListView> {
     return Container(
       padding: const EdgeInsets.all(16),
       color: Colors.white,
-      child: Column(
-        children: [
-          TextField(
-            controller: _searchController,
-            onChanged: (v) => context
-                .read<PatientBloc>()
-                .add(SearchPatientEvent(v)),
-            decoration: InputDecoration(
-              hintText:
-                  'Search by NUPI, Name or Phone...',
-              prefixIcon: Icon(
-                Icons.search_rounded,
-                color: primaryGreen,
-              ),
-              filled: true,
-              fillColor: slateBg,
-              border: OutlineInputBorder(
-                borderRadius:
-                    BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding:
-                  const EdgeInsets.symmetric(
-                      vertical: 0),
-            ),
+      child: TextField(
+        controller: _searchController,
+        onChanged: (v) =>
+            context.read<PatientBloc>().add(SearchPatientEvent(v)),
+        decoration: InputDecoration(
+          hintText: 'Search by NUPI, Name or Phone...',
+          prefixIcon: Icon(Icons.search_rounded, color: primaryGreen),
+          filled: true,
+          fillColor: slateBg,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
           ),
-        ],
+          contentPadding: const EdgeInsets.symmetric(vertical: 0),
+        ),
       ),
     );
   }
@@ -175,21 +143,15 @@ class _PatientListViewState extends State<PatientListView> {
     return BlocBuilder<PatientBloc, PatientState>(
       builder: (context, state) {
         if (state is PatientLoading) {
-          return const Center(
-            child:
-                CircularProgressIndicator.adaptive(),
-          );
+          return const Center(child: CircularProgressIndicator.adaptive());
         }
         if (state is PatientsLoaded) {
-          if (state.patients.isEmpty) {
-            return _buildEmptyState();
-          }
+          if (state.patients.isEmpty) return _buildEmptyState();
           return ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: state.patients.length,
             itemBuilder: (context, index) =>
-                _buildMedicalCard(
-                    state.patients[index]),
+                _buildMedicalCard(state.patients[index]),
           );
         }
         return _buildEmptyState();
@@ -198,8 +160,7 @@ class _PatientListViewState extends State<PatientListView> {
   }
 
   Widget _buildMedicalCard(Patient patient) {
-    final String fullName =
-        '${patient.firstName} ${patient.lastName}';
+    final String fullName = '${patient.firstName} ${patient.lastName}';
     final int age = _getAge(patient.dateOfBirth);
 
     return Container(
@@ -207,18 +168,16 @@ class _PatientListViewState extends State<PatientListView> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border:
-            Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: IntrinsicHeight(
         child: Row(
           children: [
-            // Gender-Coded Vertical Bar
+            // Gender-coded vertical bar
             Container(
               width: 5,
               decoration: BoxDecoration(
-                color: patient.gender.toLowerCase() ==
-                        'male'
+                color: patient.gender.toLowerCase() == 'male'
                     ? Colors.blue[700]
                     : Colors.pink[400],
                 borderRadius: const BorderRadius.only(
@@ -227,61 +186,59 @@ class _PatientListViewState extends State<PatientListView> {
                 ),
               ),
             ),
-            // Main Content Area
+            // Main content
             Expanded(
               child: InkWell(
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => PatientDetailPage(
-                      patient: patient,
-                    ),
+                    builder: (_) => PatientDetailPage(patient: patient),
                   ),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // FIX: name row — badge is now inside the Expanded
+                      // so it cannot push the row past its boundary.
                       Row(
                         children: [
                           Expanded(
                             child: Text(
                               fullName.toUpperCase(),
                               style: const TextStyle(
-                                fontWeight:
-                                    FontWeight.w900,
+                                fontWeight: FontWeight.w900,
                                 fontSize: 15,
                                 letterSpacing: -0.2,
                               ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          _badge(
-                            patient.nupi,
-                            primaryGreen,
+                          const SizedBox(width: 8),
+                          // FIX: constrain badge so a long NUPI can't overflow
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 120),
+                            child: _badge(patient.nupi, primaryGreen),
                           ),
                         ],
                       ),
                       const SizedBox(height: 12),
                       const Divider(height: 1),
                       const SizedBox(height: 12),
-                      // Meta-Data Row
+                      // FIX: Wrap already handles line-breaking; each
+                      // _dataPoint is individually width-capped so the
+                      // location string can't overflow a narrow card.
                       Wrap(
                         spacing: 16,
                         runSpacing: 8,
                         children: [
-                          _dataPoint(
-                            Icons.cake_outlined,
-                            '$age Years',
-                          ),
-                          _dataPoint(
-                            Icons.phone_outlined,
-                            patient.phoneNumber,
-                          ),
+                          _dataPoint(Icons.cake_outlined, '$age yrs'),
+                          _dataPoint(Icons.phone_outlined, patient.phoneNumber),
                           _dataPoint(
                             Icons.location_on_outlined,
                             '${patient.village}, ${patient.county}',
+                            maxWidth: 160,
                           ),
                         ],
                       ),
@@ -290,7 +247,7 @@ class _PatientListViewState extends State<PatientListView> {
                 ),
               ),
             ),
-            // Chevron Action Area
+            // Chevron
             Container(
               width: 40,
               decoration: BoxDecoration(
@@ -314,8 +271,7 @@ class _PatientListViewState extends State<PatientListView> {
 
   Widget _badge(String label, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-          horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(6),
@@ -327,12 +283,14 @@ class _PatientListViewState extends State<PatientListView> {
           fontWeight: FontWeight.w800,
           fontSize: 10,
         ),
+        overflow: TextOverflow.ellipsis, // FIX: long NUPIs won't blow the badge
       ),
     );
   }
 
-  Widget _dataPoint(IconData icon, String text) {
-    return Row(
+  // FIX: added optional maxWidth so callers can cap wide data points
+  Widget _dataPoint(IconData icon, String text, {double? maxWidth}) {
+    final content = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, size: 14, color: Colors.grey[600]),
@@ -350,6 +308,14 @@ class _PatientListViewState extends State<PatientListView> {
         ),
       ],
     );
+
+    if (maxWidth != null) {
+      return ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: content,
+      );
+    }
+    return content;
   }
 
   Widget _buildEmptyState() {
@@ -357,18 +323,11 @@ class _PatientListViewState extends State<PatientListView> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.folder_open_rounded,
-            size: 60,
-            color: Colors.grey[300],
-          ),
+          Icon(Icons.folder_open_rounded, size: 60, color: Colors.grey[300]),
           const SizedBox(height: 16),
           const Text(
             'No Patient Records Found',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              color: Colors.grey,
-            ),
+            style: TextStyle(fontWeight: FontWeight.w700, color: Colors.grey),
           ),
         ],
       ),
