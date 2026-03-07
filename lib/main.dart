@@ -38,7 +38,7 @@ void main() async {
   HieApiService.init(
     const String.fromEnvironment(
       'HIE_BACKEND_URL',
-      defaultValue: 'https://clinicconnect-api.onrender.com',
+      defaultValue: 'https://clinic-connect-sxct.onrender.com',
     ),
   );
 
