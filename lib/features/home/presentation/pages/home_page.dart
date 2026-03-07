@@ -177,72 +177,59 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildModernBottomNav() {
+    const items = [
+      _NavItem(Icons.dashboard_rounded,     Icons.dashboard_outlined,     'Home'),
+      _NavItem(Icons.people_rounded,        Icons.people_outline_rounded,  'Patients'),
+      _NavItem(Icons.swap_horiz_rounded,    Icons.swap_horiz_outlined,    'Referrals'),
+      _NavItem(Icons.person_rounded,        Icons.person_outline_rounded,  'Profile'),
+    ];
+
     return Container(
-      margin: const EdgeInsets.all(20),
-      height: 50,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(35),
-        boxShadow: [
-          BoxShadow(
-            color: primaryDark.withOpacity(0.15),
-            blurRadius: 30,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        // borderRadius: BorderRadius.circular(35),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _modernNavItem(Icons.dashboard_rounded, 0),
-            _modernNavItem(Icons.people_rounded, 1),
-            _modernNavItem(Icons.swap_horiz_rounded, 2),
-            _modernNavItem(Icons.person_rounded, 3),
-          ],
+        border: Border(
+          top: BorderSide(color: Colors.grey.shade200, width: 1),
         ),
       ),
-    );
-  }
-
-  Widget _modernNavItem(IconData icon, int index) {
-    final bool isSelected = _currentIndex == index;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => _navigateToTab(index),
-        child: Container(
-          color: Colors.transparent,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? primaryDark.withOpacity(0.1)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 60,
+          child: Row(
+            children: List.generate(items.length, (index) {
+              final item     = items[index];
+              final selected = _currentIndex == index;
+              return Expanded(
+                child: InkWell(
+                  onTap: () => _navigateToTab(index),
+                  splashColor: primaryDark.withOpacity(0.08),
+                  highlightColor: Colors.transparent,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 200),
+                        child: Icon(
+                          selected ? item.activeIcon : item.icon,
+                          key: ValueKey(selected),
+                          color: selected ? primaryDark : Colors.grey[500],
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        item.label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                          color: selected ? primaryDark : Colors.grey[500],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                child: Icon(
-                  icon,
-                  color: isSelected ? primaryDark : Colors.grey[400],
-                  size: isSelected ? 28 : 24,
-                ),
-              ),
-              const SizedBox(height: 4),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                width: isSelected ? 6 : 0,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: primaryDark,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-            ],
+              );
+            }),
           ),
         ),
       ),
@@ -598,7 +585,7 @@ class _DashboardContent extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 120), // Extra padding for floating nav
+            const SizedBox(height: 24),
           ],
         ),
       ),
@@ -775,4 +762,14 @@ class _ReferralsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return const ReferralsPage();
   }
+}
+
+// ─────────────────────────────────────────
+// Nav Item Data
+// ─────────────────────────────────────────
+class _NavItem {
+  final IconData activeIcon;
+  final IconData icon;
+  final String label;
+  const _NavItem(this.activeIcon, this.icon, this.label);
 }

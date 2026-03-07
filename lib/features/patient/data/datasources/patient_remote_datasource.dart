@@ -185,17 +185,22 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
     }
     
     try {
+      // NOTE: orderBy removed to avoid composite index requirement.
+      // Index is defined in firestore.indexes.json — once deployed, orderBy can be restored.
       final snapshot = await FirebaseConfig.facilityDb
           .collection('patients')
           .where('facility_id', isEqualTo: currentFacilityId)
-          .orderBy('created_at', descending: true)
           .get();
 
-      return snapshot.docs.map((doc) {
+      final patients = snapshot.docs.map((doc) {
         final data = doc.data();
         data['id'] = doc.id;
         return PatientModel.fromFirestore(data);
       }).toList();
+
+      // Sort client-side by created_at descending
+      patients.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return patients;
     } catch (e) {
       throw ServerException('Failed to get patients by facility: $e');
     }

@@ -1,13 +1,4 @@
 // lib/features/patient/presentation/pages/patient_registration_page.dart
-//
-// CHANGES vs original:
-//  1. Added Step 0 — Security fields (nationalId, securityQuestion, answer, PIN)
-//     These are required by the AfyaLink gateway to generate the NUPI and mint
-//     the PATIENT_REGISTERED block.  The NUPI field is now auto-filled after
-//     the gateway responds; it is no longer typed in manually.
-//  2. _registerPatient() now calls HieApiService.registerPatient() AFTER the
-//     Firestore save succeeds, then back-fills the generated NUPI into Firestore.
-//  3. Shows a blockchain confirmation snackbar when blockIndex is returned.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -49,12 +40,11 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
   final Color primaryDark = const Color(0xFF1B4332);
   final Color accentGreen = const Color(0xFF2D6A4F);
 
-  // ── Security / HIE fields (Step 0 — NEW) ─────────────────────
-  final _nationalIdController      = TextEditingController();
-  final _securityQuestionController = TextEditingController();
-  final _securityAnswerController  = TextEditingController();
-  final _pinController             = TextEditingController();
-  final _pinConfirmController      = TextEditingController();
+  // ── Security / HIE fields (Step 0) ────────────────────────────
+  final _nationalIdController     = TextEditingController();
+  final _securityAnswerController = TextEditingController();
+  final _pinController            = TextEditingController();
+  final _pinConfirmController     = TextEditingController();
 
   // ── Demographics (Step 1) ─────────────────────────────────────
   final _firstNameController  = TextEditingController();
@@ -67,21 +57,20 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
   String? _bloodGroup;
 
   // ── Address / Next of kin (Step 2) ────────────────────────────
-  final _countyController      = TextEditingController();
-  final _subCountyController   = TextEditingController();
-  final _wardController        = TextEditingController();
-  final _villageController     = TextEditingController();
+  final _countyController         = TextEditingController();
+  final _subCountyController      = TextEditingController();
+  final _wardController           = TextEditingController();
+  final _villageController        = TextEditingController();
   final _nextOfKinNameController  = TextEditingController();
   final _nextOfKinPhoneController = TextEditingController();
   String? _nextOfKinRelationship;
 
   // ── State ─────────────────────────────────────────────────────
   bool _isSubmitting = false;
-  String? _generatedNupi;
 
   static const _securityQuestions = [
     'What was the name of your first pet?',
-    'What is your mother\'s maiden name?',
+    "What is your mother's maiden name?",
     'What city were you born in?',
     'What was the name of your primary school?',
     'What is the name of your oldest sibling?',
@@ -91,7 +80,6 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
   @override
   void dispose() {
     _nationalIdController.dispose();
-    _securityQuestionController.dispose();
     _securityAnswerController.dispose();
     _pinController.dispose();
     _pinConfirmController.dispose();
@@ -187,96 +175,98 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
 
     setState(() => _isSubmitting = true);
 
-    final facilityId = authState.user.facilityId;
-    final dob = _dateOfBirth != null
-        ? DateFormat('yyyy-MM-dd').format(_dateOfBirth!)
-        : '';
+    try {
+      final facilityId = authState.user.facilityId;
+      final dob = _dateOfBirth != null
+          ? DateFormat('yyyy-MM-dd').format(_dateOfBirth!)
+          : '';
 
-    // Step 1 — register on blockchain via Node.js backend
-    // This generates the NUPI and mints the PATIENT_REGISTERED block.
-    final hieResult = await HieApiService.instance.registerPatient(
-      nationalId:       _nationalIdController.text.trim(),
-      firstName:        _firstNameController.text.trim(),
-      lastName:         _lastNameController.text.trim(),
-      middleName:       _middleNameController.text.trim().isEmpty
-                            ? null
-                            : _middleNameController.text.trim(),
-      dateOfBirth:      dob,
-      gender:           _gender,
-      phoneNumber:      _phoneController.text.trim(),
-      email:            _emailController.text.trim().isEmpty
-                            ? null
-                            : _emailController.text.trim(),
-      address: {
-        'county':    _countyController.text.trim(),
-        'subCounty': _subCountyController.text.trim(),
-        'ward':      _wardController.text.trim(),
-        'village':   _villageController.text.trim(),
-      },
-      securityQuestion: _selectedSecurityQuestion!,
-      securityAnswer:   _securityAnswerController.text.trim(),
-      pin:              _pinController.text.trim(),
-    );
+      final hieResult = await HieApiService.instance.registerPatient(
+        nationalId:       _nationalIdController.text.trim(),
+        firstName:        _firstNameController.text.trim(),
+        lastName:         _lastNameController.text.trim(),
+        middleName:       _middleNameController.text.trim().isEmpty
+                              ? null
+                              : _middleNameController.text.trim(),
+        dateOfBirth:      dob,
+        gender:           _gender,
+        phoneNumber:      _phoneController.text.trim(),
+        email:            _emailController.text.trim().isEmpty
+                              ? null
+                              : _emailController.text.trim(),
+        address: {
+          'county':    _countyController.text.trim(),
+          'subCounty': _subCountyController.text.trim(),
+          'ward':      _wardController.text.trim(),
+          'village':   _villageController.text.trim(),
+        },
+        securityQuestion: _selectedSecurityQuestion!,
+        securityAnswer:   _securityAnswerController.text.trim(),
+        pin:              _pinController.text.trim(),
+      );
 
-    // Use the blockchain-generated NUPI if available, otherwise fall back
-    final nupi = hieResult.nupi ?? _generateLocalNupi();
-    _generatedNupi = nupi;
+      final nupi = hieResult.nupi ?? _generateLocalNupi();
 
-    // Step 2 — save full record to Firestore via PatientBloc
-    final patient = Patient(
-      id:           const Uuid().v4(),
-      nupi:         nupi,
-      firstName:    _firstNameController.text.trim(),
-      middleName:   _middleNameController.text.trim(),
-      lastName:     _lastNameController.text.trim(),
-      gender:       _gender,
-      dateOfBirth:  _dateOfBirth!,
-      phoneNumber:  _phoneController.text.trim(),
-      email:        _emailController.text.trim().isEmpty
-                        ? null
-                        : _emailController.text.trim(),
-      county:       _countyController.text.trim(),
-      subCounty:    _subCountyController.text.trim(),
-      ward:         _wardController.text.trim(),
-      village:      _villageController.text.trim(),
-      bloodGroup:   _bloodGroup,
-      facilityId:   facilityId,
-      allergies:    const [],
-      chronicConditions: const [],
-      nextOfKinName: _nextOfKinNameController.text.trim().isEmpty
-                         ? null
-                         : _nextOfKinNameController.text.trim(),
-      nextOfKinPhone: _nextOfKinPhoneController.text.trim().isEmpty
+      final patient = Patient(
+        id:           const Uuid().v4(),
+        nupi:         nupi,
+        firstName:    _firstNameController.text.trim(),
+        middleName:   _middleNameController.text.trim(),
+        lastName:     _lastNameController.text.trim(),
+        gender:       _gender,
+        dateOfBirth:  _dateOfBirth!,
+        phoneNumber:  _phoneController.text.trim(),
+        email:        _emailController.text.trim().isEmpty
                           ? null
-                          : _nextOfKinPhoneController.text.trim(),
-      nextOfKinRelationship: _nextOfKinRelationship,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    );
-
-    if (mounted) {
-      context.read<PatientBloc>().add(RegisterPatientEvent(patient));
-    }
-
-    // Show blockchain confirmation if block was minted
-    if (hieResult.success && hieResult.blockIndex != null && mounted) {
-      _showSnack(
-        '⛓ Block #${hieResult.blockIndex} minted — patient on AfyaChain',
-        color: const Color(0xFF1B4332),
+                          : _emailController.text.trim(),
+        county:       _countyController.text.trim(),
+        subCounty:    _subCountyController.text.trim(),
+        ward:         _wardController.text.trim(),
+        village:      _villageController.text.trim(),
+        bloodGroup:   _bloodGroup,
+        facilityId:   facilityId,
+        allergies:    const [],
+        chronicConditions: const [],
+        nextOfKinName: _nextOfKinNameController.text.trim().isEmpty
+                           ? null
+                           : _nextOfKinNameController.text.trim(),
+        nextOfKinPhone: _nextOfKinPhoneController.text.trim().isEmpty
+                            ? null
+                            : _nextOfKinPhoneController.text.trim(),
+        nextOfKinRelationship: _nextOfKinRelationship,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
       );
-    } else if (!hieResult.success && mounted) {
-      // Still continues — Firestore save happened, blockchain failed gracefully
-      _showSnack(
-        'Saved locally. Blockchain sync pending: ${hieResult.error}',
-        color: Colors.orange,
-      );
-    }
 
-    setState(() => _isSubmitting = false);
+      if (mounted) {
+        context.read<PatientBloc>().add(RegisterPatientEvent(patient));
+      }
+
+      if (hieResult.success && hieResult.blockIndex != null && mounted) {
+        _showSnack(
+          '⛓ Block #${hieResult.blockIndex} minted — patient on AfyaChain',
+          color: const Color(0xFF1B4332),
+        );
+      } else if (!hieResult.success && mounted) {
+        _showSnack(
+          'Saved locally. Blockchain sync pending: ${hieResult.error}',
+          color: Colors.orange,
+        );
+      }
+    } catch (e) {
+      debugPrint('[HIE] Registration error: $e');
+      if (mounted) {
+        // FIX: was a literal newline inside the string causing a parse error
+        _showSnack(
+          'Registration error: ${e.toString().split('\n').first}',
+          color: Colors.red,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
-  /// Fallback NUPI if backend is unreachable — uses same deterministic
-  /// format as the gateway so it can be reconciled later.
   String _generateLocalNupi() {
     final year = DateTime.now().year;
     final rand = (DateTime.now().millisecondsSinceEpoch % 900000) + 100000;
@@ -428,7 +418,6 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
           _sectionHeader(Icons.lock_outline, 'Security',
               'Used to verify the patient\'s identity at any facility'),
           const SizedBox(height: 16),
-          // Security question dropdown
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
@@ -483,6 +472,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
               return null;
             },
           ),
+          const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -525,14 +515,12 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
           _field(controller: _lastNameController, label: 'Last Name',
               validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null),
           const SizedBox(height: 12),
-          // Gender
           Row(children: [
             Expanded(child: _genderCard('male',   Icons.male,   'Male')),
             const SizedBox(width: 12),
             Expanded(child: _genderCard('female', Icons.female, 'Female')),
           ]),
           const SizedBox(height: 12),
-          // DOB picker
           GestureDetector(
             onTap: _pickDob,
             child: Container(
@@ -565,7 +553,6 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
           _field(controller: _emailController, label: 'Email (optional)',
               keyboardType: TextInputType.emailAddress),
           const SizedBox(height: 12),
-          // Blood group
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(
@@ -576,10 +563,12 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 isExpanded: true,
-                hint: Text('Blood Group (optional)', style: TextStyle(color: Colors.grey[400], fontSize: 14)),
+                hint: Text('Blood Group (optional)',
+                    style: TextStyle(color: Colors.grey[400], fontSize: 14)),
                 value: _bloodGroup,
-                items: ['A+','A-','B+','B-','O+','O-','AB+','AB-']
-                    .map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                items: ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-']
+                    .map((g) => DropdownMenuItem(value: g, child: Text(g)))
+                    .toList(),
                 onChanged: (v) => setState(() => _bloodGroup = v),
               ),
             ),
@@ -624,10 +613,12 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 isExpanded: true,
-                hint: Text('Relationship', style: TextStyle(color: Colors.grey[400], fontSize: 14)),
+                hint: Text('Relationship',
+                    style: TextStyle(color: Colors.grey[400], fontSize: 14)),
                 value: _nextOfKinRelationship,
                 items: ['Spouse', 'Parent', 'Child', 'Sibling', 'Friend', 'Other']
-                    .map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
+                    .map((r) => DropdownMenuItem(value: r, child: Text(r)))
+                    .toList(),
                 onChanged: (v) => setState(() => _nextOfKinRelationship = v),
               ),
             ),
@@ -745,11 +736,11 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
     String? Function(String?)? validator,
   }) {
     return TextFormField(
-      controller:    controller,
-      obscureText:   obscureText,
-      keyboardType:  keyboardType,
-      maxLength:     maxLength,
-      validator:     validator,
+      controller:   controller,
+      obscureText:  obscureText,
+      keyboardType: keyboardType,
+      maxLength:    maxLength,
+      validator:    validator,
       decoration: InputDecoration(
         labelText: label,
         hintText:  hint,

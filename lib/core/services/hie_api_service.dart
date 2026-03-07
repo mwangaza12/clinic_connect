@@ -1,10 +1,4 @@
 // lib/core/services/hie_api_service.dart
-//
-// Wraps all calls to ClinicConnect's Node.js backend, which in turn
-// talks to the AfyaLink HIE Gateway and the blockchain.
-//
-// Every method returns a HieResult so callers can show a blockchain
-// confirmation or silently swallow errors without crashing the app.
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -32,9 +26,11 @@ class HieApiService {
   HieApiService._({required String baseUrl}) {
     _dio = Dio(BaseOptions(
       baseUrl:        baseUrl,
-      connectTimeout: const Duration(seconds: 30),
-      receiveTimeout: const Duration(seconds: 60),
+      connectTimeout: const Duration(seconds: 60), // longer for Render cold start
+      receiveTimeout: const Duration(seconds: 90),
       headers: {'Content-Type': 'application/json'},
+      // Don't throw on non-2xx — we handle errors manually so no cast crashes
+      validateStatus: (_) => true,
     ));
 
     if (kDebugMode) {
@@ -46,30 +42,57 @@ class HieApiService {
     }
   }
 
-  /// Call once during app init.  baseUrl = your Render backend URL.
-  /// e.g. HieApiService.init('https://clinicconnect-api.onrender.com')
   static void init(String baseUrl) {
     _instance = HieApiService._(baseUrl: baseUrl);
   }
 
   static HieApiService get instance {
-    assert(_instance != null,
-        'HieApiService.init() must be called before use');
+    assert(_instance != null, 'HieApiService.init() must be called before use');
     return _instance!;
   }
 
-  // ══════════════════════════════════════════════════════════════
-  //  PATIENT REGISTRATION
-  //  Calls POST /api/patients → gateway derives NUPI from nationalId
-  //  + DOB, mints PATIENT_REGISTERED block, returns nupi + blockIndex.
-  // ══════════════════════════════════════════════════════════════
+  // ── Safe response body parser ─────────────────────────────────────────────
+  // Render returns plain-text "Not Found" on cold-start 404s.
+  // This never throws a cast exception regardless of body type.
+  Map<String, dynamic>? _parseBody(dynamic data) {
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return null; // plain string / null — treat as no body
+  }
+
+  String _errorMsg(Response? response, DioException? e) {
+    final body = _parseBody(response?.data);
+    if (body != null) {
+      return body['error']?.toString() ??
+             body['message']?.toString() ??
+             'Server error ${response?.statusCode}';
+    }
+    if (response?.data is String && (response!.data as String).isNotEmpty) {
+      return response.data as String;
+    }
+    return e?.message ?? 'Network error';
+  }
+
+  // ── Wake the Render service before the first real call ───────────────────
+  // Render free-tier spins down after 15 min idle. This ping happens
+  // in the background; if it fails we still proceed with the real call.
+  Future<void> _wakeUp() async {
+    try {
+      await _dio.get('/health',
+        options: Options(receiveTimeout: const Duration(seconds: 20)));
+    } catch (_) {}
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  PATIENT REGISTRATION  →  POST /api/patients
+  // ══════════════════════════════════════════════════════════════════════════
 
   Future<HieResult> registerPatient({
     required String nationalId,
     required String firstName,
     required String lastName,
     String? middleName,
-    required String dateOfBirth,  // ISO date string YYYY-MM-DD
+    required String dateOfBirth,
     required String gender,
     String? phoneNumber,
     String? email,
@@ -79,6 +102,9 @@ class HieApiService {
     required String pin,
   }) async {
     try {
+      // Wake Render first (fire-and-forget style — doesn't delay if already up)
+      await _wakeUp();
+
       final response = await _dio.post('/api/patients', data: {
         'nationalId':       nationalId,
         'firstName':        firstName,
@@ -94,30 +120,35 @@ class HieApiService {
         'pin':              pin,
       });
 
-      final body = response.data as Map<String, dynamic>;
+      final body = _parseBody(response.data);
+
+      if (response.statusCode == null ||
+          response.statusCode! < 200 ||
+          response.statusCode! >= 300) {
+        final msg = _errorMsg(response, null);
+        debugPrint('[HIE] registerPatient failed (${response.statusCode}): $msg');
+        return HieResult(success: false, error: msg);
+      }
+
       return HieResult(
         success:    true,
         data:       body,
-        nupi:       body['nupi']       as String?,
-        blockIndex: body['blockIndex'] as int?,
+        nupi:       body?['nupi']       as String?,
+        blockIndex: body?['blockIndex'] as int?,
       );
     } on DioException catch (e) {
-      final msg = (e.response?.data as Map?)?['error']?.toString()
-                ?? e.message
-                ?? 'Network error';
-      debugPrint('[HIE] registerPatient error: $msg');
+      final msg = _errorMsg(e.response, e);
+      debugPrint('[HIE] registerPatient DioException: $msg');
       return HieResult(success: false, error: msg);
     } catch (e) {
+      debugPrint('[HIE] registerPatient unexpected: $e');
       return HieResult(success: false, error: e.toString());
     }
   }
 
-  // ══════════════════════════════════════════════════════════════
-  //  RECORD ENCOUNTER
-  //  Calls POST /api/patients/:nupi/visit
-  //  Saves to Firestore + mints ENCOUNTER_RECORDED block.
-  //  Requires an access token from a previous verify call.
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
+  //  RECORD ENCOUNTER  →  POST /api/patients/:nupi/visit
+  // ══════════════════════════════════════════════════════════════════════════
 
   Future<HieResult> recordEncounter({
     required String nupi,
@@ -143,33 +174,33 @@ class HieApiService {
           'encounterDate':    encounterDate ?? DateTime.now().toIso8601String(),
         },
         options: Options(
-          headers: {'Authorization': 'Bearer $accessToken'},
+          headers: {
+            if (accessToken.isNotEmpty) 'Authorization': 'Bearer $accessToken',
+          },
         ),
       );
 
-      final body = response.data as Map<String, dynamic>;
-      return HieResult(
-        success:    true,
-        data:       body,
-        blockIndex: body['blockIndex'] as int?,
-      );
+      final body = _parseBody(response.data);
+      if (response.statusCode != null &&
+          response.statusCode! >= 200 &&
+          response.statusCode! < 300) {
+        return HieResult(
+          success:    true,
+          data:       body,
+          blockIndex: body?['blockIndex'] as int?,
+        );
+      }
+      return HieResult(success: false, error: _errorMsg(response, null));
     } on DioException catch (e) {
-      final msg = (e.response?.data as Map?)?['error']?.toString()
-                ?? e.message
-                ?? 'Network error';
-      debugPrint('[HIE] recordEncounter error: $msg');
-      return HieResult(success: false, error: msg);
+      return HieResult(success: false, error: _errorMsg(e.response, e));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
   }
 
-  // ══════════════════════════════════════════════════════════════
-  //  CREATE REFERRAL
-  //  Calls POST /api/referrals on the gateway directly
-  //  (the gateway is the source of truth for cross-facility referrals).
-  //  Mints REFERRAL_ISSUED block.
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
+  //  CREATE REFERRAL  →  POST /api/referrals
+  // ══════════════════════════════════════════════════════════════════════════
 
   Future<HieResult> createReferral({
     required String referralId,
@@ -190,46 +221,47 @@ class HieApiService {
       final response = await _dio.post(
         '/api/referrals',
         data: {
-          'referralId':      referralId,
-          'patientNupi':     patientNupi,
-          'patientName':     patientName,
-          'fromFacilityId':  fromFacilityId,
-          'fromFacilityName':fromFacilityName,
-          'toFacilityId':    toFacilityId,
-          'toFacilityName':  toFacilityName,
-          'reason':          reason,
-          'priority':        priority,
-          'clinicalNotes':   clinicalNotes,
-          'createdBy':       createdBy,
-          'createdByName':   createdByName,
+          'referralId':       referralId,
+          'patientNupi':      patientNupi,
+          'patientName':      patientName,
+          'fromFacilityId':   fromFacilityId,
+          'fromFacilityName': fromFacilityName,
+          'toFacilityId':     toFacilityId,
+          'toFacilityName':   toFacilityName,
+          'reason':           reason,
+          'priority':         priority,
+          'clinicalNotes':    clinicalNotes,
+          'createdBy':        createdBy,
+          'createdByName':    createdByName,
         },
         options: Options(
-          headers: {'Authorization': 'Bearer $accessToken'},
+          headers: {
+            if (accessToken.isNotEmpty) 'Authorization': 'Bearer $accessToken',
+          },
         ),
       );
 
-      final body = response.data as Map<String, dynamic>;
-      return HieResult(
-        success:    true,
-        data:       body,
-        blockIndex: body['blockIndex'] as int?,
-      );
+      final body = _parseBody(response.data);
+      if (response.statusCode != null &&
+          response.statusCode! >= 200 &&
+          response.statusCode! < 300) {
+        return HieResult(
+          success:    true,
+          data:       body,
+          blockIndex: body?['blockIndex'] as int?,
+        );
+      }
+      return HieResult(success: false, error: _errorMsg(response, null));
     } on DioException catch (e) {
-      final msg = (e.response?.data as Map?)?['error']?.toString()
-                ?? e.message
-                ?? 'Network error';
-      debugPrint('[HIE] createReferral error: $msg');
-      return HieResult(success: false, error: msg);
+      return HieResult(success: false, error: _errorMsg(e.response, e));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
   }
 
-  // ══════════════════════════════════════════════════════════════
-  //  VERIFY PATIENT (get access token)
-  //  Used before recording an encounter or creating a referral
-  //  when no token is already stored.
-  // ══════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
+  //  VERIFY BY PIN  →  POST /api/patients/verify/pin
+  // ══════════════════════════════════════════════════════════════════════════
 
   Future<HieResult> verifyByPin({
     required String nationalId,
@@ -242,16 +274,19 @@ class HieApiService {
         'dob':        dateOfBirth,
         'pin':        pin,
       });
-      final body = response.data as Map<String, dynamic>;
-      return HieResult(
-        success: true,
-        data:    body,
-        nupi:    body['nupi'] as String?,
-      );
+      final body = _parseBody(response.data);
+      if (response.statusCode != null &&
+          response.statusCode! >= 200 &&
+          response.statusCode! < 300) {
+        return HieResult(
+          success: true,
+          data:    body,
+          nupi:    body?['nupi'] as String?,
+        );
+      }
+      return HieResult(success: false, error: _errorMsg(response, null));
     } on DioException catch (e) {
-      final msg = (e.response?.data as Map?)?['error']?.toString()
-                ?? e.message ?? 'Verification failed';
-      return HieResult(success: false, error: msg);
+      return HieResult(success: false, error: _errorMsg(e.response, e));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
