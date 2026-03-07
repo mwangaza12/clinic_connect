@@ -1,18 +1,24 @@
 // lib/features/referral/data/datasources/referral_remote_datasource_impl.dart
+//
+// CHANGES:
+//  1. Fixed Dart syntax error: `'feedback_notes': ?feedbackNotes` →
+//     `if (feedbackNotes != null) 'feedback_notes': feedbackNotes`
+//  2. After saving referral to Firestore, also calls
+//     HieApiService.createReferral() to mint a REFERRAL_ISSUED block
+//     on AfyaChain.  Failure is logged but not thrown.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../../../../core/config/firebase_config.dart';
 import '../../../../core/errors/exceptions.dart';
+import '../../../../core/services/hie_api_service.dart';
 import '../../domain/entities/referral.dart';
 import '../models/referral_model.dart';
 import 'referral_remote_datasource.dart';
 
 class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
-  // Uses facility's OWN Firestore for referral records
   FirebaseFirestore get _facilityDb => FirebaseConfig.facilityDb;
-
-  // Uses SHARED index for cross-facility communication
-  FirebaseFirestore get _sharedDb => FirebaseConfig.sharedDb;
+  FirebaseFirestore get _sharedDb   => FirebaseConfig.sharedDb;
 
   @override
   Future<ReferralModel> createReferral(ReferralModel referral) async {
@@ -23,34 +29,62 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
           .doc(referral.id)
           .set(referral.toFirestore());
 
-      // 2. Save copy in shared index for receiving facility
+      // 2. Copy to shared index so receiving facility can see it
       await _sharedDb
           .collection('referral_copies')
           .doc(referral.id)
           .set(referral.toFirestore());
 
-      // 3. Post a lightweight notification in SHARED index
-      await _sharedDb.collection('referral_notifications').doc(referral.id).set(
-        {
-          'referral_id': referral.id,
-          'from_facility_id': referral.fromFacilityId,
-          'from_facility_name': referral.fromFacilityName,
-          'to_facility_id': referral.toFacilityId,
-          'to_facility_name': referral.toFacilityName,
-          'patient_nupi': referral.patientNupi,
-          'patient_name': referral.patientName,
-          'priority': referral.priority.name,
-          'status': referral.status.name,
-          'reason': referral.reason, // Now works!
-          'created_at': Timestamp.now(),
-          'updated_at': Timestamp.now(),
-        },
-      );
+      // 3. Lightweight notification in shared index
+      await _sharedDb
+          .collection('referral_notifications')
+          .doc(referral.id)
+          .set({
+            'referral_id':       referral.id,
+            'from_facility_id':  referral.fromFacilityId,
+            'from_facility_name':referral.fromFacilityName,
+            'to_facility_id':    referral.toFacilityId,
+            'to_facility_name':  referral.toFacilityName,
+            'patient_nupi':      referral.patientNupi,
+            'patient_name':      referral.patientName,
+            'priority':          referral.priority.name,
+            'status':            referral.status.name,
+            'reason':            referral.reason,
+            'created_at':        Timestamp.now(),
+            'updated_at':        Timestamp.now(),
+          });
+
+      // 4. Mint REFERRAL_ISSUED block on AfyaChain (fire-and-forget)
+      _notifyBlockchain(referral);
 
       return referral;
     } catch (e) {
       throw ServerException('Failed to create referral: $e');
     }
+  }
+
+  void _notifyBlockchain(ReferralModel referral) {
+    HieApiService.instance.createReferral(
+      referralId:       referral.id,
+      patientNupi:      referral.patientNupi,
+      patientName:      referral.patientName,
+      fromFacilityId:   referral.fromFacilityId,
+      fromFacilityName: referral.fromFacilityName,
+      toFacilityId:     referral.toFacilityId,
+      toFacilityName:   referral.toFacilityName,
+      reason:           referral.reason,
+      priority:         referral.priority.name,
+      clinicalNotes:    referral.clinicalNotes,
+      createdBy:        referral.createdBy,
+      createdByName:    referral.createdByName,
+      accessToken:      '',   // facility-level call — backend auth via API key
+    ).then((result) {
+      if (result.success) {
+        debugPrint('[HIE] ⛓ Referral block #${result.blockIndex} minted for ${referral.patientNupi}');
+      } else {
+        debugPrint('[HIE] ⚠ Referral blockchain notification failed: ${result.error}');
+      }
+    });
   }
 
   @override
@@ -98,9 +132,7 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
           data['id'] = copyDoc.id;
           referrals.add(ReferralModel.fromFirestore(data));
         } else {
-          referrals.add(
-            ReferralModel.fromNotification(notificationData),
-          ); // Now works!
+          referrals.add(ReferralModel.fromNotification(notificationData));
         }
       }
 
@@ -119,18 +151,15 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
     try {
       final now = DateTime.now();
       final updateData = {
-        'status': status.name,
+        'status':     status.name,
         'updated_at': Timestamp.fromDate(now),
-        'feedback_notes': ?feedbackNotes,
-        if (status == ReferralStatus.accepted)
-          'accepted_at': Timestamp.fromDate(now),
-        if (status == ReferralStatus.rejected)
-          'rejected_at': Timestamp.fromDate(now), // Now works!
-        if (status == ReferralStatus.completed)
-          'completed_at': Timestamp.fromDate(now),
+        if (feedbackNotes != null) 'feedback_notes': feedbackNotes,   // ← FIXED
+        if (status == ReferralStatus.accepted)  'accepted_at': Timestamp.fromDate(now),
+        if (status == ReferralStatus.rejected)  'rejected_at': Timestamp.fromDate(now),
+        if (status == ReferralStatus.completed) 'completed_at': Timestamp.fromDate(now),
       };
 
-      // Update in own DB
+      // Update own DB (may not exist for incoming referrals)
       try {
         await _facilityDb
             .collection('referrals')
@@ -138,7 +167,7 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
             .update(updateData);
       } catch (_) {}
 
-      // Update in shared index
+      // Update shared index
       await _sharedDb
           .collection('referral_copies')
           .doc(referralId)
@@ -147,17 +176,14 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
       await _sharedDb
           .collection('referral_notifications')
           .doc(referralId)
-          .update({
-            'status': status.name,
-            'updated_at': Timestamp.fromDate(now),
-          });
+          .update({'status': status.name, 'updated_at': Timestamp.fromDate(now)});
 
+      // Pull full referral into own DB when accepted
       if (status == ReferralStatus.accepted) {
         final referralDoc = await _sharedDb
             .collection('referral_copies')
             .doc(referralId)
             .get();
-
         if (referralDoc.exists) {
           await _facilityDb
               .collection('referrals')
@@ -191,9 +217,7 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
           .doc(referralId)
           .get();
 
-      if (!sharedDoc.exists) {
-        throw ServerException('Referral not found');
-      }
+      if (!sharedDoc.exists) throw ServerException('Referral not found');
 
       final data = sharedDoc.data()!;
       data['id'] = sharedDoc.id;
@@ -204,9 +228,7 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
   }
 
   @override
-  Future<List<ReferralModel>> searchReferralsByPatient(
-    String patientNupi,
-  ) async {
+  Future<List<ReferralModel>> searchReferralsByPatient(String patientNupi) async {
     try {
       final query = await _facilityDb
           .collection('referrals')
@@ -237,29 +259,22 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
           .where('to_facility_id', isEqualTo: facilityId)
           .get();
 
-      int pending = 0;
-      int accepted = 0;
-      int rejected = 0;
-      int completed = 0;
-
+      int pending = 0, accepted = 0, rejected = 0, completed = 0;
       for (final doc in outgoingQuery.docs) {
-        final status = doc.data()['status'];
-        if (status == 'pending') {
-          pending++;
-        } else if (status == 'accepted') {
-          accepted++;
-        } else if (status == 'rejected')
-          {rejected++;}
-        else if (status == 'completed')
-          {completed++;}
+        switch (doc.data()['status']) {
+          case 'pending':   pending++;   break;
+          case 'accepted':  accepted++;  break;
+          case 'rejected':  rejected++;  break;
+          case 'completed': completed++; break;
+        }
       }
 
       return {
         'total_outgoing': outgoingQuery.docs.length,
         'total_incoming': incomingQuery.docs.length,
-        'pending': pending,
-        'accepted': accepted,
-        'rejected': rejected,
+        'pending':   pending,
+        'accepted':  accepted,
+        'rejected':  rejected,
         'completed': completed,
       };
     } catch (e) {

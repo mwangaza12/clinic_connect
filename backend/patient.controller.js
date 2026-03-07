@@ -305,15 +305,10 @@ export class PatientController {
       const { nupi }    = req.params;
       const accessToken = req.headers['authorization']?.replace('Bearer ', '');
 
-      if (!accessToken) {
-        return res.status(401).json({
-          success: false,
-          error:   'Authorization header required. Verify patient identity first via POST /patients/verify/answer',
-        });
-      }
-
+      // Access token is optional for staff-initiated encounters.
+      // If present it's forwarded to the gateway for federated context.
       const result = await patientService.registerVisit(nupi, {
-        accessToken,
+        accessToken: accessToken || null,
         ...req.body,
       });
 

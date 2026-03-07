@@ -1,7 +1,14 @@
+// lib/main.dart
+//
+// CHANGE: Added HieApiService.init() with the ClinicConnect backend URL.
+// Set the URL to your Render deployment of the Node.js backend.
+// This must be called before any patient/encounter/referral creation.
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'core/config/firebase_config.dart';
+import 'core/services/hie_api_service.dart';
 import 'core/sync/sync_manager.dart';
 import 'firebase_options.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
@@ -23,6 +30,17 @@ void main() async {
 
   await di.init();
   await SyncManager().init();
+
+  // ── AfyaLink HIE Integration ───────────────────────────────
+  // Replace this URL with your deployed Render backend URL.
+  // For local development use: http://10.0.2.2:4000  (Android emulator)
+  //                       or:  http://localhost:4000   (iOS simulator)
+  HieApiService.init(
+    const String.fromEnvironment(
+      'HIE_BACKEND_URL',
+      defaultValue: 'https://clinicconnect-api.onrender.com',
+    ),
+  );
 
   runApp(const MyApp());
 }
