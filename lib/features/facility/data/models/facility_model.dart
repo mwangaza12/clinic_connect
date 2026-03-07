@@ -44,6 +44,22 @@ class FacilityModel extends Facility {
     );
   }
 
+
+  // FROM GATEWAY  (AfyaLink HIE Gateway response shape)
+  factory FacilityModel.fromGateway(Map<String, dynamic> json) {
+    return FacilityModel(
+      id:        json['facilityId'] ?? json['id'] ?? '',
+      name:      json['name']       ?? '',
+      type:      json['type']       ?? 'Hospital',
+      county:    json['county']     ?? '',
+      subCounty: json['subCounty']  ?? json['sub_county'] ?? '',
+      isActive:  json['active']     ?? json['is_active'] ?? true,
+      lastSeen:  json['registeredAt'] != null
+          ? DateTime.tryParse(json['registeredAt'].toString())
+          : null,
+    );
+  }
+
   // TO FIRESTORE
   Map<String, dynamic> toFirestore() {
     return {

@@ -3,7 +3,8 @@ import cors    from 'cors';
 import helmet  from 'helmet';
 import 'dotenv/config';
 
-import patientRoutes              from './patient.routes.js';
+import patientRoutes    from './patient.routes.js';
+import facilityRoutes   from './facility.routes.js';
 import fhirRoutes                 from './fhir.routes.js';
 import { startGatewayKeepAlive } from './patient.service.js';
 
@@ -14,7 +15,8 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 // ── Routes ─────────────────────────────────────────────────────────
-app.use('/api/patients', patientRoutes);
+app.use('/api/patients',  patientRoutes);
+app.use('/api/facilities', facilityRoutes);
 app.use('/fhir',         fhirRoutes);   // ← FHIR R4 endpoints for HIE Gateway
 
 // ── Health check ───────────────────────────────────────────────────
@@ -32,7 +34,7 @@ app.get('/health', (req, res) => {
 // ── Start ──────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-  console.log(`\n   ClinicConnect API  →  http://localhost:${PORT}`);
+  console.log(`\n🏥 ClinicConnect API  →  http://localhost:${PORT}`);
   console.log(`\n   Patient API:`);
   console.log(`     POST /api/patients                 register patient`);
   console.log(`     GET  /api/patients/verify/question  get security question`);
