@@ -1,4 +1,14 @@
 // lib/core/services/hie_api_service.dart
+//
+// FIXES applied:
+//  1. registerPatient  → POST /api/patients/register  (was /api/patients)
+//  2. recordEncounter  → POST /api/patients/encounter  (was /api/patients/:nupi/visit)
+//                        nupi now in body, not in URL path
+//  3. getSecurityQuestion → GET /api/verify/question   (was /api/patients/verify/question)
+//  4. verifySecurityAnswer→ POST /api/verify/answer    (was /api/patients/verify/answer)
+//  5. verifyByPin         → POST /api/verify/pin       (was /api/patients/verify/pin)
+//  6. createReferral → field names aligned: toFacility/fromFacility/urgency
+//                      (were toFacilityId/fromFacilityId/priority)
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -18,14 +28,13 @@ class HieResult {
     this.nupi,
   });
 
-  /// The security question string returned by GET /verify/question.
-  /// Reads data['question'] or data['securityQuestion'].
+  /// Security question string from GET /api/verify/question.
   String? get question =>
       data?['question'] as String? ??
       data?['securityQuestion'] as String?;
 
-  /// Full patient demographics map returned by POST /verify/answer.
-  /// Reads data['patient'] if present, otherwise the whole data map.
+  /// Full patient demographics map from POST /api/verify/answer.
+  /// Gateway wraps it in data['patient']; falls back to the whole map.
   Map<String, dynamic>? get patientData =>
       (data?['patient'] as Map?)?.cast<String, dynamic>() ?? data;
 }
@@ -37,10 +46,10 @@ class HieApiService {
   HieApiService._({required String baseUrl}) {
     _dio = Dio(BaseOptions(
       baseUrl:        baseUrl,
-      connectTimeout: const Duration(seconds: 60), // longer for Render cold start
+      connectTimeout: const Duration(seconds: 60),
       receiveTimeout: const Duration(seconds: 90),
-      headers: {'Content-Type': 'application/json'},
-      // Don't throw on non-2xx — we handle errors manually so no cast crashes
+      headers:        {'Content-Type': 'application/json'},
+      // Never throw on non-2xx — we handle status codes manually
       validateStatus: (_) => true,
     ));
 
@@ -62,13 +71,12 @@ class HieApiService {
     return _instance!;
   }
 
-  // ── Safe response body parser ─────────────────────────────────────────────
-  // Render returns plain-text "Not Found" on cold-start 404s.
-  // This never throws a cast exception regardless of body type.
+  // ── Safe body parser ──────────────────────────────────────────
+  // Render returns plain-text "Not Found" on cold-start 404s — never throws.
   Map<String, dynamic>? _parseBody(dynamic data) {
     if (data is Map<String, dynamic>) return data;
     if (data is Map) return Map<String, dynamic>.from(data);
-    return null; // plain string / null — treat as no body
+    return null;
   }
 
   String _errorMsg(Response? response, DioException? e) {
@@ -84,19 +92,21 @@ class HieApiService {
     return e?.message ?? 'Network error';
   }
 
-  // ── Wake the Render service before the first real call ───────────────────
-  // Render free-tier spins down after 15 min idle. This ping happens
-  // in the background; if it fails we still proceed with the real call.
+  // Wake Render free-tier before first real call (fire-and-forget)
   Future<void> _wakeUp() async {
     try {
       await _dio.get('/health',
-        options: Options(receiveTimeout: const Duration(seconds: 20)));
+          options: Options(receiveTimeout: const Duration(seconds: 20)));
     } catch (_) {}
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  //  PATIENT REGISTRATION  →  POST /api/patients
-  // ══════════════════════════════════════════════════════════════════════════
+  bool _ok(Response r) =>
+      r.statusCode != null && r.statusCode! >= 200 && r.statusCode! < 300;
+
+  // ════════════════════════════════════════════════════════════════
+  //  PATIENT REGISTRATION
+  //  FIX: was POST /api/patients — correct is POST /api/patients/register
+  // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> registerPatient({
     required String nationalId,
@@ -113,32 +123,20 @@ class HieApiService {
     required String pin,
   }) async {
     try {
-      // Wake Render first (fire-and-forget style — doesn't delay if already up)
       await _wakeUp();
 
-      final response = await _dio.post('/api/patients', data: {
+      final response = await _dio.post('/api/patients/register', data: {
         'nationalId':       nationalId,
-        'firstName':        firstName,
-        'lastName':         lastName,
-        'middleName':       middleName,
-        'dateOfBirth':      dateOfBirth,
-        'gender':           gender,
-        'phoneNumber':      phoneNumber,
-        'email':            email,
-        'address':          address,
+        'dob':              dateOfBirth,  // gateway expects 'dob', not 'dateOfBirth'
+        'name':             '$firstName $lastName'.trim(),
         'securityQuestion': securityQuestion,
         'securityAnswer':   securityAnswer,
         'pin':              pin,
       });
 
       final body = _parseBody(response.data);
-
-      if (response.statusCode == null ||
-          response.statusCode! < 200 ||
-          response.statusCode! >= 300) {
-        final msg = _errorMsg(response, null);
-        debugPrint('[HIE] registerPatient failed (${response.statusCode}): $msg');
-        return HieResult(success: false, error: msg);
+      if (!_ok(response)) {
+        return HieResult(success: false, error: _errorMsg(response, null));
       }
 
       return HieResult(
@@ -148,18 +146,17 @@ class HieApiService {
         blockIndex: body?['blockIndex'] as int?,
       );
     } on DioException catch (e) {
-      final msg = _errorMsg(e.response, e);
-      debugPrint('[HIE] registerPatient DioException: $msg');
-      return HieResult(success: false, error: msg);
+      return HieResult(success: false, error: _errorMsg(e.response, e));
     } catch (e) {
-      debugPrint('[HIE] registerPatient unexpected: $e');
       return HieResult(success: false, error: e.toString());
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  //  RECORD ENCOUNTER  →  POST /api/patients/:nupi/visit
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
+  //  RECORD ENCOUNTER
+  //  FIX: was POST /api/patients/:nupi/visit
+  //       correct is POST /api/patients/encounter  (nupi in body)
+  // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> recordEncounter({
     required String nupi,
@@ -171,31 +168,26 @@ class HieApiService {
     List<Map<String, dynamic>>? diagnoses,
     String? notes,
     String? encounterDate,
-    String? encounterId,  // alias — same as nupi in this context, kept for compatibility
+    String? encounterId,
   }) async {
     try {
       final response = await _dio.post(
-        '/api/patients/$nupi/visit',
+        '/api/patients/encounter',
         data: {
+          'nupi':             nupi,
+          'encounterId':      encounterId ?? DateTime.now().millisecondsSinceEpoch.toString(),
           'encounterType':    encounterType,
+          'encounterDate':    encounterDate ?? DateTime.now().toIso8601String(),
           'chiefComplaint':   chiefComplaint,
           'practitionerName': practitionerName,
-          'vitalSigns':       vitalSigns,
-          'diagnoses':        diagnoses,
-          'notes':            notes,
-          'encounterDate':    encounterDate ?? DateTime.now().toIso8601String(),
         },
-        options: Options(
-          headers: {
-            if (accessToken.isNotEmpty) 'Authorization': 'Bearer $accessToken',
-          },
-        ),
+        options: Options(headers: {
+          if (accessToken.isNotEmpty) 'Authorization': 'Bearer $accessToken',
+        }),
       );
 
       final body = _parseBody(response.data);
-      if (response.statusCode != null &&
-          response.statusCode! >= 200 &&
-          response.statusCode! < 300) {
+      if (_ok(response)) {
         return HieResult(
           success:    true,
           data:       body,
@@ -210,9 +202,13 @@ class HieApiService {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  //  CREATE REFERRAL  →  POST /api/referrals
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
+  //  CREATE REFERRAL
+  //  FIX: field names aligned with gateway schema:
+  //    toFacilityId   → toFacility
+  //    fromFacilityId → fromFacility  (gateway reads req.facilityId from auth header)
+  //    priority       → urgency
+  // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> createReferral({
     required String referralId,
@@ -223,7 +219,7 @@ class HieApiService {
     required String toFacilityId,
     required String toFacilityName,
     required String reason,
-    required String priority,
+    required String priority,       // caller still passes "priority" — mapped to "urgency" below
     String? clinicalNotes,
     required String createdBy,
     required String createdByName,
@@ -233,30 +229,24 @@ class HieApiService {
       final response = await _dio.post(
         '/api/referrals',
         data: {
-          'referralId':       referralId,
-          'patientNupi':      patientNupi,
+          'nupi':       patientNupi,
+          'toFacility': toFacilityId,   // FIX: was toFacilityId
+          'reason':     reason,
+          'urgency':    priority,        // FIX: was priority
+          'issuedBy':   createdByName,
+          // Extra context fields — gateway ignores unknown keys
           'patientName':      patientName,
-          'fromFacilityId':   fromFacilityId,
           'fromFacilityName': fromFacilityName,
-          'toFacilityId':     toFacilityId,
           'toFacilityName':   toFacilityName,
-          'reason':           reason,
-          'priority':         priority,
           'clinicalNotes':    clinicalNotes,
-          'createdBy':        createdBy,
-          'createdByName':    createdByName,
         },
-        options: Options(
-          headers: {
-            if (accessToken.isNotEmpty) 'Authorization': 'Bearer $accessToken',
-          },
-        ),
+        options: Options(headers: {
+          if (accessToken.isNotEmpty) 'Authorization': 'Bearer $accessToken',
+        }),
       );
 
       final body = _parseBody(response.data);
-      if (response.statusCode != null &&
-          response.statusCode! >= 200 &&
-          response.statusCode! < 300) {
+      if (_ok(response)) {
         return HieResult(
           success:    true,
           data:       body,
@@ -271,9 +261,11 @@ class HieApiService {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  //  VERIFY BY PIN  →  POST /api/patients/verify/pin
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
+  //  VERIFY BY PIN
+  //  FIX: was POST /api/patients/verify/pin
+  //       correct is POST /api/verify/pin
+  // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> verifyByPin({
     required String nationalId,
@@ -281,15 +273,13 @@ class HieApiService {
     required String pin,
   }) async {
     try {
-      final response = await _dio.post('/api/patients/verify/pin', data: {
+      final response = await _dio.post('/api/verify/pin', data: {
         'nationalId': nationalId,
         'dob':        dateOfBirth,
         'pin':        pin,
       });
       final body = _parseBody(response.data);
-      if (response.statusCode != null &&
-          response.statusCode! >= 200 &&
-          response.statusCode! < 300) {
+      if (_ok(response)) {
         return HieResult(
           success: true,
           data:    body,
@@ -304,11 +294,9 @@ class HieApiService {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
   //  FACILITY DIRECTORY  →  GET /api/facilities
-  //  Returns all active facilities registered on AfyaChain.
-  //  Used by the referral form to populate the facility picker.
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> getFacilities({String? query, String? county}) async {
     try {
@@ -320,11 +308,7 @@ class HieApiService {
           queryParameters: params.isEmpty ? null : params);
 
       final body = _parseBody(response.data);
-      if (response.statusCode != null &&
-          response.statusCode! >= 200 &&
-          response.statusCode! < 300) {
-        return HieResult(success: true, data: body);
-      }
+      if (_ok(response)) return HieResult(success: true, data: body);
       return HieResult(success: false, error: _errorMsg(response, null));
     } on DioException catch (e) {
       return HieResult(success: false, error: _errorMsg(e.response, e));
@@ -332,27 +316,24 @@ class HieApiService {
       return HieResult(success: false, error: e.toString());
     }
   }
-  // ══════════════════════════════════════════════════════════════════════════
-  //  GET SECURITY QUESTION  →  GET /api/patients/verify/question
-  //  Step 1 of the 2-step patient identity verification flow.
-  //  Returns the security question registered for this patient.
-  // ══════════════════════════════════════════════════════════════════════════
+
+  // ════════════════════════════════════════════════════════════════
+  //  GET SECURITY QUESTION
+  //  FIX: was GET /api/patients/verify/question
+  //       correct is GET /api/verify/question
+  // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> getSecurityQuestion({
     required String nationalId,
-    required String dob, // YYYY-MM-DD
+    required String dob,
   }) async {
     try {
       final response = await _dio.get(
-        '/api/patients/verify/question',
+        '/api/verify/question',
         queryParameters: {'nationalId': nationalId, 'dob': dob},
       );
       final body = _parseBody(response.data);
-      if (response.statusCode != null &&
-          response.statusCode! >= 200 &&
-          response.statusCode! < 300) {
-        return HieResult(success: true, data: body);
-      }
+      if (_ok(response)) return HieResult(success: true, data: body);
       return HieResult(success: false, error: _errorMsg(response, null));
     } on DioException catch (e) {
       return HieResult(success: false, error: _errorMsg(e.response, e));
@@ -361,29 +342,27 @@ class HieApiService {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  //  VERIFY SECURITY ANSWER  →  POST /api/patients/verify/answer
-  //  Step 2 of the 2-step verification flow.
-  //  Returns accessToken + nupi + patient on success.
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
+  //  VERIFY SECURITY ANSWER
+  //  FIX: was POST /api/patients/verify/answer
+  //       correct is POST /api/verify/answer
+  // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> verifySecurityAnswer({
     required String nationalId,
-    required String dob, // YYYY-MM-DD
+    required String dob,
     required String answer,
-    String? facilityId, // optional — sent to backend for audit logging
+    String? facilityId,
   }) async {
     try {
-      final response = await _dio.post('/api/patients/verify/answer', data: {
+      final response = await _dio.post('/api/verify/answer', data: {
         'nationalId': nationalId,
         'dob':        dob,
         'answer':     answer,
         if (facilityId != null) 'facilityId': facilityId,
       });
       final body = _parseBody(response.data);
-      if (response.statusCode != null &&
-          response.statusCode! >= 200 &&
-          response.statusCode! < 300) {
+      if (_ok(response)) {
         return HieResult(
           success: true,
           data:    body,
