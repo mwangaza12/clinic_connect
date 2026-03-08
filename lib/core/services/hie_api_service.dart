@@ -12,6 +12,8 @@
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../constants/storage_keys.dart';
 
 class HieResult {
   final bool success;
@@ -43,6 +45,9 @@ class HieApiService {
   static HieApiService? _instance;
   late final Dio _dio;
 
+  // Secure storage for reading facility credentials on every request
+  static const _storage = FlutterSecureStorage();
+
   HieApiService._({required String baseUrl}) {
     _dio = Dio(BaseOptions(
       baseUrl:        baseUrl,
@@ -52,6 +57,27 @@ class HieApiService {
       // Never throw on non-2xx — we handle status codes manually
       validateStatus: (_) => true,
     ));
+
+    // ── Inject X-Facility-Id + X-Api-Key on every outbound request ──
+    // The HIE Gateway requireFacility middleware rejects any request that
+    // does not carry both headers.  We read them from secure storage each
+    // time so they stay current after setup / re-auth.
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) async {
+          final facilityId = await _storage.read(key: StorageKeys.facilityId);
+          final apiKey     = await _storage.read(key: StorageKeys.facilityApiKey);
+
+          if (facilityId != null && facilityId.isNotEmpty) {
+            options.headers['X-Facility-Id'] = facilityId;
+          }
+          if (apiKey != null && apiKey.isNotEmpty) {
+            options.headers['X-Api-Key'] = apiKey;
+          }
+          handler.next(options);
+        },
+      ),
+    );
 
     if (kDebugMode) {
       _dio.interceptors.add(LogInterceptor(
