@@ -1,8 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../../core/config/facility_info.dart';
 import '../../../../core/config/firebase_config.dart';
+import '../../../../core/constants/storage_keys.dart';
 import '../../../../core/errors/exceptions.dart';
 import '../models/user_model.dart';
 
@@ -20,11 +22,13 @@ abstract class AuthRemoteDatasource {
 class AuthRemoteDatasourceImpl implements AuthRemoteDatasource {
   final firebase_auth.FirebaseAuth firebaseAuth;
   final FirebaseFirestore firestore;
+  final FlutterSecureStorage secureStorage;
 
   AuthRemoteDatasourceImpl({
     required this.firebaseAuth,
     required this.firestore,
-  });
+    FlutterSecureStorage? secureStorage,
+  }) : secureStorage = secureStorage ?? const FlutterSecureStorage();
 
   @override
   Future<UserModel> login({
@@ -60,6 +64,21 @@ class AuthRemoteDatasourceImpl implements AuthRemoteDatasource {
         facilityName: user.facilityName,
         facilityCounty: '',
       );
+
+      // 4. Persist facility credentials so HieApiService can attach
+      //    X-Facility-Id + X-Api-Key headers on every gateway request.
+      //    The hie_api_key is provisioned by MoH and stored on the user
+      //    document in the facility's own Firestore.
+      await secureStorage.write(
+        key:   StorageKeys.facilityId,
+        value: user.facilityId,
+      );
+      if (user.hieApiKey != null && user.hieApiKey!.isNotEmpty) {
+        await secureStorage.write(
+          key:   StorageKeys.facilityApiKey,
+          value: user.hieApiKey,
+        );
+      }
 
       // NOTE: removed sharedDb.facilities write — the facility registry is
       // owned by the HIE Gateway (registered via MoH admin panel). This app
@@ -113,6 +132,18 @@ class AuthRemoteDatasourceImpl implements AuthRemoteDatasource {
         facilityName: user.facilityName,
         facilityCounty: '',
       );
+
+      // Refresh credentials in secure storage (handles app restart)
+      await secureStorage.write(
+        key:   StorageKeys.facilityId,
+        value: user.facilityId,
+      );
+      if (user.hieApiKey != null && user.hieApiKey!.isNotEmpty) {
+        await secureStorage.write(
+          key:   StorageKeys.facilityApiKey,
+          value: user.hieApiKey,
+        );
+      }
 
       return user;
     } catch (e) {
