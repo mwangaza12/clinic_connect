@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../core/services/hie_api_service.dart';
 import '../../../../injection_container.dart';
+import '../../data/datasources/patient_local_datasource.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../domain/entities/patient.dart';
@@ -205,8 +206,46 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         pin:              _pinController.text.trim(),
       );
 
-      final nupi = hieResult.nupi ?? _generateLocalNupi();
+      final nupi          = hieResult.nupi ?? _generateLocalNupi();
+      final alreadyExists = hieResult.data?['alreadyExists'] == true;
 
+      // ── Duplicate guard ───────────────────────────────────────────
+      // Gateway says patient exists on AfyaNet.
+      // Check SQLite (fast, offline) to see if already at THIS facility.
+      if (alreadyExists) {
+        final localDs  = sl<PatientLocalDatasource>();
+        final existing = await localDs.getPatientByNupi(nupi);
+
+        if (existing != null && mounted) {
+          _showSnack(
+            'This patient is already registered here (NUPI: $nupi)',
+            color: Colors.orange,
+          );
+          Navigator.of(context).pop();
+          return; // ← stops here, no new record created
+        }
+
+        // On AfyaNet but new to this facility — fall through to save locally
+        if (mounted) {
+          _showSnack(
+            'Patient already on AfyaNet — linked to this facility',
+            color: const Color(0xFF1B4332),
+          );
+        }
+      } else if (hieResult.success && hieResult.blockIndex != null && mounted) {
+        _showSnack(
+          '⛓ Block #${hieResult.blockIndex} minted — patient on AfyaChain',
+          color: const Color(0xFF1B4332),
+        );
+      } else if (!hieResult.success && mounted) {
+        _showSnack(
+          'Saved locally. Blockchain sync pending: ${hieResult.error}',
+          color: Colors.orange,
+        );
+      }
+
+      // Save locally — using NUPI as dedup key so ConflictAlgorithm.replace
+      // in SQLite and Firestore .set() are both idempotent
       final patient = Patient(
         id:           const Uuid().v4(),
         nupi:         nupi,
@@ -242,21 +281,9 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         context.read<PatientBloc>().add(RegisterPatientEvent(patient));
       }
 
-      if (hieResult.success && hieResult.blockIndex != null && mounted) {
-        _showSnack(
-          '⛓ Block #${hieResult.blockIndex} minted — patient on AfyaChain',
-          color: const Color(0xFF1B4332),
-        );
-      } else if (!hieResult.success && mounted) {
-        _showSnack(
-          'Saved locally. Blockchain sync pending: ${hieResult.error}',
-          color: Colors.orange,
-        );
-      }
     } catch (e) {
       debugPrint('[HIE] Registration error: $e');
       if (mounted) {
-        // FIX: was a literal newline inside the string causing a parse error
         _showSnack(
           'Registration error: ${e.toString().split('\n').first}',
           color: Colors.red,

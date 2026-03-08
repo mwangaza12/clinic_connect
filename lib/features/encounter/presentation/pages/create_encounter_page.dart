@@ -45,8 +45,11 @@ class CreateEncounterPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (_) => sl<EncounterBloc>(),
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider(create: (_) => sl<EncounterBloc>()),
+        BlocProvider(create: (_) => sl<PatientBloc>()),
+      ],
       child: _CreateEncounterView(
         patient:     patient,
         nupiPatient: nupiPatient,
