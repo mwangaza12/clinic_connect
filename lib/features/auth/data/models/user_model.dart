@@ -15,7 +15,12 @@ class UserModel extends User {
     super.isActive,
     super.lastLogin,
     super.createdAt,
+    this.hieApiKey,
   });
+
+  /// The facility's HIE Gateway API key.
+  /// Stored in Firestore as 'hie_api_key' on the user document.
+  final String? hieApiKey;
 
   // ─────────────────────────────────────────
   // FROM FIRESTORE (Fixes your error!)
@@ -36,6 +41,7 @@ class UserModel extends User {
       createdAt: json['created_at'] != null 
           ? (json['created_at'] as Timestamp).toDate() 
           : DateTime.now(),
+      hieApiKey: json['hie_api_key'] as String?,
     );
   }
 
