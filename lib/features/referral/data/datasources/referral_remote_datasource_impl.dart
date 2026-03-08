@@ -1,11 +1,15 @@
 // lib/features/referral/data/datasources/referral_remote_datasource_impl.dart
 //
-// CHANGES:
-//  1. Fixed Dart syntax error: `'feedback_notes': ?feedbackNotes` →
-//     `if (feedbackNotes != null) 'feedback_notes': feedbackNotes`
-//  2. After saving referral to Firestore, also calls
-//     HieApiService.createReferral() to mint a REFERRAL_ISSUED block
-//     on AfyaChain.  Failure is logged but not thrown.
+// CHANGES from original:
+//  1. All sharedDb (clinicconnect-shared-index) reads and writes removed.
+//     Incoming referrals, referral copies, and referral notifications now
+//     come from the HIE Gateway Express API via HieApiService.
+//  2. createReferral still writes to own facilityDb for local record, then
+//     calls HieApiService.createReferral to log on AfyaChain blockchain.
+//  3. updateReferralStatus updates own facilityDb only — status is local per
+//     hospital (blockchain is immutable; status tracking stays in local DB).
+//  4. getIncomingReferrals now calls GET /api/referrals/incoming/:facilityId
+//     on the gateway, then saves copies locally for offline access.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -18,43 +22,20 @@ import 'referral_remote_datasource.dart';
 
 class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
   FirebaseFirestore get _facilityDb => FirebaseConfig.facilityDb;
-  FirebaseFirestore get _sharedDb   => FirebaseConfig.sharedDb;
+
+
+  // ── CREATE ────────────────────────────────────────────────────────────────
 
   @override
   Future<ReferralModel> createReferral(ReferralModel referral) async {
     try {
-      // 1. Save full referral in OWN facility DB
+      // 1. Save to own facility Firestore for local record + offline access
       await _facilityDb
           .collection('referrals')
           .doc(referral.id)
           .set(referral.toFirestore());
 
-      // 2. Copy to shared index so receiving facility can see it
-      await _sharedDb
-          .collection('referral_copies')
-          .doc(referral.id)
-          .set(referral.toFirestore());
-
-      // 3. Lightweight notification in shared index
-      await _sharedDb
-          .collection('referral_notifications')
-          .doc(referral.id)
-          .set({
-            'referral_id':       referral.id,
-            'from_facility_id':  referral.fromFacilityId,
-            'from_facility_name':referral.fromFacilityName,
-            'to_facility_id':    referral.toFacilityId,
-            'to_facility_name':  referral.toFacilityName,
-            'patient_nupi':      referral.patientNupi,
-            'patient_name':      referral.patientName,
-            'priority':          referral.priority.name,
-            'status':            referral.status.name,
-            'reason':            referral.reason,
-            'created_at':        Timestamp.now(),
-            'updated_at':        Timestamp.now(),
-          });
-
-      // 4. Mint REFERRAL_ISSUED block on AfyaChain (fire-and-forget)
+      // 2. Log on AfyaChain via gateway (fire-and-forget; failure non-fatal)
       _notifyBlockchain(referral);
 
       return referral;
@@ -77,7 +58,7 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
       clinicalNotes:    referral.clinicalNotes,
       createdBy:        referral.createdBy,
       createdByName:    referral.createdByName,
-      accessToken:      '',   // facility-level call — backend auth via API key
+      accessToken:      '',
     ).then((result) {
       if (result.success) {
         debugPrint('[HIE] ⛓ Referral block #${result.blockIndex} minted for ${referral.patientNupi}');
@@ -87,8 +68,11 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
     });
   }
 
+  // ── OUTGOING ──────────────────────────────────────────────────────────────
+
   @override
   Future<List<ReferralModel>> getOutgoingReferrals(String facilityId) async {
+    // Outgoing referrals were created by this facility → already in own Firestore
     try {
       final query = await _facilityDb
           .collection('referrals')
@@ -106,41 +90,62 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
     }
   }
 
+  // ── INCOMING ──────────────────────────────────────────────────────────────
+
   @override
   Future<List<ReferralModel>> getIncomingReferrals(String facilityId) async {
+    // Previously read from sharedDb referral_notifications + referral_copies.
+    // Now fetches from the HIE Gateway blockchain, then caches locally.
     try {
-      final notifications = await _sharedDb
-          .collection('referral_notifications')
-          .where('to_facility_id', isEqualTo: facilityId)
-          .orderBy('created_at', descending: true)
-          .get();
+      final result = await HieApiService.instance
+          .getReferrals(direction: 'incoming', facilityId: facilityId);
 
-      if (notifications.docs.isEmpty) return [];
+      if (!result.success) {
+        debugPrint('[HIE] incoming referrals failed: ${result.error} — falling back to local');
+        return _getLocalIncoming(facilityId);
+      }
 
-      final referrals = <ReferralModel>[];
-      for (final doc in notifications.docs) {
-        final notificationData = doc.data();
-        final referralId = notificationData['referral_id'] as String;
+      final list = result.data?['referrals'] as List<dynamic>? ?? [];
+      final referrals = list
+          .map((r) => ReferralModel.fromGateway(r as Map<String, dynamic>))
+          .toList();
 
-        final copyDoc = await _sharedDb
-            .collection('referral_copies')
-            .doc(referralId)
-            .get();
-
-        if (copyDoc.exists) {
-          final data = copyDoc.data()!;
-          data['id'] = copyDoc.id;
-          referrals.add(ReferralModel.fromFirestore(data));
-        } else {
-          referrals.add(ReferralModel.fromNotification(notificationData));
-        }
+      // Cache each incoming referral locally so it's available offline
+      for (final r in referrals) {
+        try {
+          await _facilityDb
+              .collection('referrals')
+              .doc(r.id)
+              .set(r.toFirestore(), SetOptions(merge: true));
+        } catch (_) {}
       }
 
       return referrals;
     } catch (e) {
-      throw ServerException('Failed to get incoming referrals: $e');
+      // Gateway unreachable — serve from local cache
+      debugPrint('[HIE] incoming referrals exception: $e — using local cache');
+      return _getLocalIncoming(facilityId);
     }
   }
+
+  Future<List<ReferralModel>> _getLocalIncoming(String facilityId) async {
+    try {
+      final query = await _facilityDb
+          .collection('referrals')
+          .where('to_facility_id', isEqualTo: facilityId)
+          .orderBy('created_at', descending: true)
+          .get();
+      return query.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return ReferralModel.fromFirestore(data);
+      }).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // ── STATUS UPDATE ─────────────────────────────────────────────────────────
 
   @override
   Future<ReferralModel> updateReferralStatus(
@@ -153,44 +158,29 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
       final updateData = {
         'status':     status.name,
         'updated_at': Timestamp.fromDate(now),
-        if (feedbackNotes != null) 'feedback_notes': feedbackNotes,   // ← FIXED
-        if (status == ReferralStatus.accepted)  'accepted_at': Timestamp.fromDate(now),
-        if (status == ReferralStatus.rejected)  'rejected_at': Timestamp.fromDate(now),
+        if (feedbackNotes != null) 'feedback_notes': feedbackNotes,
+        if (status == ReferralStatus.accepted)  'accepted_at':  Timestamp.fromDate(now),
+        if (status == ReferralStatus.rejected)  'rejected_at':  Timestamp.fromDate(now),
         if (status == ReferralStatus.completed) 'completed_at': Timestamp.fromDate(now),
       };
 
-      // Update own DB (may not exist for incoming referrals)
+      // Update own local DB
       try {
         await _facilityDb
             .collection('referrals')
             .doc(referralId)
             .update(updateData);
-      } catch (_) {}
-
-      // Update shared index
-      await _sharedDb
-          .collection('referral_copies')
-          .doc(referralId)
-          .update(updateData);
-
-      await _sharedDb
-          .collection('referral_notifications')
-          .doc(referralId)
-          .update({'status': status.name, 'updated_at': Timestamp.fromDate(now)});
-
-      // Pull full referral into own DB when accepted
-      if (status == ReferralStatus.accepted) {
-        final referralDoc = await _sharedDb
-            .collection('referral_copies')
+      } catch (_) {
+        // Referral may only exist locally via cache — set instead of update
+        await _facilityDb
+            .collection('referrals')
             .doc(referralId)
-            .get();
-        if (referralDoc.exists) {
-          await _facilityDb
-              .collection('referrals')
-              .doc(referralId)
-              .set(referralDoc.data()!);
-        }
+            .set(updateData, SetOptions(merge: true));
       }
+
+      // NOTE: blockchain is immutable — status tracking stays in local DB only.
+      // The other facility will see the status change when they next query
+      // incoming referrals (via gateway), which returns the blockchain record.
 
       return getReferral(referralId);
     } catch (e) {
@@ -198,9 +188,12 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
     }
   }
 
+  // ── GET ONE ───────────────────────────────────────────────────────────────
+
   @override
   Future<ReferralModel> getReferral(String referralId) async {
     try {
+      // Check local first (faster + offline-capable)
       final localDoc = await _facilityDb
           .collection('referrals')
           .doc(referralId)
@@ -212,23 +205,29 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
         return ReferralModel.fromFirestore(data);
       }
 
-      final sharedDoc = await _sharedDb
-          .collection('referral_copies')
-          .doc(referralId)
-          .get();
+      // Fall back to gateway
+      final result = await HieApiService.instance
+          .getReferralById(referralId: referralId);
 
-      if (!sharedDoc.exists) throw ServerException('Referral not found');
+      if (!result.success || result.data == null) {
+        throw ServerException('Referral not found');
+      }
 
-      final data = sharedDoc.data()!;
-      data['id'] = sharedDoc.id;
-      return ReferralModel.fromFirestore(data);
+      final referral = result.data!['referral'] as Map<String, dynamic>?;
+      if (referral == null) throw ServerException('Referral not found');
+
+      return ReferralModel.fromGateway(referral);
     } catch (e) {
+      if (e is ServerException) rethrow;
       throw ServerException('Failed to get referral: $e');
     }
   }
 
+  // ── SEARCH BY PATIENT ─────────────────────────────────────────────────────
+
   @override
-  Future<List<ReferralModel>> searchReferralsByPatient(String patientNupi) async {
+  Future<List<ReferralModel>> searchReferralsByPatient(
+      String patientNupi) async {
     try {
       final query = await _facilityDb
           .collection('referrals')
@@ -246,6 +245,8 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
     }
   }
 
+  // ── STATS ─────────────────────────────────────────────────────────────────
+
   @override
   Future<Map<String, dynamic>> getReferralStats(String facilityId) async {
     try {
@@ -254,10 +255,16 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
           .where('from_facility_id', isEqualTo: facilityId)
           .get();
 
-      final incomingQuery = await _sharedDb
-          .collection('referral_notifications')
-          .where('to_facility_id', isEqualTo: facilityId)
-          .get();
+      // Incoming count from gateway
+      int incomingCount = 0;
+      try {
+        final result = await HieApiService.instance
+            .getReferrals(direction: 'incoming', facilityId: facilityId);
+        if (result.success) {
+          incomingCount =
+              (result.data?['count'] as int?) ?? 0;
+        }
+      } catch (_) {}
 
       int pending = 0, accepted = 0, rejected = 0, completed = 0;
       for (final doc in outgoingQuery.docs) {
@@ -271,7 +278,7 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
 
       return {
         'total_outgoing': outgoingQuery.docs.length,
-        'total_incoming': incomingQuery.docs.length,
+        'total_incoming': incomingCount,
         'pending':   pending,
         'accepted':  accepted,
         'rejected':  rejected,

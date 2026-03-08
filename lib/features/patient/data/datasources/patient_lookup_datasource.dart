@@ -1,6 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../../../core/config/firebase_config.dart';
+import 'package:flutter/foundation.dart';
 import '../../../../core/errors/exceptions.dart';
+import '../../../../core/services/hie_api_service.dart';
 import '../../domain/entities/patient_lookup.dart';
 
 abstract class PatientLookupDatasource {
@@ -10,47 +10,37 @@ abstract class PatientLookupDatasource {
       String nupi, String facilityId);
 }
 
-class PatientLookupDatasourceImpl
-    implements PatientLookupDatasource {
-  // Lookup uses shared index — not facility DB
-  FirebaseFirestore get _sharedDb =>
-      FirebaseConfig.sharedDb;
-
-  // Summary fetched from the registering facility DB
-  // (in real system this would be an API call)
-  // For thesis demo: we use shared index summary
-
+// Previously read from Firestore sharedDb.patient_index.
+// Now calls the HIE Gateway: GET /api/patients/:nupi
+// This is safe because the gateway only returns name, registration facility,
+// and visit summary — no clinical data crosses facility boundaries.
+class PatientLookupDatasourceImpl implements PatientLookupDatasource {
   @override
   Future<PatientLookupResult?> lookupByNupi(
       String nupi, String currentFacilityId) async {
     try {
-      final doc = await _sharedDb
-          .collection('patient_index')
-          .doc(nupi)
-          .get();
+      final result = await HieApiService.instance.lookupPatient(nupi: nupi);
 
-      if (!doc.exists) return null;
+      if (!result.success) {
+        debugPrint('[HIE] patient lookup failed: ${result.error}');
+        return null;
+      }
 
-      final data = doc.data()!;
-      final facilityId =
-          data['facility_id'] as String? ?? '';
-      final facilityName =
-          data['facility_name'] as String? ??
-              'Unknown Facility';
-      final facilityCounty =
-          data['facility_county'] as String? ?? '';
+      final patient = result.data?['patient'] as Map<String, dynamic>?;
+      if (patient == null) return null;
+
+      final registeredFacilityId =
+          patient['registeredAtFacility'] as String? ?? '';
 
       return PatientLookupResult(
         nupi: nupi,
-        facilityId: facilityId,
-        facilityName: facilityName,
-        facilityCounty: facilityCounty,
-        isCurrentFacility:
-            facilityId == currentFacilityId,
+        facilityId:      registeredFacilityId,
+        facilityName:    patient['facilityName']    as String? ?? 'Unknown Facility',
+        facilityCounty:  patient['facilityCounty']  as String? ?? '',
+        isCurrentFacility: registeredFacilityId == currentFacilityId,
       );
     } catch (e) {
-      throw ServerException(
-          'Failed to lookup patient: $e');
+      throw ServerException('Failed to lookup patient: $e');
     }
   }
 
@@ -58,30 +48,22 @@ class PatientLookupDatasourceImpl
   Future<Map<String, dynamic>?> getPatientSummary(
       String nupi, String facilityId) async {
     try {
-      // Fetch safe summary from shared index
-      // Only non-clinical data: name, age, gender
-      final doc = await _sharedDb
-          .collection('patient_index')
-          .doc(nupi)
-          .get();
+      final result = await HieApiService.instance.lookupPatient(nupi: nupi);
 
-      if (!doc.exists) return null;
+      if (!result.success || result.data == null) return null;
 
-      final data = doc.data()!;
+      final patient = result.data!['patient'] as Map<String, dynamic>?;
+      if (patient == null) return null;
 
+      // Return only the safe demographic summary — no clinical data
       return {
-        'nupi': nupi,
-        'full_name': data['full_name'] ?? 'Unknown',
-        'gender': data['gender'] ?? 'unknown',
-        'date_of_birth': data['date_of_birth'],
-        'facility_id': data['facility_id'],
-        'facility_name': data['facility_name'],
-        'facility_county': data['facility_county'],
-        'registered_at': data['registered_at'],
+        'nupi':          nupi,
+        'full_name':     patient['name']               ?? 'Unknown',
+        'registered_at': patient['registeredAt'],
+        'facility_id':   patient['registeredAtFacility'],
       };
     } catch (e) {
-      throw ServerException(
-          'Failed to get patient summary: $e');
+      throw ServerException('Failed to get patient summary: $e');
     }
   }
 }

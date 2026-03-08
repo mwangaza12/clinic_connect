@@ -17,8 +17,7 @@ abstract class AuthRemoteDatasource {
   Future<UserModel> getCurrentUser();
 }
 
-class AuthRemoteDatasourceImpl
-    implements AuthRemoteDatasource {
+class AuthRemoteDatasourceImpl implements AuthRemoteDatasource {
   final firebase_auth.FirebaseAuth firebaseAuth;
   final FirebaseFirestore firestore;
 
@@ -40,7 +39,7 @@ class AuthRemoteDatasourceImpl
         password: password,
       );
 
-      // 2. Fetch user profile from Firestore
+      // 2. Fetch user profile from this facility's Firestore
       final userDoc = await FirebaseConfig.facilityDb
           .collection('users')
           .doc(credential.user!.uid)
@@ -55,23 +54,16 @@ class AuthRemoteDatasourceImpl
 
       final user = UserModel.fromFirestore(data);
 
-      // 3. ✅ Set facility info globally AFTER user is declared
+      // 3. Set facility info globally after user is loaded
       FacilityInfo().set(
         facilityId: user.facilityId,
         facilityName: user.facilityName,
         facilityCounty: '',
       );
 
-      // 4. Register facility in shared index
-      await FirebaseConfig.sharedDb
-          .collection('facilities')
-          .doc(user.facilityId)
-          .set({
-        'id': user.facilityId,
-        'name': user.facilityName,
-        'is_active': true,
-        'last_seen': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      // NOTE: removed sharedDb.facilities write — the facility registry is
+      // owned by the HIE Gateway (registered via MoH admin panel). This app
+      // should not write to the gateway's Firebase directly.
 
       return user;
     } on FirebaseAuthException catch (e) {
@@ -86,7 +78,7 @@ class AuthRemoteDatasourceImpl
   Future<void> logout() async {
     try {
       await firebaseAuth.signOut();
-      FacilityInfo().clear(); // ✅ clear on logout
+      FacilityInfo().clear();
     } catch (e) {
       throw ServerException('Logout failed: ${e.toString()}');
     }
@@ -116,7 +108,6 @@ class AuthRemoteDatasourceImpl
 
       final user = UserModel.fromJson(userData);
 
-      // ✅ Also refresh FacilityInfo on getCurrentUser
       FacilityInfo().set(
         facilityId: user.facilityId,
         facilityName: user.facilityName,

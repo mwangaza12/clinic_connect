@@ -54,10 +54,46 @@ class ReferralModel extends Referral {
   }
 
   // ─────────────────────────────────────────
+  // FROM GATEWAY (AfyaLink HIE blockchain)
+  //
+  // Gateway returns camelCase fields:
+  //   referralId, patientNupi, fromFacilityId, fromFacilityName,
+  //   toFacilityId, toFacilityName, reason, urgency (maps to priority),
+  //   issuedBy (maps to createdBy), createdAt (ISO string), blockIndex
+  // ─────────────────────────────────────────
+  factory ReferralModel.fromGateway(Map<String, dynamic> map) {
+    DateTime createdAt;
+    try {
+      createdAt = DateTime.parse(map['createdAt'] as String? ?? '');
+    } catch (_) {
+      createdAt = DateTime.now();
+    }
+
+    return ReferralModel(
+      id:              map['referralId']      as String? ?? '',
+      patientNupi:     map['patientNupi']     as String? ?? '',
+      patientName:     map['patientName']     as String? ?? '',
+      fromFacilityId:  map['fromFacilityId']  as String? ?? '',
+      fromFacilityName:map['fromFacilityName']as String? ?? '',
+      toFacilityId:    map['toFacilityId']    as String? ?? '',
+      toFacilityName:  map['toFacilityName']  as String? ?? '',
+      reason:          map['reason']          as String? ?? '',
+      // Gateway uses 'urgency' (ROUTINE/URGENT/EMERGENCY); map to priority
+      priority: _priorityFromUrgency(map['urgency'] as String?),
+      // Incoming referrals from chain are always PENDING until acted on locally
+      status: _statusFromString(map['status'] as String?),
+      clinicalNotes: map['clinicalNotes'] as String?,
+      createdAt:    createdAt,
+      // issuedBy is the staff member who issued the referral
+      createdBy:     map['issuedBy']      as String? ?? '',
+      createdByName: map['issuedByName']  as String? ?? map['issuedBy'] as String? ?? '',
+    );
+  }
+
+  // ─────────────────────────────────────────
   // FROM NOTIFICATION (minimal data)
   // ─────────────────────────────────────────
-  factory ReferralModel.fromNotification(
-      Map<String, dynamic> map) {
+  factory ReferralModel.fromNotification(Map<String, dynamic> map) {
     return ReferralModel(
       id: map['referral_id'] ?? '',
       patientNupi: map['patient_nupi'] ?? '',
@@ -69,14 +105,10 @@ class ReferralModel extends Referral {
       reason: map['reason'] ?? '',
       priority: _priorityFromString(map['priority']),
       status: _statusFromString(map['status']),
-      createdAt: (map['created_at'] as Timestamp?)
-              ?.toDate() ??
-          DateTime.now(),
-      updatedAt:
-          (map['updated_at'] as Timestamp?)?.toDate(),
-      createdBy: map['created_by'] ?? 'unknown',   // ✅ fallback
-      createdByName:
-          map['created_by_name'] ?? 'Unknown',     // ✅ fallback
+      createdAt: (map['created_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      updatedAt: (map['updated_at'] as Timestamp?)?.toDate(),
+      createdBy: map['created_by'] ?? 'unknown',
+      createdByName: map['created_by_name'] ?? 'Unknown',
     );
   }
 
@@ -267,36 +299,32 @@ class ReferralModel extends Referral {
   // HELPER METHODS
   // ─────────────────────────────────────────
   static ReferralPriority _priorityFromString(String? priority) {
-    switch (priority) {
-      case 'emergency':
-        return ReferralPriority.emergency;
-      case 'urgent':
-        return ReferralPriority.urgent;
-      case 'normal':
-        return ReferralPriority.normal;
-      default:
-        return ReferralPriority.normal;
+    switch (priority?.toLowerCase()) {
+      case 'emergency': return ReferralPriority.emergency;
+      case 'urgent':    return ReferralPriority.urgent;
+      default:          return ReferralPriority.normal;
+    }
+  }
+
+  // Gateway uses ROUTINE / URGENT / EMERGENCY (uppercase)
+  static ReferralPriority _priorityFromUrgency(String? urgency) {
+    switch (urgency?.toUpperCase()) {
+      case 'EMERGENCY': return ReferralPriority.emergency;
+      case 'URGENT':    return ReferralPriority.urgent;
+      default:          return ReferralPriority.normal;
     }
   }
 
   static ReferralStatus _statusFromString(String? status) {
-    switch (status) {
-      case 'pending':
-        return ReferralStatus.pending;
-      case 'accepted':
-        return ReferralStatus.accepted;
-      case 'rejected':
-        return ReferralStatus.rejected;
-      case 'completed':
-        return ReferralStatus.completed;
-      case 'inTransit':         
-        return ReferralStatus.inTransit;
-      case 'arrived':           
-        return ReferralStatus.arrived;
-      case 'cancelled':         
-        return ReferralStatus.cancelled;
-      default:
-        return ReferralStatus.pending;
+    switch (status?.toLowerCase()) {
+      case 'pending':   return ReferralStatus.pending;
+      case 'accepted':  return ReferralStatus.accepted;
+      case 'rejected':  return ReferralStatus.rejected;
+      case 'completed': return ReferralStatus.completed;
+      case 'intransit': return ReferralStatus.inTransit;
+      case 'arrived':   return ReferralStatus.arrived;
+      case 'cancelled': return ReferralStatus.cancelled;
+      default:          return ReferralStatus.pending;
     }
   }
 }

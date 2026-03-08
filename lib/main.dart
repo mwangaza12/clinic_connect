@@ -1,13 +1,8 @@
 // lib/main.dart
-//
-// CHANGE: Added HieApiService.init() with the ClinicConnect backend URL.
-// Set the URL to your Render deployment of the Node.js backend.
-// This must be called before any patient/encounter/referral creation.
 
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'core/config/firebase_config.dart';
 import 'core/services/hie_api_service.dart';
 import 'core/sync/sync_manager.dart';
 import 'firebase_options.dart';
@@ -20,18 +15,19 @@ import 'injection_container.dart' as di;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize facility's own Firebase (primary)
+  // Initialize the facility's own Firebase project (Auth + Firestore)
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  // Initialize shared index Firebase (secondary)
-  await FirebaseConfig.initSharedIndex();
+  // NOTE: initSharedIndex() removed — the shared patient/facility index is
+  // now served by the AfyaLink HIE Gateway Express API (HieApiService).
+  // No second Firebase project is needed.
 
   await di.init();
   await SyncManager().init();
 
-  // ── AfyaLink HIE Integration ───────────────────────────────
+  // ── AfyaLink HIE Integration ───────────────────────────────────────────
   // Replace this URL with your deployed Render backend URL.
   // For local development use: http://10.0.2.2:4000  (Android emulator)
   //                       or:  http://localhost:4000   (iOS simulator)

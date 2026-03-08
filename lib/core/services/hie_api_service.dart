@@ -376,4 +376,69 @@ class HieApiService {
       return HieResult(success: false, error: e.toString());
     }
   }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  LOOKUP PATIENT BY NUPI  →  GET /api/patients/:nupi
+  //  Returns registration summary (name, facility, registration date).
+  //  Used by PatientLookupDatasource to replace the old sharedDb query.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  Future<HieResult> lookupPatient({required String nupi}) async {
+    try {
+      final response = await _dio.get('/api/patients/$nupi');
+      final body = _parseBody(response.data);
+      if (_ok(response)) {
+        return HieResult(success: true, data: body, nupi: nupi);
+      }
+      return HieResult(success: false, error: _errorMsg(response, null));
+    } on DioException catch (e) {
+      return HieResult(success: false, error: _errorMsg(e.response, e));
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  GET REFERRALS  →  GET /api/referrals/incoming/:id  or  /outgoing/:id
+  //  Returns referrals from the blockchain for this facility.
+  //  Used by ReferralRemoteDatasourceImpl to replace sharedDb queries.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  Future<HieResult> getReferrals({
+    required String direction,   // 'incoming' or 'outgoing'
+    required String facilityId,
+  }) async {
+    try {
+      final response = await _dio.get('/api/referrals/$direction/$facilityId');
+      final body = _parseBody(response.data);
+      if (_ok(response)) {
+        return HieResult(success: true, data: body);
+      }
+      return HieResult(success: false, error: _errorMsg(response, null));
+    } on DioException catch (e) {
+      return HieResult(success: false, error: _errorMsg(e.response, e));
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  GET REFERRAL BY ID  →  GET /api/referrals/:referralId
+  //  Fetches a specific referral from the blockchain by its ID.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  Future<HieResult> getReferralById({required String referralId}) async {
+    try {
+      final response = await _dio.get('/api/referrals/$referralId');
+      final body = _parseBody(response.data);
+      if (_ok(response)) {
+        return HieResult(success: true, data: body);
+      }
+      return HieResult(success: false, error: _errorMsg(response, null));
+    } on DioException catch (e) {
+      return HieResult(success: false, error: _errorMsg(e.response, e));
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
 }

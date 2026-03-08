@@ -1,5 +1,4 @@
 import 'package:clinic_connect/core/config/facility_info.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/config/firebase_config.dart';
 import '../../../../core/errors/exceptions.dart';
 import '../models/patient_model.dart';
@@ -15,42 +14,25 @@ abstract class PatientRemoteDatasource {
 }
 
 class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
-  // ✅ Use getters to always get fresh facility info
-  String get facilityId => FacilityInfo().facilityId.trim();
+  String get facilityId   => FacilityInfo().facilityId.trim();
   String get facilityName => FacilityInfo().facilityName;
-  String get facilityCounty => FacilityInfo().facilityCounty;
 
-  PatientRemoteDatasourceImpl(); // No parameters needed
+  PatientRemoteDatasourceImpl();
 
   @override
   Future<PatientModel> registerPatient(PatientModel patient) async {
     try {
-      
-      // Ensure patient has the current facility_id
-      final patientWithFacility = patient.copyWith(
-        facilityId: facilityId,
-      );
+      final patientWithFacility = patient.copyWith(facilityId: facilityId);
 
-      // 1. Save full record in OWN facility DB
+      // Save full record in this facility's own Firestore.
+      // NOTE: the shared NUPI index write to sharedDb has been removed.
+      // The AfyaLink HIE Gateway (HieApiService.registerPatient) already
+      // registers the patient on AfyaChain and the gateway's own Firestore
+      // when called from patient_registration_page.dart — no second write needed.
       await FirebaseConfig.facilityDb
           .collection('patients')
           .doc(patientWithFacility.id)
           .set(patientWithFacility.toFirestore());
-
-      // 2. Register NUPI in shared index
-      await FirebaseConfig.sharedDb
-          .collection('patient_index')
-          .doc(patientWithFacility.nupi)
-          .set({
-            'nupi': patientWithFacility.nupi,
-            'facility_id': facilityId,
-            'facility_name': facilityName,
-            'facility_county': facilityCounty,
-            'full_name': patientWithFacility.fullName,
-            'gender': patientWithFacility.gender,
-            'date_of_birth': Timestamp.fromDate(patientWithFacility.dateOfBirth),
-            'registered_at': Timestamp.now(),
-          }, SetOptions(merge: true));
 
       return patientWithFacility;
     } catch (e) {
@@ -179,14 +161,12 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
   @override
   Future<List<PatientModel>> getPatientsByFacility() async {
     final currentFacilityId = facilityId;
-    
+
     if (currentFacilityId.isEmpty) {
       throw ServerException('Facility ID not set');
     }
-    
+
     try {
-      // NOTE: orderBy removed to avoid composite index requirement.
-      // Index is defined in firestore.indexes.json — once deployed, orderBy can be restored.
       final snapshot = await FirebaseConfig.facilityDb
           .collection('patients')
           .where('facility_id', isEqualTo: currentFacilityId)
@@ -198,7 +178,6 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
         return PatientModel.fromFirestore(data);
       }).toList();
 
-      // Sort client-side by created_at descending
       patients.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return patients;
     } catch (e) {
