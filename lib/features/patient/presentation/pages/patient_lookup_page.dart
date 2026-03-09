@@ -36,8 +36,6 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
   String? _securityQuestion;
   Map<String, dynamic>? _patientData;
   DateTime? _selectedDob;
-  String  _accessToken       = '';
-  String  _sourceFacilityId  = '';
 
   static const Color _primary = Color(0xFF1B4332);
   static const Color _accent  = Color(0xFF2D6A4F);
@@ -117,74 +115,51 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
         facilityId: authState.user.facilityId,
       );
 
-      if (result.success && result.patientData != null) {
-        // result.data shape:
-        // { token, nupi, consentId, blockIndex, expiresIn,   ← spread tokenData
-        //   patient: { nupi, name, facilityId, facilitiesVisited, registeredAt },
-        //   facilitiesVisited: [{ facilityId, name, county }],
-        //   encounterIndex: [] }
-        final raw               = result.data!;
-        final token             = raw['token']  as String? ?? '';
-        final nupi              = raw['nupi']   as String? ?? '';
-        final facilitiesVisited = (raw['facilitiesVisited'] as List?)
-            ?.cast<Map<String, dynamic>>() ?? [];
-
-        // Source facility = where patient is registered
-        final srcFacility      = facilitiesVisited.isNotEmpty
-            ? facilitiesVisited.first
-            : <String, dynamic>{};
-        final sourceFacilityId = srcFacility['facilityId'] as String? ?? '';
-
-        // Build display map from what we already have (always works)
-        final patient           = (raw['patient'] as Map?)?.cast<String, dynamic>() ?? {};
-        Map<String, dynamic> displayRecord = {
-          'nupi':               nupi,
-          'name':               patient['name']       ?? 'Unknown',
-          'facilityId':         sourceFacilityId,
-          'registeredFacility': srcFacility['name']   ?? 'Unknown',
-          'facilityCounty':     srcFacility['county'] ?? '',
-          'isCurrentFacility':  sourceFacilityId == authState.user.facilityId,
-          'encounterCount':     (raw['encounterIndex'] as List?)?.length ?? 0,
-          // Demographics start empty — filled by FHIR fetch below
-          'gender':      '',
-          'dateOfBirth': '',
-          'phoneNumber': '',
-          'county':      '',
-          'subCounty':   '',
-        };
-
-        // Attempt FHIR fetch for full demographics — non-blocking, best-effort
-        if (nupi.isNotEmpty && sourceFacilityId.isNotEmpty && token.isNotEmpty) {
-          try {
-            debugPrint('[FHIR] Fetching full record: NUPI=$nupi facility=$sourceFacilityId');
-            final fhirResult = await HieApiService.instance.fetchPatientRecord(
-              nupi:             nupi,
-              sourceFacilityId: sourceFacilityId,
-              accessToken:      token,
-              everything:       true,
-            );
-            debugPrint('[FHIR] success=${fhirResult.success} error=${fhirResult.error}');
-            debugPrint('[FHIR] data=${fhirResult.data}');
-            if (fhirResult.success && fhirResult.data != null) {
-              displayRecord = _mergeFhirRecord(
-                fhirResult.data!, displayRecord, facilitiesVisited,
-              );
-            }
-          } catch (e) {
-            debugPrint('[FHIR] Exception: $e');
-            // FHIR proxy unreachable — display with thin data, no crash
-          }
-        }
-
-        setState(() {
-          _patientData      = displayRecord;
-          _accessToken      = token;
-          _sourceFacilityId = sourceFacilityId;
-          _step = 2;
-        });
-      } else {
+      if (!result.success) {
         _setError(result.error ?? 'Incorrect answer');
+        return;
       }
+
+      // result.data contains: { token, nupi, patient: { name, registeredFacilityId,
+      //   registeredFacility, facilityCounty, isCurrentFacility } }
+      final verifyData = result.data ?? {};
+      final token      = verifyData['token']    as String?
+                      ?? verifyData['access_token'] as String?;
+      final nupi       = verifyData['nupi']     as String?
+                      ?? result.nupi;
+      final patientMeta = (verifyData['patient'] as Map?)
+                              ?.cast<String, dynamic>() ?? {};
+
+      if (token == null || nupi == null) {
+        _setError('Verification succeeded but no access token returned');
+        return;
+      }
+
+      // Fetch full demographics from the registering hospital via
+      // the gateway FHIR proxy: GET /api/fhir/Patient/:nupi
+      final demoResult = await HieApiService.instance.fetchDemographics(
+        nupi:        nupi,
+        accessToken: token,
+      );
+
+      // Merge FHIR demographics with metadata from verify response
+      final demographics = <String, dynamic>{
+        ...( demoResult.success && demoResult.data != null
+              ? demoResult.data!
+              : {'nupi': nupi, 'name': patientMeta['name'] ?? 'Unknown'} ),
+        // Always use facility info from verify response (authoritative)
+        'registeredFacility': patientMeta['registeredFacility']
+                              ?? demoResult.data?['registeredFacility'] ?? '',
+        'facilityCounty':     patientMeta['facilityCounty']     ?? '',
+        'isCurrentFacility':  patientMeta['isCurrentFacility']  ?? false,
+        // Keep the token so CreateEncounterPage can use it
+        '_accessToken':       token,
+      };
+
+      setState(() {
+        _patientData = demographics;
+        _step = 2;
+      });
     } catch (e) {
       _setError('Network error: ${e.toString().split('\n').first}');
     } finally {
@@ -202,76 +177,8 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
       _error            = null;
       _securityQuestion = null;
       _patientData      = null;
-      _accessToken      = '';
-      _sourceFacilityId = '';
       _answerController.clear();
     });
-  }
-
-  /// Merges a FHIR R4 Bundle (Patient + Encounters) returned by the HIE
-  /// proxy into a flat map for display. Falls back to HIE thin data for
-  /// any missing fields.
-  Map<String, dynamic> _mergeFhirRecord(
-    Map<String, dynamic> fhirBundle,
-    Map<String, dynamic> hieData,
-    List<Map<String, dynamic>> facilitiesVisited,
-  ) {
-    // Extract Patient resource from bundle entries
-    final entries = (fhirBundle['entry'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-    final patientEntry = entries.firstWhere(
-      (e) => (e['resource'] as Map?)?['resourceType'] == 'Patient',
-      orElse: () => {},
-    );
-    final fhirPatient = (patientEntry['resource'] as Map?)?.cast<String, dynamic>() ?? {};
-
-    // Parse name
-    final names  = (fhirPatient['name'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-    final nameObj = names.isNotEmpty ? names.first : <String, dynamic>{};
-    final given  = (nameObj['given'] as List?)?.cast<String>() ?? [];
-    final family = nameObj['family'] as String? ?? '';
-    final fullName = [given.join(' '), family].where((s) => s.isNotEmpty).join(' ');
-
-    // Parse telecom
-    final telecoms = (fhirPatient['telecom'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-    final phone = telecoms.firstWhere((t) => t['system'] == 'phone', orElse: () => {})['value'] as String? ?? hieData['phoneNumber'] as String? ?? '';
-    final email = telecoms.firstWhere((t) => t['system'] == 'email', orElse: () => {})['value'] as String?;
-
-    // Parse address
-    final addrs   = (fhirPatient['address'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-    final addrObj = addrs.isNotEmpty ? addrs.first : <String, dynamic>{};
-
-    // Encounter count from bundle
-    final encounterCount = entries.where(
-      (e) => (e['resource'] as Map?)?['resourceType'] == 'Encounter'
-    ).length;
-
-    // Source facility info
-    final srcFacility = facilitiesVisited.isNotEmpty ? facilitiesVisited.first : <String, dynamic>{};
-
-    return {
-      // Identity
-      'nupi':             hieData['nupi']        ?? fhirPatient['id'],
-      'name':             fullName.isNotEmpty ? fullName : hieData['name'],
-      'gender':           fhirPatient['gender']  ?? hieData['gender'],
-      'dateOfBirth':      fhirPatient['birthDate'] ?? hieData['dateOfBirth'],
-      // Contact
-      'phoneNumber':      phone,
-      'email':            email,
-      // Address (from FHIR address)
-      'county':           addrObj['state']    ?? hieData['county'],
-      'subCounty':        addrObj['district'] ?? hieData['subCounty'],
-      'ward':             addrObj['city']     ?? hieData['ward'],
-      // Facility
-      'registeredFacility': srcFacility['name']   ?? hieData['registeredFacility'],
-      'facilityCounty':     srcFacility['county']  ?? hieData['facilityCounty'],
-      'facilityId':         srcFacility['facilityId'] ?? hieData['facilityId'],
-      'isCurrentFacility':  hieData['isCurrentFacility'] ?? false,
-      // Extras
-      'encounterCount':   encounterCount,
-      'bloodGroup':       hieData['bloodGroup'],
-      // Pass through raw FHIR for CreateEncounterPage
-      '_fhirBundle':      fhirBundle,
-    };
   }
 
   // ── Pick DOB ─────────────────────────────────────────────────────
@@ -316,10 +223,8 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
       context,
       MaterialPageRoute(
         builder: (_) => CreateEncounterPage(
-          patient:          hiPatient,
-          nupiPatient:      data,
-          accessToken:      _accessToken,
-          sourceFacilityId: _sourceFacilityId,
+          patient:     hiPatient,
+          nupiPatient: data,   // raw HIE map — bloc will upsert into Firestore if needed
         ),
       ),
     );
@@ -549,8 +454,6 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
     final facilityCounty = data['facilityCounty']?.toString() ?? '';
     final bloodGroup     = data['bloodGroup']?.toString();
     final isCurrentFacility = data['isCurrentFacility'] == true;
-    final encounterCount = data['encounterCount'] as int? ?? 0;
-    final hasDemographics = dob.isNotEmpty || phone.isNotEmpty || county.isNotEmpty;
 
     String age = '';
     try {
@@ -628,30 +531,11 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
             const SizedBox(height: 16),
             _sectionLabel('Demographics'),
             const SizedBox(height: 12),
-            if (hasDemographics) ...[ 
-              _detailRow(Icons.cake_outlined,        'Date of Birth', dob),
-              _detailRow(Icons.phone_outlined,        'Phone',         phone),
-              _detailRow(Icons.location_on_outlined,  'County',        county),
-              if (subCounty.isNotEmpty)
-                _detailRow(Icons.map_outlined, 'Sub-County', subCounty),
-            ] else
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
-                child: const Row(children: [
-                  Icon(Icons.cloud_off_outlined, size: 16, color: Colors.grey),
-                  SizedBox(width: 8),
-                  Expanded(child: Text(
-                    'Full demographics unavailable — source facility backend unreachable. '
-                    'You can still create an encounter using the verified NUPI.',
-                    style: TextStyle(fontSize: 11, color: Colors.grey, height: 1.4),
-                  )),
-                ]),
-              ),
+            _detailRow(Icons.cake_outlined,       'Date of Birth', dob),
+            _detailRow(Icons.phone_outlined,       'Phone',        phone),
+            _detailRow(Icons.location_on_outlined, 'County',       county),
+            if (subCounty.isNotEmpty)
+              _detailRow(Icons.map_outlined, 'Sub-County', subCounty),
             const SizedBox(height: 16),
             const Divider(color: Color(0xFFF1F5F9)),
             const SizedBox(height: 16),

@@ -425,6 +425,87 @@ class HieApiService {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
+  //  FETCH PATIENT DEMOGRAPHICS  →  GET /api/fhir/Patient/:nupi
+  //
+  //  Calls the HIE Gateway FHIR proxy, which forwards the request to the
+  //  patient's registering facility (SupportFacility /fhir/Patient/:nupi).
+  //  Returns a FHIR R4 Patient resource with full demographics.
+  //
+  //  Requires an access token obtained from POST /api/verify/answer or
+  //  POST /api/verify/pin.  Pass it as the accessToken parameter.
+  //
+  //  Returns a flat demographics map keyed to match what PatientLookupPage
+  //  expects:  name, gender, dateOfBirth, phoneNumber, county, subCounty,
+  //            bloodGroup, registeredFacility, facilityCounty,
+  //            isCurrentFacility, nupi.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  Future<HieResult> fetchDemographics({
+    required String nupi,
+    required String accessToken,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/api/fhir/Patient/$nupi',
+        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+      );
+      final body = _parseBody(response.data);
+      if (!_ok(response) || body == null) {
+        return HieResult(success: false, error: _errorMsg(response, null));
+      }
+
+      // Parse FHIR R4 Patient resource into a flat demographics map
+      final fhirPt   = body;
+      final nameObj  = (fhirPt['name'] as List?)?.firstOrNull as Map?;
+      final given    = (nameObj?['given'] as List?)?.join(' ') ?? '';
+      final family   = nameObj?['family']?.toString() ?? '';
+      final fullName = nameObj?['text']?.toString() ??
+          '$given $family'.trim();
+
+      final telecom  = fhirPt['telecom'] as List? ?? [];
+      final phone    = (telecom.firstWhere(
+            (t) => (t as Map)['system'] == 'phone',
+            orElse: () => <String, dynamic>{},
+          ) as Map)['value']?.toString();
+
+      final addresses = fhirPt['address'] as List? ?? [];
+      final addr      = addresses.isNotEmpty
+          ? (addresses.first as Map)
+          : <String, dynamic>{};
+
+      final extensions = fhirPt['extension'] as List? ?? [];
+      final bloodExt   = extensions.firstWhere(
+        (e) => (e as Map)['url']?.toString().contains('blood-group') == true,
+        orElse: () => <String, dynamic>{},
+      ) as Map;
+      final bloodGroup = bloodExt['valueString']?.toString();
+
+      final meta       = (fhirPt['meta'] as Map?) ?? {};
+
+      return HieResult(
+        success: true,
+        nupi:    nupi,
+        data: {
+          'nupi':               nupi,
+          'name':               fullName,
+          'gender':             fhirPt['gender']?.toString() ?? '',
+          'dateOfBirth':        fhirPt['birthDate']?.toString() ?? '',
+          'phoneNumber':        phone ?? '',
+          'county':             addr['district']?.toString() ?? '',
+          'subCounty':          addr['city']?.toString()     ?? '',
+          'bloodGroup':         bloodGroup,
+          'registeredFacility': meta['sourceName']?.toString() ?? '',
+          'facilityCounty':     '',   // enriched by verify/answer response
+        },
+      );
+    } on DioException catch (e) {
+      return HieResult(success: false, error: _errorMsg(e.response, e));
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
   //  GET REFERRALS  →  GET /api/referrals/incoming/:id  or  /outgoing/:id
   //  Returns referrals from the blockchain for this facility.
   //  Used by ReferralRemoteDatasourceImpl to replace sharedDb queries.
@@ -456,48 +537,6 @@ class HieApiService {
   Future<HieResult> getReferralById({required String referralId}) async {
     try {
       final response = await _dio.get('/api/referrals/$referralId');
-      final body = _parseBody(response.data);
-      if (_ok(response)) {
-        return HieResult(success: true, data: body);
-      }
-      return HieResult(success: false, error: _errorMsg(response, null));
-    } on DioException catch (e) {
-      return HieResult(success: false, error: _errorMsg(e.response, e));
-    } catch (e) {
-      return HieResult(success: false, error: e.toString());
-    }
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════
-  //  FETCH FULL PATIENT RECORD  →  GET /fhir/Patient/:nupi?facility=FAC_ID
-  //
-  //  The HIE proxies this to the source facility's backend using the
-  //  registered fhirEndpoints. Returns a FHIR R4 Patient resource with
-  //  full demographics, or a Bundle ($everything) if encounters=true.
-  //
-  //  Requires the access token issued by verifySecurityAnswer / verifyByPin.
-  // ══════════════════════════════════════════════════════════════════════════
-
-  Future<HieResult> fetchPatientRecord({
-    required String nupi,
-    required String sourceFacilityId,
-    required String accessToken,
-    bool everything = false,
-  }) async {
-    try {
-      final path = everything
-          ? '/fhir/Patient/$nupi/\$everything'
-          : '/fhir/Patient/$nupi';
-
-      final response = await _dio.get(
-        path,
-        queryParameters: { 'facility': sourceFacilityId },
-        options: Options(headers: {
-          'Authorization': 'Bearer $accessToken',
-          'Accept': 'application/fhir+json',
-        }),
-      );
-
       final body = _parseBody(response.data);
       if (_ok(response)) {
         return HieResult(success: true, data: body);
