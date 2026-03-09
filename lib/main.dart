@@ -18,7 +18,6 @@ import 'injection_container.dart' as di;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize the facility's own Firebase project (Auth + Firestore)
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
@@ -26,20 +25,14 @@ void main() async {
   await di.init();
   await SyncManager().init();
 
-  // ── AfyaLink HIE Integration ──────────────────────────────────────────
-  // Load the persisted gateway URL set by the setup wizard.
-  // Falls back to the default Render deployment URL so first-launch
-  // registration still works before the wizard is completed.
-  const storage   = FlutterSecureStorage();
-  final savedUrl  = await storage.read(key: StorageKeys.hieGatewayUrl);
+  const storage  = FlutterSecureStorage();
+  final savedUrl = await storage.read(key: StorageKeys.hieGatewayUrl);
 
   HieApiService.init(
     savedUrl?.isNotEmpty == true
         ? savedUrl!
         : const String.fromEnvironment(
             'HIE_BACKEND_URL',
-            // ✅ FIX: this should point to the HIE Gateway, NOT the ClinicConnect
-            //    Firebase backend.  Update this default to your deployed gateway URL.
             defaultValue: 'https://hie-gateway.onrender.com',
           ),
   );
@@ -90,7 +83,6 @@ class _AuthWrapperState extends State<AuthWrapper> {
     final facId   = await storage.read(key: StorageKeys.facilityId);
     if (mounted) {
       setState(() {
-        // Show setup wizard if credentials have never been entered
         _needsSetup    = apiKey == null || apiKey.isEmpty || facId == null || facId.isEmpty;
         _checkingSetup = false;
       });
@@ -100,22 +92,19 @@ class _AuthWrapperState extends State<AuthWrapper> {
   @override
   Widget build(BuildContext context) {
     if (_checkingSetup) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // On first launch, go through setup wizard before login
     if (_needsSetup) {
-      return SetupWizardPage(onComplete: () {
-        setState(() { _needsSetup = false; });
-      });
+      return SetupWizardPage(
+        onComplete: () => setState(() => _needsSetup = false),
+      );
     }
 
     return BlocBuilder<AuthBloc, AuthState>(
       builder: (context, state) {
         if (state is Authenticated) {
-          return const HomePage();
+          return HomePage(role: state.user.role);
         }
         return const LoginPage();
       },

@@ -11,7 +11,7 @@ class AppRouter {
         return MaterialPageRoute(builder: (_) => const LoginPage());
       
       case '/home':
-        return MaterialPageRoute(builder: (_) => const HomePage());
+        return MaterialPageRoute(builder: (_) => const HomePage(role: '',));
       
       case '/patient/register':
         return MaterialPageRoute(builder: (_) => const PatientRegistrationPage());
