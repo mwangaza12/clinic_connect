@@ -1,9 +1,13 @@
-// lib/core/services/hie_api_service.dart
-
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../constants/storage_keys.dart';
+
+// Add this extension at the top
+extension FirstOrNullExtension<E> on List<E> {
+  /// Returns the first element, or null if the list is empty.
+  E? get firstOrNull => isEmpty ? null : first;
+}
 
 class HieResult {
   final bool success;
@@ -38,10 +42,10 @@ class HieApiService {
 
   HieApiService._({required String baseUrl}) {
     _dio = Dio(BaseOptions(
-      baseUrl:        baseUrl,
+      baseUrl: baseUrl,
       connectTimeout: const Duration(seconds: 60),
       receiveTimeout: const Duration(seconds: 90),
-      headers:        {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json'},
       validateStatus: (_) => true,
     ));
 
@@ -49,7 +53,7 @@ class HieApiService {
       InterceptorsWrapper(
         onRequest: (options, handler) async {
           final facilityId = await _storage.read(key: StorageKeys.facilityId);
-          final apiKey     = await _storage.read(key: StorageKeys.facilityApiKey);
+          final apiKey = await _storage.read(key: StorageKeys.facilityApiKey);
           if (facilityId != null && facilityId.isNotEmpty) {
             options.headers['X-Facility-Id'] = facilityId;
           }
@@ -63,7 +67,7 @@ class HieApiService {
 
     if (kDebugMode) {
       _dio.interceptors.add(LogInterceptor(
-        requestBody:  true,
+        requestBody: true,
         responseBody: true,
         logPrint: (o) => debugPrint('[HIE] $o'),
       ));
@@ -89,8 +93,8 @@ class HieApiService {
     final body = _parseBody(response?.data);
     if (body != null) {
       return body['error']?.toString() ??
-             body['message']?.toString() ??
-             'Server error ${response?.statusCode}';
+          body['message']?.toString() ??
+          'Server error ${response?.statusCode}';
     }
     if (response?.data is String && (response!.data as String).isNotEmpty) {
       return response.data as String;
@@ -107,6 +111,65 @@ class HieApiService {
 
   bool _ok(Response r) =>
       r.statusCode != null && r.statusCode! >= 200 && r.statusCode! < 300;
+
+  /// Helper method to handle rate limiting with retries
+  Future<HieResult> _requestWithRetry(
+    Future<Response> Function() requestFn, {
+    int maxRetries = 3,
+    Duration initialDelay = const Duration(seconds: 1),
+    String? nupi,
+  }) async {
+    int retryCount = 0;
+    Duration currentDelay = initialDelay;
+
+    while (retryCount < maxRetries) {
+      try {
+        final response = await requestFn();
+        final body = _parseBody(response.data);
+
+        // Handle rate limiting (429)
+        if (response.statusCode == 429) {
+          retryCount++;
+          if (retryCount >= maxRetries) {
+            return HieResult(
+              success: false,
+              error: 'Rate limited after $maxRetries retries. Please try again later.',
+            );
+          }
+          debugPrint('⏳ Rate limited (429), retrying in ${currentDelay.inMilliseconds}ms... (Attempt $retryCount/$maxRetries)');
+          await Future.delayed(currentDelay);
+          currentDelay *= 2; // Exponential backoff
+          continue;
+        }
+
+        if (_ok(response)) {
+          return HieResult(
+            success: true,
+            data: body,
+            nupi: nupi ?? body?['nupi'] as String?,
+          );
+        }
+        return HieResult(success: false, error: _errorMsg(response, null));
+      } on DioException catch (e) {
+        if (e.response?.statusCode == 429) {
+          retryCount++;
+          if (retryCount >= maxRetries) {
+            return HieResult(
+              success: false,
+              error: 'Rate limited after $maxRetries retries. Please try again later.',
+            );
+          }
+          debugPrint('⏳ Rate limited (429), retrying in ${currentDelay.inMilliseconds}ms... (Attempt $retryCount/$maxRetries)');
+          await Future.delayed(currentDelay);
+          currentDelay *= 2;
+          continue;
+        }
+        return HieResult(success: false, error: _errorMsg(e.response, e));
+      }
+    }
+
+    return HieResult(success: false, error: 'Max retries exceeded');
+  }
 
   // ════════════════════════════════════════════════════════════════
   //  PATIENT REGISTRATION  →  POST /api/patients/register
@@ -129,28 +192,14 @@ class HieApiService {
     try {
       await _wakeUp();
 
-      final response = await _dio.post('/api/patients/register', data: {
-        'nationalId':       nationalId,
-        'dob':              dateOfBirth,
-        'name':             '$firstName $lastName'.trim(),
+      return await _requestWithRetry(() => _dio.post('/api/patients/register', data: {
+        'nationalId': nationalId,
+        'dob': dateOfBirth,
+        'name': '$firstName $lastName'.trim(),
         'securityQuestion': securityQuestion,
-        'securityAnswer':   securityAnswer,
-        'pin':              pin,
-      });
-
-      final body = _parseBody(response.data);
-      if (!_ok(response)) {
-        return HieResult(success: false, error: _errorMsg(response, null));
-      }
-
-      return HieResult(
-        success:    true,
-        data:       body,
-        nupi:       body?['nupi']       as String?,
-        blockIndex: body?['blockIndex'] as int?,
-      );
-    } on DioException catch (e) {
-      return HieResult(success: false, error: _errorMsg(e.response, e));
+        'securityAnswer': securityAnswer,
+        'pin': pin,
+      }));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
@@ -173,32 +222,24 @@ class HieApiService {
     String? encounterId,
   }) async {
     try {
-      final response = await _dio.post(
-        '/api/patients/encounter',
-        data: {
-          'nupi':             nupi,
-          'encounterId':      encounterId ?? DateTime.now().millisecondsSinceEpoch.toString(),
-          'encounterType':    encounterType,
-          'encounterDate':    encounterDate ?? DateTime.now().toIso8601String(),
-          'chiefComplaint':   chiefComplaint,
-          'practitionerName': practitionerName,
-        },
-        options: Options(headers: {
-          if (accessToken.isNotEmpty) 'Authorization': 'Bearer $accessToken',
-        }),
+      return await _requestWithRetry(
+        () => _dio.post(
+          '/api/patients/encounter',
+          data: {
+            'nupi': nupi,
+            'encounterId': encounterId ??
+                DateTime.now().millisecondsSinceEpoch.toString(),
+            'encounterType': encounterType,
+            'encounterDate': encounterDate ?? DateTime.now().toIso8601String(),
+            'chiefComplaint': chiefComplaint,
+            'practitionerName': practitionerName,
+          },
+          options: Options(headers: {
+            if (accessToken.isNotEmpty) 'Authorization': 'Bearer $accessToken',
+          }),
+        ),
+        nupi: nupi,
       );
-
-      final body = _parseBody(response.data);
-      if (_ok(response)) {
-        return HieResult(
-          success:    true,
-          data:       body,
-          blockIndex: body?['blockIndex'] as int?,
-        );
-      }
-      return HieResult(success: false, error: _errorMsg(response, null));
-    } on DioException catch (e) {
-      return HieResult(success: false, error: _errorMsg(e.response, e));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
@@ -224,35 +265,26 @@ class HieApiService {
     required String accessToken,
   }) async {
     try {
-      final response = await _dio.post(
-        '/api/referrals',
-        data: {
-          'nupi':             patientNupi,
-          'toFacility':       toFacilityId,
-          'reason':           reason,
-          'urgency':          priority,
-          'issuedBy':         createdByName,
-          'patientName':      patientName,
-          'fromFacilityName': fromFacilityName,
-          'toFacilityName':   toFacilityName,
-          'clinicalNotes':    clinicalNotes,
-        },
-        options: Options(headers: {
-          if (accessToken.isNotEmpty) 'Authorization': 'Bearer $accessToken',
-        }),
+      return await _requestWithRetry(
+        () => _dio.post(
+          '/api/referrals',
+          data: {
+            'nupi': patientNupi,
+            'toFacility': toFacilityId,
+            'reason': reason,
+            'urgency': priority,
+            'issuedBy': createdByName,
+            'patientName': patientName,
+            'fromFacilityName': fromFacilityName,
+            'toFacilityName': toFacilityName,
+            'clinicalNotes': clinicalNotes,
+          },
+          options: Options(headers: {
+            if (accessToken.isNotEmpty) 'Authorization': 'Bearer $accessToken',
+          }),
+        ),
+        nupi: patientNupi,
       );
-
-      final body = _parseBody(response.data);
-      if (_ok(response)) {
-        return HieResult(
-          success:    true,
-          data:       body,
-          blockIndex: body?['blockIndex'] as int?,
-        );
-      }
-      return HieResult(success: false, error: _errorMsg(response, null));
-    } on DioException catch (e) {
-      return HieResult(success: false, error: _errorMsg(e.response, e));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
@@ -268,22 +300,11 @@ class HieApiService {
     required String pin,
   }) async {
     try {
-      final response = await _dio.post('/api/verify/pin', data: {
+      return await _requestWithRetry(() => _dio.post('/api/verify/pin', data: {
         'nationalId': nationalId,
-        'dob':        dateOfBirth,
-        'pin':        pin,
-      });
-      final body = _parseBody(response.data);
-      if (_ok(response)) {
-        return HieResult(
-          success: true,
-          data:    body,
-          nupi:    body?['nupi'] as String?,
-        );
-      }
-      return HieResult(success: false, error: _errorMsg(response, null));
-    } on DioException catch (e) {
-      return HieResult(success: false, error: _errorMsg(e.response, e));
+        'dob': dateOfBirth,
+        'pin': pin,
+      }));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
@@ -296,17 +317,13 @@ class HieApiService {
   Future<HieResult> getFacilities({String? query, String? county}) async {
     try {
       final params = <String, dynamic>{};
-      if (query  != null && query.isNotEmpty)  params['q']      = query;
+      if (query != null && query.isNotEmpty) params['q'] = query;
       if (county != null && county.isNotEmpty) params['county'] = county;
 
-      final response = await _dio.get('/api/facilities',
-          queryParameters: params.isEmpty ? null : params);
-
-      final body = _parseBody(response.data);
-      if (_ok(response)) return HieResult(success: true, data: body);
-      return HieResult(success: false, error: _errorMsg(response, null));
-    } on DioException catch (e) {
-      return HieResult(success: false, error: _errorMsg(e.response, e));
+      return await _requestWithRetry(() => _dio.get(
+            '/api/facilities',
+            queryParameters: params.isEmpty ? null : params,
+          ));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
@@ -321,15 +338,10 @@ class HieApiService {
     required String dob,
   }) async {
     try {
-      final response = await _dio.get(
-        '/api/verify/question',
-        queryParameters: {'nationalId': nationalId, 'dob': dob},
-      );
-      final body = _parseBody(response.data);
-      if (_ok(response)) return HieResult(success: true, data: body);
-      return HieResult(success: false, error: _errorMsg(response, null));
-    } on DioException catch (e) {
-      return HieResult(success: false, error: _errorMsg(e.response, e));
+      return await _requestWithRetry(() => _dio.get(
+            '/api/verify/question',
+            queryParameters: {'nationalId': nationalId, 'dob': dob},
+          ));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
@@ -337,32 +349,22 @@ class HieApiService {
 
   // ════════════════════════════════════════════════════════════════
   //  VERIFY SECURITY ANSWER  →  POST /api/verify/answer
+  //  FIXED: Removed facilityId from body - headers handle it
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> verifySecurityAnswer({
     required String nationalId,
     required String dob,
     required String answer,
-    String? facilityId,
+    String? facilityId, // Parameter kept for compatibility but not used in body
   }) async {
     try {
-      final response = await _dio.post('/api/verify/answer', data: {
+      return await _requestWithRetry(() => _dio.post('/api/verify/answer', data: {
         'nationalId': nationalId,
-        'dob':        dob,
-        'answer':     answer,
-        if (facilityId != null) 'facilityId': facilityId,
-      });
-      final body = _parseBody(response.data);
-      if (_ok(response)) {
-        return HieResult(
-          success: true,
-          data:    body,
-          nupi:    body?['nupi'] as String?,
-        );
-      }
-      return HieResult(success: false, error: _errorMsg(response, null));
-    } on DioException catch (e) {
-      return HieResult(success: false, error: _errorMsg(e.response, e));
+        'dob': dob,
+        'answer': answer,
+        // REMOVED: facilityId from body - headers handle authentication
+      }));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
@@ -374,14 +376,39 @@ class HieApiService {
 
   Future<HieResult> lookupPatient({required String nupi}) async {
     try {
-      final response = await _dio.get('/api/patients/$nupi');
-      final body = _parseBody(response.data);
-      if (_ok(response)) {
-        return HieResult(success: true, data: body, nupi: nupi);
+      return await _requestWithRetry(
+        () => _dio.get('/api/patients/$nupi'),
+        nupi: nupi,
+      );
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  FETCH EVERYTHING BUNDLE  →  GET /api/fhir/Patient/:nupi/$everything
+  //  PREFERRED: Returns patient + all encounters in one request
+  // ════════════════════════════════════════════════════════════════
+
+  Future<HieResult> fetchEverything({
+    required String nupi,
+    required String accessToken,
+    String? registeredFacilityId, // Pass registeredFacilityId here (e.g., NYH_001)
+  }) async {
+    try {
+      final queryParams = <String, dynamic>{};
+      if (registeredFacilityId != null && registeredFacilityId.isNotEmpty) {
+        queryParams['registeredFacility'] = registeredFacilityId;
       }
-      return HieResult(success: false, error: _errorMsg(response, null));
-    } on DioException catch (e) {
-      return HieResult(success: false, error: _errorMsg(e.response, e));
+
+      return await _requestWithRetry(
+        () => _dio.get(
+          '/api/fhir/Patient/$nupi/\$everything',
+          queryParameters: queryParams.isEmpty ? null : queryParams,
+          options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+        ),
+        nupi: nupi,
+      );
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
@@ -389,57 +416,62 @@ class HieApiService {
 
   // ════════════════════════════════════════════════════════════════
   //  FETCH DEMOGRAPHICS  →  GET /api/fhir/Patient/:nupi
-  //
-  //  FIX: added optional facilityId param so the gateway queries the
-  //  patient's registered facility, not the requesting facility.
-  //  Pass registeredFacilityId from the verifySecurityAnswer response.
+  //  DEPRECATED: Use fetchEverything instead to avoid rate limiting
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> fetchDemographics({
     required String nupi,
     required String accessToken,
-    String? facilityId,           // ← pass registeredFacilityId here
+    String? facilityId,
   }) async {
     try {
-      final response = await _dio.get(
-        '/api/fhir/Patient/$nupi',
-        queryParameters: facilityId != null && facilityId.isNotEmpty
-            ? {'facility': facilityId}
-            : null,
-        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+      final queryParams = <String, dynamic>{};
+      if (facilityId != null && facilityId.isNotEmpty) {
+        queryParams['facility'] = facilityId;
+      }
+
+      final result = await _requestWithRetry(
+        () => _dio.get(
+          '/api/fhir/Patient/$nupi',
+          queryParameters: queryParams.isEmpty ? null : queryParams,
+          options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+        ),
+        nupi: nupi,
       );
 
-      final body = _parseBody(response.data);
-      if (!_ok(response) || body == null) {
-        return HieResult(success: false, error: _errorMsg(response, null));
+      if (!result.success || result.data == null) {
+        return result;
       }
 
       // Parse FHIR R4 Patient resource into a flat demographics map
-      final nameObj  = (body['name'] as List?)?.firstOrNull as Map?;
-      final given    = (nameObj?['given'] as List?)?.join(' ') ?? '';
-      final family   = nameObj?['family']?.toString() ?? '';
+      final body = result.data!;
+      final nameObj = (body['name'] as List?)?.firstOrNull as Map?;
+      final given = (nameObj?['given'] as List?)?.join(' ') ?? '';
+      final family = nameObj?['family']?.toString() ?? '';
       final fullName = nameObj?['text']?.toString() ?? '$given $family'.trim();
 
       final telecom = body['telecom'] as List? ?? [];
-      final phone   = (telecom.firstWhere(
+      final phone = (telecom.firstWhere(
             (t) => (t as Map)['system'] == 'phone',
             orElse: () => <String, dynamic>{},
           ) as Map)['value']?.toString();
 
       final addresses = body['address'] as List? ?? [];
-      final addr      = addresses.isNotEmpty ? (addresses.first as Map) : <String, dynamic>{};
+      final addr = addresses.isNotEmpty
+          ? (addresses.first as Map)
+          : <String, dynamic>{};
 
       final extensions = body['extension'] as List? ?? [];
-      final bloodExt   = extensions.firstWhere(
+      final bloodExt = extensions.firstWhere(
         (e) => (e as Map)['url']?.toString().contains('blood-group') == true,
         orElse: () => <String, dynamic>{},
       ) as Map;
 
-      // National ID from identifier array
-      final identifiers  = body['identifier'] as List? ?? [];
+      final identifiers = body['identifier'] as List? ?? [];
       final nationalIdEntry = identifiers.firstWhere(
-        (id) => (id as Map)['type']?['coding']?[0]?['code'] == 'NI' ||
-                (id)['system']?.toString().contains('national') == true,
+        (id) =>
+            (id as Map)['type']?['coding']?[0]?['code'] == 'NI' ||
+            (id)['system']?.toString().contains('national') == true,
         orElse: () => identifiers.isNotEmpty ? identifiers.first : <String, dynamic>{},
       ) as Map;
 
@@ -447,23 +479,21 @@ class HieApiService {
 
       return HieResult(
         success: true,
-        nupi:    nupi,
+        nupi: nupi,
         data: {
-          'nupi':               nupi,
-          'name':               fullName,
-          'gender':             body['gender']?.toString()    ?? '',
-          'dateOfBirth':        body['birthDate']?.toString() ?? '',
-          'phoneNumber':        phone ?? '',
-          'nationalId':         nationalIdEntry['value']?.toString() ?? '',
-          'county':             addr['district']?.toString() ?? '',
-          'subCounty':          addr['city']?.toString()     ?? '',
-          'bloodGroup':         bloodExt['valueString']?.toString(),
+          'nupi': nupi,
+          'name': fullName,
+          'gender': body['gender']?.toString() ?? '',
+          'dateOfBirth': body['birthDate']?.toString() ?? '',
+          'phoneNumber': phone ?? '',
+          'nationalId': nationalIdEntry['value']?.toString() ?? '',
+          'county': addr['district']?.toString() ?? '',
+          'subCounty': addr['city']?.toString() ?? '',
+          'bloodGroup': bloodExt['valueString']?.toString(),
           'registeredFacility': meta['sourceName']?.toString() ?? '',
-          'facilityCounty':     '',
+          'facilityCounty': '',
         },
       );
-    } on DioException catch (e) {
-      return HieResult(success: false, error: _errorMsg(e.response, e));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
@@ -471,43 +501,38 @@ class HieApiService {
 
   // ════════════════════════════════════════════════════════════════
   //  FETCH ENCOUNTERS  →  GET /api/fhir/Patient/:nupi/Encounter
-  //
-  //  NEW: fetches cross-facility encounters from the registered
-  //  facility after identity verification succeeds.
-  //  Returns a FHIR Bundle — caller maps it via _parseFhirEncounters.
+  //  DEPRECATED: Use fetchEverything instead to avoid rate limiting
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> fetchEncounters({
     required String nupi,
     required String accessToken,
-    String? facilityId,           // ← pass registeredFacilityId here
+    String? facilityId,
   }) async {
     try {
-      final response = await _dio.get(
-        '/api/fhir/Patient/$nupi/Encounter',
-        queryParameters: facilityId != null && facilityId.isNotEmpty
-            ? {'facility': facilityId}
-            : null,
-        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+      final queryParams = <String, dynamic>{};
+      if (facilityId != null && facilityId.isNotEmpty) {
+        queryParams['facility'] = facilityId;
+      }
+
+      final result = await _requestWithRetry(
+        () => _dio.get(
+          '/api/fhir/Patient/$nupi/Encounter',
+          queryParameters: queryParams.isEmpty ? null : queryParams,
+          options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+        ),
+        nupi: nupi,
       );
 
-      final body = _parseBody(response.data);
-
       // 404 = no encounters at this facility — treat as empty bundle, not an error
-      if (response.statusCode == 404) {
+      if (!result.success && result.error?.contains('404') == true) {
         return HieResult(
           success: true,
-          data:    {'resourceType': 'Bundle', 'entry': []},
+          data: {'resourceType': 'Bundle', 'entry': []},
         );
       }
 
-      if (!_ok(response) || body == null) {
-        return HieResult(success: false, error: _errorMsg(response, null));
-      }
-
-      return HieResult(success: true, data: body);
-    } on DioException catch (e) {
-      return HieResult(success: false, error: _errorMsg(e.response, e));
+      return result;
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
@@ -522,14 +547,9 @@ class HieApiService {
     required String facilityId,
   }) async {
     try {
-      final response = await _dio.get('/api/referrals/$direction/$facilityId');
-      final body = _parseBody(response.data);
-      if (_ok(response)) {
-        return HieResult(success: true, data: body);
-      }
-      return HieResult(success: false, error: _errorMsg(response, null));
-    } on DioException catch (e) {
-      return HieResult(success: false, error: _errorMsg(e.response, e));
+      return await _requestWithRetry(
+        () => _dio.get('/api/referrals/$direction/$facilityId'),
+      );
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
@@ -541,14 +561,9 @@ class HieApiService {
 
   Future<HieResult> getReferralById({required String referralId}) async {
     try {
-      final response = await _dio.get('/api/referrals/$referralId');
-      final body = _parseBody(response.data);
-      if (_ok(response)) {
-        return HieResult(success: true, data: body);
-      }
-      return HieResult(success: false, error: _errorMsg(response, null));
-    } on DioException catch (e) {
-      return HieResult(success: false, error: _errorMsg(e.response, e));
+      return await _requestWithRetry(
+        () => _dio.get('/api/referrals/$referralId'),
+      );
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
