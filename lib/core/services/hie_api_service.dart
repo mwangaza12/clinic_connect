@@ -1,14 +1,4 @@
 // lib/core/services/hie_api_service.dart
-//
-// FIXES applied:
-//  1. registerPatient  → POST /api/patients/register  (was /api/patients)
-//  2. recordEncounter  → POST /api/patients/encounter  (was /api/patients/:nupi/visit)
-//                        nupi now in body, not in URL path
-//  3. getSecurityQuestion → GET /api/verify/question   (was /api/patients/verify/question)
-//  4. verifySecurityAnswer→ POST /api/verify/answer    (was /api/patients/verify/answer)
-//  5. verifyByPin         → POST /api/verify/pin       (was /api/patients/verify/pin)
-//  6. createReferral → field names aligned: toFacility/fromFacility/urgency
-//                      (were toFacilityId/fromFacilityId/priority)
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -36,7 +26,6 @@ class HieResult {
       data?['securityQuestion'] as String?;
 
   /// Full patient demographics map from POST /api/verify/answer.
-  /// Gateway wraps it in data['patient']; falls back to the whole map.
   Map<String, dynamic>? get patientData =>
       (data?['patient'] as Map?)?.cast<String, dynamic>() ?? data;
 }
@@ -45,7 +34,6 @@ class HieApiService {
   static HieApiService? _instance;
   late final Dio _dio;
 
-  // Secure storage for reading facility credentials on every request
   static const _storage = FlutterSecureStorage();
 
   HieApiService._({required String baseUrl}) {
@@ -54,20 +42,14 @@ class HieApiService {
       connectTimeout: const Duration(seconds: 60),
       receiveTimeout: const Duration(seconds: 90),
       headers:        {'Content-Type': 'application/json'},
-      // Never throw on non-2xx — we handle status codes manually
       validateStatus: (_) => true,
     ));
 
-    // ── Inject X-Facility-Id + X-Api-Key on every outbound request ──
-    // The HIE Gateway requireFacility middleware rejects any request that
-    // does not carry both headers.  We read them from secure storage each
-    // time so they stay current after setup / re-auth.
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
           final facilityId = await _storage.read(key: StorageKeys.facilityId);
           final apiKey     = await _storage.read(key: StorageKeys.facilityApiKey);
-
           if (facilityId != null && facilityId.isNotEmpty) {
             options.headers['X-Facility-Id'] = facilityId;
           }
@@ -97,8 +79,6 @@ class HieApiService {
     return _instance!;
   }
 
-  // ── Safe body parser ──────────────────────────────────────────
-  // Render returns plain-text "Not Found" on cold-start 404s — never throws.
   Map<String, dynamic>? _parseBody(dynamic data) {
     if (data is Map<String, dynamic>) return data;
     if (data is Map) return Map<String, dynamic>.from(data);
@@ -118,7 +98,6 @@ class HieApiService {
     return e?.message ?? 'Network error';
   }
 
-  // Wake Render free-tier before first real call (fire-and-forget)
   Future<void> _wakeUp() async {
     try {
       await _dio.get('/health',
@@ -130,8 +109,7 @@ class HieApiService {
       r.statusCode != null && r.statusCode! >= 200 && r.statusCode! < 300;
 
   // ════════════════════════════════════════════════════════════════
-  //  PATIENT REGISTRATION
-  //  FIX: was POST /api/patients — correct is POST /api/patients/register
+  //  PATIENT REGISTRATION  →  POST /api/patients/register
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> registerPatient({
@@ -153,7 +131,7 @@ class HieApiService {
 
       final response = await _dio.post('/api/patients/register', data: {
         'nationalId':       nationalId,
-        'dob':              dateOfBirth,  // gateway expects 'dob', not 'dateOfBirth'
+        'dob':              dateOfBirth,
         'name':             '$firstName $lastName'.trim(),
         'securityQuestion': securityQuestion,
         'securityAnswer':   securityAnswer,
@@ -179,9 +157,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  RECORD ENCOUNTER
-  //  FIX: was POST /api/patients/:nupi/visit
-  //       correct is POST /api/patients/encounter  (nupi in body)
+  //  RECORD ENCOUNTER  →  POST /api/patients/encounter
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> recordEncounter({
@@ -229,11 +205,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  CREATE REFERRAL
-  //  FIX: field names aligned with gateway schema:
-  //    toFacilityId   → toFacility
-  //    fromFacilityId → fromFacility  (gateway reads req.facilityId from auth header)
-  //    priority       → urgency
+  //  CREATE REFERRAL  →  POST /api/referrals
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> createReferral({
@@ -245,7 +217,7 @@ class HieApiService {
     required String toFacilityId,
     required String toFacilityName,
     required String reason,
-    required String priority,       // caller still passes "priority" — mapped to "urgency" below
+    required String priority,
     String? clinicalNotes,
     required String createdBy,
     required String createdByName,
@@ -255,12 +227,11 @@ class HieApiService {
       final response = await _dio.post(
         '/api/referrals',
         data: {
-          'nupi':       patientNupi,
-          'toFacility': toFacilityId,   // FIX: was toFacilityId
-          'reason':     reason,
-          'urgency':    priority,        // FIX: was priority
-          'issuedBy':   createdByName,
-          // Extra context fields — gateway ignores unknown keys
+          'nupi':             patientNupi,
+          'toFacility':       toFacilityId,
+          'reason':           reason,
+          'urgency':          priority,
+          'issuedBy':         createdByName,
           'patientName':      patientName,
           'fromFacilityName': fromFacilityName,
           'toFacilityName':   toFacilityName,
@@ -288,9 +259,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  VERIFY BY PIN
-  //  FIX: was POST /api/patients/verify/pin
-  //       correct is POST /api/verify/pin
+  //  VERIFY BY PIN  →  POST /api/verify/pin
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> verifyByPin({
@@ -344,9 +313,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  GET SECURITY QUESTION
-  //  FIX: was GET /api/patients/verify/question
-  //       correct is GET /api/verify/question
+  //  GET SECURITY QUESTION  →  GET /api/verify/question
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> getSecurityQuestion({
@@ -369,9 +336,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  VERIFY SECURITY ANSWER
-  //  FIX: was POST /api/patients/verify/answer
-  //       correct is POST /api/verify/answer
+  //  VERIFY SECURITY ANSWER  →  POST /api/verify/answer
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> verifySecurityAnswer({
@@ -403,11 +368,9 @@ class HieApiService {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  //  LOOKUP PATIENT BY NUPI  →  GET /api/patients/:nupi
-  //  Returns registration summary (name, facility, registration date).
-  //  Used by PatientLookupDatasource to replace the old sharedDb query.
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
+  //  LOOKUP PATIENT  →  GET /api/patients/:nupi
+  // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> lookupPatient({required String nupi}) async {
     try {
@@ -424,63 +387,63 @@ class HieApiService {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  //  FETCH PATIENT DEMOGRAPHICS  →  GET /api/fhir/Patient/:nupi
+  // ════════════════════════════════════════════════════════════════
+  //  FETCH DEMOGRAPHICS  →  GET /api/fhir/Patient/:nupi
   //
-  //  Calls the HIE Gateway FHIR proxy, which forwards the request to the
-  //  patient's registering facility (SupportFacility /fhir/Patient/:nupi).
-  //  Returns a FHIR R4 Patient resource with full demographics.
-  //
-  //  Requires an access token obtained from POST /api/verify/answer or
-  //  POST /api/verify/pin.  Pass it as the accessToken parameter.
-  //
-  //  Returns a flat demographics map keyed to match what PatientLookupPage
-  //  expects:  name, gender, dateOfBirth, phoneNumber, county, subCounty,
-  //            bloodGroup, registeredFacility, facilityCounty,
-  //            isCurrentFacility, nupi.
-  // ══════════════════════════════════════════════════════════════════════════
+  //  FIX: added optional facilityId param so the gateway queries the
+  //  patient's registered facility, not the requesting facility.
+  //  Pass registeredFacilityId from the verifySecurityAnswer response.
+  // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> fetchDemographics({
     required String nupi,
     required String accessToken,
+    String? facilityId,           // ← pass registeredFacilityId here
   }) async {
     try {
       final response = await _dio.get(
         '/api/fhir/Patient/$nupi',
+        queryParameters: facilityId != null && facilityId.isNotEmpty
+            ? {'facility': facilityId}
+            : null,
         options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
       );
+
       final body = _parseBody(response.data);
       if (!_ok(response) || body == null) {
         return HieResult(success: false, error: _errorMsg(response, null));
       }
 
       // Parse FHIR R4 Patient resource into a flat demographics map
-      final fhirPt   = body;
-      final nameObj  = (fhirPt['name'] as List?)?.firstOrNull as Map?;
+      final nameObj  = (body['name'] as List?)?.firstOrNull as Map?;
       final given    = (nameObj?['given'] as List?)?.join(' ') ?? '';
       final family   = nameObj?['family']?.toString() ?? '';
-      final fullName = nameObj?['text']?.toString() ??
-          '$given $family'.trim();
+      final fullName = nameObj?['text']?.toString() ?? '$given $family'.trim();
 
-      final telecom  = fhirPt['telecom'] as List? ?? [];
-      final phone    = (telecom.firstWhere(
+      final telecom = body['telecom'] as List? ?? [];
+      final phone   = (telecom.firstWhere(
             (t) => (t as Map)['system'] == 'phone',
             orElse: () => <String, dynamic>{},
           ) as Map)['value']?.toString();
 
-      final addresses = fhirPt['address'] as List? ?? [];
-      final addr      = addresses.isNotEmpty
-          ? (addresses.first as Map)
-          : <String, dynamic>{};
+      final addresses = body['address'] as List? ?? [];
+      final addr      = addresses.isNotEmpty ? (addresses.first as Map) : <String, dynamic>{};
 
-      final extensions = fhirPt['extension'] as List? ?? [];
+      final extensions = body['extension'] as List? ?? [];
       final bloodExt   = extensions.firstWhere(
         (e) => (e as Map)['url']?.toString().contains('blood-group') == true,
         orElse: () => <String, dynamic>{},
       ) as Map;
-      final bloodGroup = bloodExt['valueString']?.toString();
 
-      final meta       = (fhirPt['meta'] as Map?) ?? {};
+      // National ID from identifier array
+      final identifiers  = body['identifier'] as List? ?? [];
+      final nationalIdEntry = identifiers.firstWhere(
+        (id) => (id as Map)['type']?['coding']?[0]?['code'] == 'NI' ||
+                (id)['system']?.toString().contains('national') == true,
+        orElse: () => identifiers.isNotEmpty ? identifiers.first : <String, dynamic>{},
+      ) as Map;
+
+      final meta = (body['meta'] as Map?) ?? {};
 
       return HieResult(
         success: true,
@@ -488,14 +451,15 @@ class HieApiService {
         data: {
           'nupi':               nupi,
           'name':               fullName,
-          'gender':             fhirPt['gender']?.toString() ?? '',
-          'dateOfBirth':        fhirPt['birthDate']?.toString() ?? '',
+          'gender':             body['gender']?.toString()    ?? '',
+          'dateOfBirth':        body['birthDate']?.toString() ?? '',
           'phoneNumber':        phone ?? '',
+          'nationalId':         nationalIdEntry['value']?.toString() ?? '',
           'county':             addr['district']?.toString() ?? '',
           'subCounty':          addr['city']?.toString()     ?? '',
-          'bloodGroup':         bloodGroup,
+          'bloodGroup':         bloodExt['valueString']?.toString(),
           'registeredFacility': meta['sourceName']?.toString() ?? '',
-          'facilityCounty':     '',   // enriched by verify/answer response
+          'facilityCounty':     '',
         },
       );
     } on DioException catch (e) {
@@ -505,14 +469,56 @@ class HieApiService {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
+  //  FETCH ENCOUNTERS  →  GET /api/fhir/Patient/:nupi/Encounter
+  //
+  //  NEW: fetches cross-facility encounters from the registered
+  //  facility after identity verification succeeds.
+  //  Returns a FHIR Bundle — caller maps it via _parseFhirEncounters.
+  // ════════════════════════════════════════════════════════════════
+
+  Future<HieResult> fetchEncounters({
+    required String nupi,
+    required String accessToken,
+    String? facilityId,           // ← pass registeredFacilityId here
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/api/fhir/Patient/$nupi/Encounter',
+        queryParameters: facilityId != null && facilityId.isNotEmpty
+            ? {'facility': facilityId}
+            : null,
+        options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+      );
+
+      final body = _parseBody(response.data);
+
+      // 404 = no encounters at this facility — treat as empty bundle, not an error
+      if (response.statusCode == 404) {
+        return HieResult(
+          success: true,
+          data:    {'resourceType': 'Bundle', 'entry': []},
+        );
+      }
+
+      if (!_ok(response) || body == null) {
+        return HieResult(success: false, error: _errorMsg(response, null));
+      }
+
+      return HieResult(success: true, data: body);
+    } on DioException catch (e) {
+      return HieResult(success: false, error: _errorMsg(e.response, e));
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
   //  GET REFERRALS  →  GET /api/referrals/incoming/:id  or  /outgoing/:id
-  //  Returns referrals from the blockchain for this facility.
-  //  Used by ReferralRemoteDatasourceImpl to replace sharedDb queries.
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> getReferrals({
-    required String direction,   // 'incoming' or 'outgoing'
+    required String direction,
     required String facilityId,
   }) async {
     try {
@@ -529,10 +535,9 @@ class HieApiService {
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
   //  GET REFERRAL BY ID  →  GET /api/referrals/:referralId
-  //  Fetches a specific referral from the blockchain by its ID.
-  // ══════════════════════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> getReferralById({required String referralId}) async {
     try {
