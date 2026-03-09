@@ -467,4 +467,46 @@ class HieApiService {
       return HieResult(success: false, error: e.toString());
     }
   }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  FETCH FULL PATIENT RECORD  →  GET /fhir/Patient/:nupi?facility=FAC_ID
+  //
+  //  The HIE proxies this to the source facility's backend using the
+  //  registered fhirEndpoints. Returns a FHIR R4 Patient resource with
+  //  full demographics, or a Bundle ($everything) if encounters=true.
+  //
+  //  Requires the access token issued by verifySecurityAnswer / verifyByPin.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  Future<HieResult> fetchPatientRecord({
+    required String nupi,
+    required String sourceFacilityId,
+    required String accessToken,
+    bool everything = false,
+  }) async {
+    try {
+      final path = everything
+          ? '/fhir/Patient/$nupi/\$everything'
+          : '/fhir/Patient/$nupi';
+
+      final response = await _dio.get(
+        path,
+        queryParameters: { 'facility': sourceFacilityId },
+        options: Options(headers: {
+          'Authorization': 'Bearer $accessToken',
+          'Accept': 'application/fhir+json',
+        }),
+      );
+
+      final body = _parseBody(response.data);
+      if (_ok(response)) {
+        return HieResult(success: true, data: body);
+      }
+      return HieResult(success: false, error: _errorMsg(response, null));
+    } on DioException catch (e) {
+      return HieResult(success: false, error: _errorMsg(e.response, e));
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
 }

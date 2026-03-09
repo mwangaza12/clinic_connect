@@ -7,8 +7,6 @@ import '../../../../core/services/hie_api_service.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../../patient/domain/entities/patient.dart';
-import '../../../patient/presentation/bloc/patient_bloc.dart';
-import '../../../patient/presentation/bloc/patient_event.dart';
 import '../../domain/entities/encounter.dart';
 import '../bloc/encounter_bloc.dart';
 import '../bloc/encounter_event.dart';
@@ -33,26 +31,34 @@ import '../bloc/encounter_state.dart';
 class CreateEncounterPage extends StatelessWidget {
   final Patient patient;
 
-  /// Raw HIE demographics map — present only when coming from PatientLookupPage.
-  /// Signals that the patient may need to be upserted into local Firestore.
+  /// Raw HIE demographics + merged FHIR data — present when coming from
+  /// PatientLookupPage after cross-facility lookup.
   final Map<String, dynamic>? nupiPatient;
+
+  /// Access token issued by the HIE after identity verification.
+  /// Used for any follow-up FHIR calls within the encounter form.
+  final String accessToken;
+
+  /// The facility whose backend the HIE fetched the full record from.
+  final String sourceFacilityId;
 
   const CreateEncounterPage({
     super.key,
     required this.patient,
     this.nupiPatient,
+    this.accessToken      = '',
+    this.sourceFacilityId = '',
   });
 
   @override
   Widget build(BuildContext context) {
-    return MultiBlocProvider(
-      providers: [
-        BlocProvider(create: (_) => sl<EncounterBloc>()),
-        BlocProvider(create: (_) => sl<PatientBloc>()),
-      ],
+    return BlocProvider(
+      create: (_) => sl<EncounterBloc>(),
       child: _CreateEncounterView(
-        patient:     patient,
-        nupiPatient: nupiPatient,
+        patient:          patient,
+        nupiPatient:      nupiPatient,
+        accessToken:      accessToken,
+        sourceFacilityId: sourceFacilityId,
       ),
     );
   }
@@ -61,10 +67,14 @@ class CreateEncounterPage extends StatelessWidget {
 class _CreateEncounterView extends StatefulWidget {
   final Patient patient;
   final Map<String, dynamic>? nupiPatient;
+  final String accessToken;
+  final String sourceFacilityId;
 
   const _CreateEncounterView({
     required this.patient,
     this.nupiPatient,
+    this.accessToken      = '',
+    this.sourceFacilityId = '',
   });
 
   @override
@@ -194,15 +204,6 @@ class _CreateEncounterViewState extends State<_CreateEncounterView> {
       createdAt:    now,
       updatedAt:    now,
     );
-
-    // ── If patient came from HIE lookup, upsert to local DB first ──
-    // RegisterPatientEvent is idempotent — if the NUPI already exists
-    // in Firestore it will overwrite with the latest HIE data.
-    if (widget.nupiPatient != null) {
-      if (mounted) {
-        context.read<PatientBloc>().add(RegisterPatientEvent(widget.patient));
-      }
-    }
 
     // ── Save encounter to local Firestore ─────────────────────────
     if (mounted) {
