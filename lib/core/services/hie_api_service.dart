@@ -142,6 +142,24 @@ class HieApiService {
           continue;
         }
 
+        // Handle gateway wrapping a 429 as 500
+        if (response.statusCode == 500) {
+          final diagnostics = body?['issue']?[0]?['diagnostics']?.toString() ?? '';
+          if (diagnostics.contains('429')) {
+            retryCount++;
+            if (retryCount >= maxRetries) {
+              return HieResult(
+                success: false,
+                error: 'Rate limited (upstream). Please wait a moment and try again.',
+              );
+            }
+            debugPrint('⏳ Upstream rate limited (500/429), retrying in ${currentDelay.inMilliseconds}ms... (Attempt $retryCount/$maxRetries)');
+            await Future.delayed(currentDelay);
+            currentDelay *= 2;
+            continue;
+          }
+        }
+
         if (_ok(response)) {
           return HieResult(
             success: true,
@@ -349,21 +367,19 @@ class HieApiService {
 
   // ════════════════════════════════════════════════════════════════
   //  VERIFY SECURITY ANSWER  →  POST /api/verify/answer
-  //  FIXED: Removed facilityId from body - headers handle it
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> verifySecurityAnswer({
     required String nationalId,
     required String dob,
     required String answer,
-    String? facilityId, // Parameter kept for compatibility but not used in body
+    String? facilityId, // Kept for compatibility but not used in body
   }) async {
     try {
       return await _requestWithRetry(() => _dio.post('/api/verify/answer', data: {
         'nationalId': nationalId,
         'dob': dob,
         'answer': answer,
-        // REMOVED: facilityId from body - headers handle authentication
       }));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
@@ -387,13 +403,12 @@ class HieApiService {
 
   // ════════════════════════════════════════════════════════════════
   //  FETCH EVERYTHING BUNDLE  →  GET /api/fhir/Patient/:nupi/$everything
-  //  PREFERRED: Returns patient + all encounters in one request
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> fetchEverything({
     required String nupi,
     required String accessToken,
-    String? registeredFacilityId, // Pass registeredFacilityId here (e.g., NYH_001)
+    String? registeredFacilityId,
   }) async {
     try {
       final queryParams = <String, dynamic>{};
@@ -416,7 +431,6 @@ class HieApiService {
 
   // ════════════════════════════════════════════════════════════════
   //  FETCH DEMOGRAPHICS  →  GET /api/fhir/Patient/:nupi
-  //  DEPRECATED: Use fetchEverything instead to avoid rate limiting
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> fetchDemographics({
@@ -443,18 +457,29 @@ class HieApiService {
         return result;
       }
 
-      // Parse FHIR R4 Patient resource into a flat demographics map
       final body = result.data!;
+
+      // Handle OperationOutcome errors
+      if (body['resourceType'] == 'OperationOutcome') {
+        return HieResult(
+          success: false,
+          error: body['issue']?[0]?['diagnostics'] ?? 'Unknown error',
+        );
+      }
+
       final nameObj = (body['name'] as List?)?.firstOrNull as Map?;
       final given = (nameObj?['given'] as List?)?.join(' ') ?? '';
       final family = nameObj?['family']?.toString() ?? '';
       final fullName = nameObj?['text']?.toString() ?? '$given $family'.trim();
 
       final telecom = body['telecom'] as List? ?? [];
-      final phone = (telecom.firstWhere(
-            (t) => (t as Map)['system'] == 'phone',
-            orElse: () => <String, dynamic>{},
-          ) as Map)['value']?.toString();
+      String phone = '';
+      for (var t in telecom) {
+        if (t['system'] == 'phone') {
+          phone = t['value']?.toString() ?? '';
+          break;
+        }
+      }
 
       final addresses = body['address'] as List? ?? [];
       final addr = addresses.isNotEmpty
@@ -462,18 +487,26 @@ class HieApiService {
           : <String, dynamic>{};
 
       final extensions = body['extension'] as List? ?? [];
-      final bloodExt = extensions.firstWhere(
-        (e) => (e as Map)['url']?.toString().contains('blood-group') == true,
-        orElse: () => <String, dynamic>{},
-      ) as Map;
+      String bloodGroup = '';
+      for (var ext in extensions) {
+        if (ext['url']?.toString().contains('blood-group') == true) {
+          bloodGroup = ext['valueString']?.toString() ?? '';
+          break;
+        }
+      }
 
       final identifiers = body['identifier'] as List? ?? [];
-      final nationalIdEntry = identifiers.firstWhere(
-        (id) =>
-            (id as Map)['type']?['coding']?[0]?['code'] == 'NI' ||
-            (id)['system']?.toString().contains('national') == true,
-        orElse: () => identifiers.isNotEmpty ? identifiers.first : <String, dynamic>{},
-      ) as Map;
+      String nationalId = '';
+      for (var id in identifiers) {
+        if (id['system']?.toString().contains('national') == true ||
+            id['type']?['coding']?[0]?['code'] == 'NI') {
+          nationalId = id['value']?.toString() ?? '';
+          break;
+        }
+      }
+      if (nationalId.isEmpty && identifiers.isNotEmpty) {
+        nationalId = identifiers.first['value']?.toString() ?? '';
+      }
 
       final meta = (body['meta'] as Map?) ?? {};
 
@@ -485,13 +518,16 @@ class HieApiService {
           'name': fullName,
           'gender': body['gender']?.toString() ?? '',
           'dateOfBirth': body['birthDate']?.toString() ?? '',
-          'phoneNumber': phone ?? '',
-          'nationalId': nationalIdEntry['value']?.toString() ?? '',
+          'phoneNumber': phone,
+          'nationalId': nationalId,
           'county': addr['district']?.toString() ?? '',
           'subCounty': addr['city']?.toString() ?? '',
-          'bloodGroup': bloodExt['valueString']?.toString(),
+          'village': addr['line']?.isNotEmpty == true
+              ? addr['line'][0]?.toString() ?? ''
+              : '',
+          'bloodGroup': bloodGroup,
           'registeredFacility': meta['sourceName']?.toString() ?? '',
-          'facilityCounty': '',
+          'registeredFacilityId': meta['source']?.toString() ?? '',
         },
       );
     } catch (e) {
@@ -501,7 +537,6 @@ class HieApiService {
 
   // ════════════════════════════════════════════════════════════════
   //  FETCH ENCOUNTERS  →  GET /api/fhir/Patient/:nupi/Encounter
-  //  DEPRECATED: Use fetchEverything instead to avoid rate limiting
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> fetchEncounters({
@@ -524,7 +559,20 @@ class HieApiService {
         nupi: nupi,
       );
 
-      // 404 = no encounters at this facility — treat as empty bundle, not an error
+      // Handle OperationOutcome errors
+      if (!result.success && result.data != null) {
+        final body = result.data;
+        if (body?['resourceType'] == 'OperationOutcome') {
+          if (body?['issue']?[0]?['code'] == 'not-found') {
+            return HieResult(
+              success: true,
+              data: {'resourceType': 'Bundle', 'entry': []},
+            );
+          }
+        }
+      }
+
+      // 404 = no encounters at this facility — treat as empty bundle
       if (!result.success && result.error?.contains('404') == true) {
         return HieResult(
           success: true,
@@ -533,6 +581,33 @@ class HieApiService {
       }
 
       return result;
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  GET ENCOUNTER BY ID  →  GET /api/fhir/Encounter/:id
+  // ════════════════════════════════════════════════════════════════
+
+  Future<HieResult> getFhirEncounter({
+    required String encounterId,
+    required String accessToken,
+    String? facilityId,
+  }) async {
+    try {
+      final queryParams = <String, dynamic>{};
+      if (facilityId != null && facilityId.isNotEmpty) {
+        queryParams['facility'] = facilityId;
+      }
+
+      return await _requestWithRetry(
+        () => _dio.get(
+          '/api/fhir/Encounter/$encounterId',
+          queryParameters: queryParams.isEmpty ? null : queryParams,
+          options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
+        ),
+      );
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
@@ -567,5 +642,72 @@ class HieApiService {
     } catch (e) {
       return HieResult(success: false, error: e.toString());
     }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  PARSE ENCOUNTERS FROM VERIFICATION DATA
+  // ════════════════════════════════════════════════════════════════
+
+  List<Map<String, dynamic>> parseEncountersFromVerification(
+    Map<String, dynamic> verifyData, {
+    required String facilityName,
+  }) {
+    final encounterIndex = verifyData['encounterIndex'] as List? ?? [];
+
+    return encounterIndex.map((e) {
+      return {
+        'id': e['encounterId'],
+        'class': {'display': e['encounterType']},
+        'type': [
+          {'text': e['encounterType']}
+        ],
+        'period': {'start': e['encounterDate']},
+        'meta': {
+          'source': e['facilityId'],
+          'sourceName': facilityName,
+          'lastUpdated': e['encounterDate'],
+        },
+        'resourceType': 'Encounter',
+        'status': 'finished',
+      };
+    }).toList();
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  PARSE PATIENT FROM VERIFICATION DATA
+  //  FIXED: Now maps all demographic fields, not just facility meta
+  // ════════════════════════════════════════════════════════════════
+
+  Map<String, dynamic> parsePatientFromVerification(
+    Map<String, dynamic> verifyData,
+  ) {
+    final patientMeta =
+        (verifyData['patient'] as Map?)?.cast<String, dynamic>() ?? {};
+    final nupi = verifyData['nupi'] as String? ?? '';
+
+    return {
+      'nupi': nupi,
+      'name': patientMeta['name'] ?? 'Unknown',
+      // Map all possible demographic field names the API might return
+      'gender': patientMeta['gender'] ?? patientMeta['sex'] ?? '',
+      'dateOfBirth': patientMeta['dob'] ??
+          patientMeta['dateOfBirth'] ??
+          patientMeta['birthDate'] ??
+          '',
+      'phoneNumber': patientMeta['phone'] ??
+          patientMeta['phoneNumber'] ??
+          patientMeta['msisdn'] ??
+          '',
+      'county': patientMeta['county'] ?? '',
+      'subCounty': patientMeta['subCounty'] ?? patientMeta['sub_county'] ?? '',
+      'village': patientMeta['village'] ?? patientMeta['ward'] ?? '',
+      'bloodGroup': patientMeta['bloodGroup'] ?? patientMeta['blood_group'] ?? '',
+      'nationalId': patientMeta['nationalId'] ?? patientMeta['national_id'] ?? '',
+      'registeredFacility': patientMeta['registeredFacility'] ?? '',
+      'registeredFacilityId': patientMeta['registeredFacilityId'] ?? '',
+      'facilityCounty': patientMeta['facilityCounty'] ?? '',
+      'isCurrentFacility': patientMeta['isCurrentFacility'] ?? false,
+      'isFederatedRecord': true,
+    };
   }
 }
