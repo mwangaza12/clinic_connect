@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:sqflite/sqflite.dart' as sqflite;
 import '../../../../core/database/database_helper.dart';
 import '../models/program_enrollment_model.dart';
 
@@ -17,14 +19,19 @@ class ProgramLocalDatasourceImpl implements ProgramLocalDatasource {
   @override
   Future<void> cacheEnrollment(ProgramEnrollmentModel enrollment) async {
     final db = await databaseHelper.database;
-    await db.insert('program_enrollments', enrollment.toMap());
-    
-    // Add to sync queue
+    await db.insert(
+      'program_enrollments',
+      enrollment.toMap(),
+      conflictAlgorithm: sqflite.ConflictAlgorithm.replace,
+    );
+
+    // Add to sync queue — jsonEncode so payload can be parsed back
     await db.insert('sync_queue', {
       'entity_type': 'program_enrollment',
       'entity_id': enrollment.id,
       'operation': 'create',
-      'payload': enrollment.toMap().toString(),
+      'payload': jsonEncode(enrollment.toMap()),
+      'attempts': 0,
       'created_at': DateTime.now().toIso8601String(),
     });
   }
@@ -74,7 +81,8 @@ class ProgramLocalDatasourceImpl implements ProgramLocalDatasource {
   }
 
   @override
-  Future<void> updateEnrollmentStatus(String enrollmentId, String status, String? notes) async {
+  Future<void> updateEnrollmentStatus(
+      String enrollmentId, String status, String? notes) async {
     final db = await databaseHelper.database;
     final updates = {
       'status': status,
@@ -82,24 +90,25 @@ class ProgramLocalDatasourceImpl implements ProgramLocalDatasource {
       'updated_at': DateTime.now().toIso8601String(),
       'sync_status': 'pending',
     };
-    
+
     if (status == 'completed' || status == 'died') {
       updates['completion_date'] = DateTime.now().toIso8601String();
     }
-    
+
     await db.update(
       'program_enrollments',
       updates,
       where: 'id = ?',
       whereArgs: [enrollmentId],
     );
-    
-    // Add to sync queue
+
+    // Add to sync queue — jsonEncode so payload can be parsed back
     await db.insert('sync_queue', {
       'entity_type': 'program_enrollment',
       'entity_id': enrollmentId,
       'operation': 'update',
-      'payload': updates.toString(),
+      'payload': jsonEncode(updates),
+      'attempts': 0,
       'created_at': DateTime.now().toIso8601String(),
     });
   }
