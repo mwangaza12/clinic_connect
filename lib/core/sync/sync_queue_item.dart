@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 enum SyncOperation { create, update, delete }
-enum SyncEntityType { patient, encounter, referral }
+enum SyncEntityType { patient, encounter, referral, programEnrollment }
 
 class SyncQueueItem {
   final int? id;

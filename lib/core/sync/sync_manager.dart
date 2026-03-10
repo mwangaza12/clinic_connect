@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../config/firebase_config.dart';
 import 'connectivity_manager.dart';
+import 'conflict_resolver.dart';
 import 'sync_queue_item.dart';
 import '../database/database_helper.dart';
 
@@ -200,13 +201,35 @@ class SyncManager {
       switch (item.operation) {
         case SyncOperation.create:
         case SyncOperation.update:
-          // Convert ISO strings back to Timestamps for Firestore
-          final payload =
-              _convertToFirestorePayload(item.payload);
-          await firestore
-              .collection(collection)
-              .doc(item.entityId)
-              .set(payload, SetOptions(merge: true));
+          final docRef = firestore.collection(collection).doc(item.entityId);
+          final serverSnap = await docRef.get();
+
+          Map<String, dynamic> payload;
+
+          // If the document already exists on the server, run conflict resolution
+          if (serverSnap.exists) {
+            final serverData = serverSnap.data()!;
+            final result = ConflictResolver.resolve(
+              localRecord: item.payload,
+              serverRecord: serverData,
+              entityType: collection,
+            );
+            payload = _convertToFirestorePayload(result.resolvedData);
+
+            // If the conflict resolver flagged this for review, log it
+            if (result.requiresReview) {
+              await _logConflict(
+                entityType: collection,
+                entityId: item.entityId,
+                note: result.resolutionNote,
+              );
+            }
+          } else {
+            // No conflict — fresh write
+            payload = _convertToFirestorePayload(item.payload);
+          }
+
+          await docRef.set(payload, SetOptions(merge: true));
           break;
 
         case SyncOperation.delete:
@@ -219,7 +242,6 @@ class SyncManager {
 
       return true;
     } catch (e) {
-      // Update last_error in queue
       final db = await _db.database;
       await db.update(
         'sync_queue',
@@ -228,6 +250,37 @@ class SyncManager {
         whereArgs: [item.id],
       );
       return false;
+    }
+  }
+
+  /// Logs a conflict to the sync_conflicts table for clinician review
+  Future<void> _logConflict({
+    required String entityType,
+    required String entityId,
+    required String note,
+  }) async {
+    try {
+      final db = await _db.database;
+      // Create the table if it doesn't exist yet
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS sync_conflicts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          note TEXT NOT NULL,
+          resolved INTEGER DEFAULT 0,
+          created_at TEXT NOT NULL
+        )
+      ''');
+      await db.insert('sync_conflicts', {
+        'entity_type': entityType,
+        'entity_id': entityId,
+        'note': note,
+        'resolved': 0,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+    } catch (_) {
+      // Non-critical — don't fail the sync if conflict logging fails
     }
   }
 
@@ -296,6 +349,8 @@ class SyncManager {
         return 'encounters';
       case SyncEntityType.referral:
         return 'referrals';
+      case SyncEntityType.programEnrollment:
+        return 'program_enrollments';
     }
   }
 

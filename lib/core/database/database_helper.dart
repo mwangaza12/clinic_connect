@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
@@ -19,7 +20,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 1, // ✅ Increment version for new tables                  
+      version: 4, // matches the latest migration in _onUpgrade
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -333,16 +334,17 @@ class DatabaseHelper {
   Future<int> insertProgramEnrollment(Map<String, dynamic> enrollment) async {
     final db = await database;
     await db.insert('program_enrollments', enrollment);
-    
-    // Add to sync queue
+
+    // Add to sync queue — use jsonEncode so the payload can be parsed back
     await db.insert('sync_queue', {
       'entity_type': 'program_enrollment',
       'entity_id': enrollment['id'],
       'operation': 'create',
-      'payload': enrollment.toString(),
+      'payload': jsonEncode(enrollment),
+      'attempts': 0,
       'created_at': DateTime.now().toIso8601String(),
     });
-    
+
     return 1;
   }
 
@@ -350,23 +352,24 @@ class DatabaseHelper {
     final db = await database;
     updates['updated_at'] = DateTime.now().toIso8601String();
     updates['sync_status'] = 'pending';
-    
+
     final result = await db.update(
       'program_enrollments',
       updates,
       where: 'id = ?',
       whereArgs: [id],
     );
-    
-    // Add to sync queue
+
+    // Add to sync queue — use jsonEncode so the payload can be parsed back
     await db.insert('sync_queue', {
       'entity_type': 'program_enrollment',
       'entity_id': id,
       'operation': 'update',
-      'payload': updates.toString(),
+      'payload': jsonEncode(updates),
+      'attempts': 0,
       'created_at': DateTime.now().toIso8601String(),
     });
-    
+
     return result;
   }
 }
