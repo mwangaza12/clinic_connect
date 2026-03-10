@@ -707,9 +707,7 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
                           builder: (_) => EncounterDetailPage(
                             encounter: enc,
                             patientName: name,
-                            accessToken: isFederated
-                                ? data['_accessToken'] as String?
-                                : null,
+                            accessToken: data['_accessToken'] as String?,
                             isFederated: isFederated,
                           ),
                         ),
@@ -1144,8 +1142,7 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
                           builder: (_) => EncounterDetailPage(
                             encounter: enc,
                             patientName: patientName,
-                            accessToken:
-                                isFederated ? accessToken : null,
+                            accessToken: accessToken,
                             isFederated: isFederated,
                           ),
                         ),
