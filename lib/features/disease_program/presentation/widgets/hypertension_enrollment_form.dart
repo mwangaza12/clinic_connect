@@ -210,7 +210,7 @@ class _HypertensionEnrollmentFormState extends State<HypertensionEnrollmentForm>
 
             // Medication Adherence
             DropdownButtonFormField<String>(
-              value: _medicationAdherence,
+              initialValue: _medicationAdherence,
               decoration: InputDecoration(
                 labelText: 'Medication Adherence',
                 prefixIcon: const Icon(Icons.medication, size: 20),

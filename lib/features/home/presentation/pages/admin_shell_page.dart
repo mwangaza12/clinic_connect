@@ -502,7 +502,7 @@ class _AddStaffSheetState extends State<AddStaffSheet> {
                 obscure: true),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _role,
+              initialValue: _role,
               decoration: _deco('Role', Icons.badge_outlined),
               items: const [
                 DropdownMenuItem(value: 'doctor', child: Text('Doctor')),

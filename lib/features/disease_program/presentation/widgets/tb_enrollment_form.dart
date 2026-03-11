@@ -131,7 +131,7 @@ class _TbEnrollmentFormState extends State<TbEnrollmentForm> {
 
             // TB Type
             DropdownButtonFormField<String>(
-              value: _tbType,
+              initialValue: _tbType,
               decoration: InputDecoration(
                 labelText: 'TB Type',
                 prefixIcon: const Icon(Icons.category, size: 20),
@@ -162,7 +162,7 @@ class _TbEnrollmentFormState extends State<TbEnrollmentForm> {
 
             // Disease Site
             DropdownButtonFormField<String>(
-              value: _diseaseSite,
+              initialValue: _diseaseSite,
               decoration: InputDecoration(
                 labelText: 'Disease Site',
                 prefixIcon: const Icon(Icons.location_on, size: 20),
@@ -202,7 +202,7 @@ class _TbEnrollmentFormState extends State<TbEnrollmentForm> {
 
             // Treatment Regimen
             DropdownButtonFormField<String>(
-              value: _treatmentRegimen,
+              initialValue: _treatmentRegimen,
               decoration: InputDecoration(
                 labelText: 'Treatment Regimen',
                 prefixIcon: const Icon(Icons.medication, size: 20),
@@ -243,7 +243,7 @@ class _TbEnrollmentFormState extends State<TbEnrollmentForm> {
 
             // HIV Status
             DropdownButtonFormField<String>(
-              value: _hivStatus,
+              initialValue: _hivStatus,
               decoration: InputDecoration(
                 labelText: 'HIV Status',
                 prefixIcon: const Icon(Icons.health_and_safety, size: 20),
@@ -283,7 +283,7 @@ class _TbEnrollmentFormState extends State<TbEnrollmentForm> {
 
             // Treatment Phase
             DropdownButtonFormField<String>(
-              value: _treatmentPhase,
+              initialValue: _treatmentPhase,
               decoration: InputDecoration(
                 labelText: 'Treatment Phase',
                 prefixIcon: const Icon(Icons.timeline, size: 20),

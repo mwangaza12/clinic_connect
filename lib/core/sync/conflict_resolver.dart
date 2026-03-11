@@ -11,6 +11,7 @@
 /// - Protects clinical fields (diagnoses, vitals) from being silently overwritten
 /// - Flags genuine conflicts so a clinician can review if needed
 /// - Avoids data loss by keeping a local backup of the conflicting record
+library;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 

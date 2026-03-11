@@ -16,16 +16,11 @@ import 'features/home/presentation/pages/home_page.dart';
 import 'features/onboarding/presentation/pages/splash_screen.dart';
 import 'injection_container.dart' as di;
 
-// Called by flavor entry points after Firebase + storage is pre-seeded.
-// main_facility_a.dart and main_facility_b.dart call this after:
-//   1. Firebase.initializeApp() with their own FirebaseOptions
-//   2. Writing facilityId, facilityApiKey, hieGatewayUrl to secure storage
-// AuthWrapper._checkSetup() then finds keys already set → skips SetupWizard.
 Future<void> runClinicApp() async {
   await di.init();
   await SyncManager().init();
 
-  const storage  = FlutterSecureStorage();
+  const storage = FlutterSecureStorage();
   final savedUrl = await storage.read(key: StorageKeys.hieGatewayUrl);
 
   HieApiService.init(
@@ -40,7 +35,6 @@ Future<void> runClinicApp() async {
   runApp(const ClinicConnectApp());
 }
 
-// Default entry point — used by plain `flutter run`
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
@@ -63,33 +57,66 @@ class ClinicConnectApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2D6A4F)),
           useMaterial3: true,
         ),
-        // SplashScreen is the first route. It either:
-        //   a) pops to AuthWrapper after 2.5s (onboarding already seen), or
-        //   b) navigates to OnboardingPage (first launch), which then pops
-        //      back to AuthWrapper on "Get Started".
-        home: const _RootNavigator(),
+        home: const RootNavigator(),
       ),
     );
   }
 }
 
-/// Wraps AuthWrapper in a Navigator so SplashScreen and OnboardingPage
-/// can push/pop without touching the app's main navigation stack.
-class _RootNavigator extends StatelessWidget {
-  const _RootNavigator();
+class RootNavigator extends StatefulWidget {
+  const RootNavigator({super.key});
+
+  @override
+  State<RootNavigator> createState() => _RootNavigatorState();
+}
+
+class _RootNavigatorState extends State<RootNavigator> {
+  // Three states: null = still checking, true = show splash, false = go to app
+  bool? _showSplash;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkOnboardingStatus();
+  }
+
+  Future<void> _checkOnboardingStatus() async {
+    const storage = FlutterSecureStorage();
+    final hasSeenOnboarding = await storage.read(key: StorageKeys.hasSeenOnboarding);
+
+    if (mounted) {
+      setState(() {
+        // Only show splash+onboarding if user hasn't seen it
+        _showSplash = hasSeenOnboarding != 'true';
+      });
+    }
+  }
+
+  void _onSplashComplete() {
+    if (mounted) {
+      setState(() {
+        _showSplash = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Navigator(
-      onGenerateRoute: (_) => MaterialPageRoute(
-        builder: (_) => Stack(
-          children: const [
-            AuthWrapper(),           // always rendered underneath
-            SplashScreen(),          // slides over on top; pops when done
-          ],
-        ),
-      ),
-    );
+    // Show nothing (blank) while we check — avoids any flicker
+    if (_showSplash == null) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF1A3C2E),
+        body: SizedBox.shrink(),
+      );
+    }
+
+    if (_showSplash == true) {
+      // SplashScreen handles both the splash animation AND
+      // pushing OnboardingPage via its own Navigator.of(context).push()
+      return SplashScreen(onComplete: _onSplashComplete);
+    }
+
+    return const AuthWrapper();
   }
 }
 
@@ -102,7 +129,7 @@ class AuthWrapper extends StatefulWidget {
 
 class _AuthWrapperState extends State<AuthWrapper> {
   bool _checkingSetup = true;
-  bool _needsSetup    = false;
+  bool _needsSetup = false;
 
   @override
   void initState() {
@@ -112,11 +139,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
   Future<void> _checkSetup() async {
     const storage = FlutterSecureStorage();
-    final apiKey  = await storage.read(key: StorageKeys.facilityApiKey);
-    final facId   = await storage.read(key: StorageKeys.facilityId);
+    final apiKey = await storage.read(key: StorageKeys.facilityApiKey);
+    final facId = await storage.read(key: StorageKeys.facilityId);
     if (mounted) {
       setState(() {
-        _needsSetup    = apiKey == null || apiKey.isEmpty || facId == null || facId.isEmpty;
+        _needsSetup = apiKey == null || apiKey.isEmpty || facId == null || facId.isEmpty;
         _checkingSetup = false;
       });
     }
@@ -125,17 +152,20 @@ class _AuthWrapperState extends State<AuthWrapper> {
   @override
   Widget build(BuildContext context) {
     if (_checkingSetup) {
-      // Minimal loading state — splash screen is covering this anyway
       return const Scaffold(
         backgroundColor: Color(0xFF1A3C2E),
-        body: SizedBox.shrink(),
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFF52B788)),
+        ),
       );
     }
+
     if (_needsSetup) {
       return SetupWizardPage(
         onComplete: () => setState(() => _needsSetup = false),
       );
     }
+
     return BlocBuilder<AuthBloc, AuthState>(
       builder: (context, state) {
         if (state is Authenticated) {

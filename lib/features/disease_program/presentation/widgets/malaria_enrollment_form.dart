@@ -125,7 +125,7 @@ class _MalariaEnrollmentFormState extends State<MalariaEnrollmentForm> {
 
             // Malaria Type
             DropdownButtonFormField<String>(
-              value: _malariaType,
+              initialValue: _malariaType,
               decoration: InputDecoration(
                 labelText: 'Malaria Type',
                 prefixIcon: const Icon(Icons.biotech, size: 20),
@@ -156,7 +156,7 @@ class _MalariaEnrollmentFormState extends State<MalariaEnrollmentForm> {
 
             // Severity
             DropdownButtonFormField<String>(
-              value: _severity,
+              initialValue: _severity,
               decoration: InputDecoration(
                 labelText: 'Severity',
                 prefixIcon: const Icon(Icons.warning, size: 20),
@@ -213,7 +213,7 @@ class _MalariaEnrollmentFormState extends State<MalariaEnrollmentForm> {
 
             // Diagnosis Method
             DropdownButtonFormField<String>(
-              value: _diagnosisMethod,
+              initialValue: _diagnosisMethod,
               decoration: InputDecoration(
                 labelText: 'Diagnosis Method',
                 prefixIcon: const Icon(Icons.medical_information, size: 20),
@@ -255,7 +255,7 @@ class _MalariaEnrollmentFormState extends State<MalariaEnrollmentForm> {
             if (_receivedTreatment) ...[
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
-                value: _treatmentOutcome,
+                initialValue: _treatmentOutcome,
                 decoration: InputDecoration(
                   labelText: 'Treatment Outcome',
                   border: OutlineInputBorder(

@@ -102,7 +102,7 @@ class _MchEnrollmentFormState extends State<MchEnrollmentForm> {
 
             // Service Type
             DropdownButtonFormField<String>(
-              value: _serviceType,
+              initialValue: _serviceType,
               decoration: InputDecoration(
                 labelText: 'Service Type',
                 prefixIcon: const Icon(Icons.medical_services, size: 20),
@@ -222,7 +222,7 @@ class _MchEnrollmentFormState extends State<MchEnrollmentForm> {
 
             // Risk Level
             DropdownButtonFormField<String>(
-              value: _riskLevel,
+              initialValue: _riskLevel,
               decoration: InputDecoration(
                 labelText: 'Risk Level',
                 prefixIcon: const Icon(Icons.warning, size: 20),

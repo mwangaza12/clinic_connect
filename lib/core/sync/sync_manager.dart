@@ -286,8 +286,8 @@ class SyncManager {
 
       // Fire a real-time notification so the conflict is visible in the
       // notification bell — not just silently buried in SQLite logs.
-      const _storage = FlutterSecureStorage();
-      final facilityId = await _storage.read(key: StorageKeys.facilityId);
+      const storage = FlutterSecureStorage();
+      final facilityId = await storage.read(key: StorageKeys.facilityId);
       if (facilityId != null && facilityId.isNotEmpty) {
         await NotificationService.instance.sendSyncConflict(
           facilityId: facilityId,

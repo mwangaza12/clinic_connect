@@ -122,7 +122,7 @@ class _HivEnrollmentFormState extends State<HivEnrollmentForm> {
 
           // WHO Clinical Stage
           DropdownButtonFormField<String>(
-            value: _whoStage,
+            initialValue: _whoStage,
             decoration: InputDecoration(
               labelText: 'WHO Clinical Stage *',
               prefixIcon: const Icon(Icons.stairs_rounded),
@@ -162,7 +162,7 @@ class _HivEnrollmentFormState extends State<HivEnrollmentForm> {
 
           // ARV Regimen
           DropdownButtonFormField<String>(
-            value: _arvRegimen,
+            initialValue: _arvRegimen,
             decoration: InputDecoration(
               labelText: 'ARV Regimen *',
               prefixIcon: const Icon(Icons.medication_rounded),
@@ -210,7 +210,7 @@ class _HivEnrollmentFormState extends State<HivEnrollmentForm> {
 
           // Viral Load Status
           DropdownButtonFormField<String>(
-            value: _viralLoadStatus,
+            initialValue: _viralLoadStatus,
             decoration: InputDecoration(
               labelText: 'Viral Load Status',
               prefixIcon: const Icon(Icons.science_rounded),

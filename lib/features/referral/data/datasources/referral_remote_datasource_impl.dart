@@ -204,7 +204,7 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
       final updateData = {
         'status':     status.name,
         'updated_at': Timestamp.fromDate(now),
-        if (feedbackNotes != null) 'feedback_notes': feedbackNotes,
+        'feedback_notes': ?feedbackNotes,
         if (status == ReferralStatus.accepted)  'accepted_at':  Timestamp.fromDate(now),
         if (status == ReferralStatus.rejected)  'rejected_at':  Timestamp.fromDate(now),
         if (status == ReferralStatus.completed) 'completed_at': Timestamp.fromDate(now),

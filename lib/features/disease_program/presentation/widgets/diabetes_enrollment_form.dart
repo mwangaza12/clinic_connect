@@ -74,7 +74,7 @@ class _DiabetesEnrollmentFormState extends State<DiabetesEnrollmentForm> {
           const SizedBox(height: 20),
           
           DropdownButtonFormField<String>(
-            value: _diabetesType,
+            initialValue: _diabetesType,
             decoration: const InputDecoration(labelText: 'Diabetes Type *', border: OutlineInputBorder()),
             items: ['Type 1', 'Type 2', 'Gestational'].map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
             onChanged: (value) => setState(() => _diabetesType = value),
@@ -245,7 +245,7 @@ class _HypertensionEnrollmentFormState extends State<HypertensionEnrollmentForm>
           const SizedBox(height: 16),
           
           DropdownButtonFormField<String>(
-            value: _stage,
+            initialValue: _stage,
             decoration: const InputDecoration(labelText: 'Stage', border: OutlineInputBorder()),
             items: ['Stage 1 (130-139/80-89)', 'Stage 2 (≥140/≥90)', 'Hypertensive Crisis (>180/>120)']
                 .map((stage) => DropdownMenuItem(value: stage, child: Text(stage, style: const TextStyle(fontSize: 13)))).toList(),
@@ -346,7 +346,7 @@ class _MalariaEnrollmentFormState extends State<MalariaEnrollmentForm> {
           const SizedBox(height: 16),
           
           DropdownButtonFormField<String>(
-            value: _testType,
+            initialValue: _testType,
             decoration: const InputDecoration(labelText: 'Test Type *', border: OutlineInputBorder()),
             items: ['RDT (Rapid Diagnostic Test)', 'Microscopy'].map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
             onChanged: (value) => setState(() => _testType = value),
@@ -355,7 +355,7 @@ class _MalariaEnrollmentFormState extends State<MalariaEnrollmentForm> {
           const SizedBox(height: 16),
           
           DropdownButtonFormField<String>(
-            value: _severity,
+            initialValue: _severity,
             decoration: const InputDecoration(labelText: 'Severity *', border: OutlineInputBorder()),
             items: ['Uncomplicated', 'Severe'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
             onChanged: (value) => setState(() => _severity = value),
@@ -459,7 +459,7 @@ class _TbEnrollmentFormState extends State<TbEnrollmentForm> {
           const SizedBox(height: 16),
           
           DropdownButtonFormField<String>(
-            value: _tbType,
+            initialValue: _tbType,
             decoration: const InputDecoration(labelText: 'TB Type *', border: OutlineInputBorder()),
             items: ['Pulmonary TB', 'Extra-pulmonary TB'].map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
             onChanged: (value) => setState(() => _tbType = value),
@@ -468,7 +468,7 @@ class _TbEnrollmentFormState extends State<TbEnrollmentForm> {
           const SizedBox(height: 16),
           
           DropdownButtonFormField<String>(
-            value: _category,
+            initialValue: _category,
             decoration: const InputDecoration(labelText: 'Category *', border: OutlineInputBorder()),
             items: ['New', 'Relapse', 'Treatment Failure', 'MDR-TB'].map((cat) => DropdownMenuItem(value: cat, child: Text(cat))).toList(),
             onChanged: (value) => setState(() => _category = value),
@@ -574,7 +574,7 @@ class _MchEnrollmentFormState extends State<MchEnrollmentForm> {
           const SizedBox(height: 20),
           
           DropdownButtonFormField<String>(
-            value: _programType,
+            initialValue: _programType,
             decoration: const InputDecoration(labelText: 'Program Type *', border: OutlineInputBorder()),
             items: ['Antenatal Care (ANC)', 'Postnatal Care (PNC)', 'Child Wellness'].map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
             onChanged: (value) => setState(() => _programType = value),
@@ -620,7 +620,7 @@ class _MchEnrollmentFormState extends State<MchEnrollmentForm> {
           ],
           
           DropdownButtonFormField<String>(
-            value: _hivStatus,
+            initialValue: _hivStatus,
             decoration: const InputDecoration(labelText: 'HIV Status', border: OutlineInputBorder()),
             items: ['Negative', 'Positive', 'Unknown'].map((status) => DropdownMenuItem(value: status, child: Text(status))).toList(),
             onChanged: (value) => setState(() => _hivStatus = value),
