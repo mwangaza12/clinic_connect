@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/firebase_config.dart';
+import '../constants/storage_keys.dart';
 import 'connectivity_manager.dart';
 import 'conflict_resolver.dart';
 import 'sync_queue_item.dart';
 import '../database/database_helper.dart';
+import '../../features/notifications/data/notification_service.dart';
 
 class SyncManager {
   static final SyncManager _instance = SyncManager._internal();
@@ -253,7 +256,8 @@ class SyncManager {
     }
   }
 
-  /// Logs a conflict to the sync_conflicts table for clinician review
+  /// Logs a conflict to the sync_conflicts table and fires a visible
+  /// notification so the clinician/admin can review it in real time.
   Future<void> _logConflict({
     required String entityType,
     required String entityId,
@@ -279,6 +283,19 @@ class SyncManager {
         'resolved': 0,
         'created_at': DateTime.now().toIso8601String(),
       });
+
+      // Fire a real-time notification so the conflict is visible in the
+      // notification bell — not just silently buried in SQLite logs.
+      const _storage = FlutterSecureStorage();
+      final facilityId = await _storage.read(key: StorageKeys.facilityId);
+      if (facilityId != null && facilityId.isNotEmpty) {
+        await NotificationService.instance.sendSyncConflict(
+          facilityId: facilityId,
+          entityType: entityType,
+          entityId: entityId,
+          note: note,
+        );
+      }
     } catch (_) {
       // Non-critical — don't fail the sync if conflict logging fails
     }

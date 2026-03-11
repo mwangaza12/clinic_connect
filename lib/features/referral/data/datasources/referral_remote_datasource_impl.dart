@@ -6,10 +6,12 @@
 //     come from the HIE Gateway Express API via HieApiService.
 //  2. createReferral still writes to own facilityDb for local record, then
 //     calls HieApiService.createReferral to log on AfyaChain blockchain.
-//  3. updateReferralStatus updates own facilityDb only — status is local per
-//     hospital (blockchain is immutable; status tracking stays in local DB).
-//  4. getIncomingReferrals now calls GET /api/referrals/incoming/:facilityId
-//     on the gateway, then saves copies locally for offline access.
+//  3. updateReferralStatus updates own facilityDb AND writes a status update
+//     doc to the SHARED default Firestore (`referral_status_updates/{id}`).
+//     This lets the sending facility see the status change cross-facility
+//     without requiring gateway changes (blockchain is immutable).
+//  4. getIncomingReferrals fetches from gateway then merges any status
+//     updates from the shared collection so statuses are always current.
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -22,6 +24,15 @@ import 'referral_remote_datasource.dart';
 
 class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
   FirebaseFirestore get _facilityDb => FirebaseConfig.facilityDb;
+
+  // The DEFAULT Firestore instance is used as a lightweight shared bus for
+  // referral status updates. It holds ONLY status metadata (no clinical data)
+  // and is readable/writable by all facilities via Firebase security rules.
+  // Collection: referral_status_updates/{referralId}
+  FirebaseFirestore get _sharedDb => FirebaseFirestore.instance;
+
+  CollectionReference get _statusUpdates =>
+      _sharedDb.collection('referral_status_updates');
 
 
   // ── CREATE ────────────────────────────────────────────────────────────────
@@ -72,7 +83,9 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
 
   @override
   Future<List<ReferralModel>> getOutgoingReferrals(String facilityId) async {
-    // Outgoing referrals were created by this facility → already in own Firestore
+    // Outgoing referrals were created by this facility → already in own Firestore.
+    // We then overlay any cross-facility status updates from the shared bus so
+    // the sending facility sees accepted/rejected/completed in real time.
     try {
       final query = await _facilityDb
           .collection('referrals')
@@ -80,11 +93,44 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
           .orderBy('created_at', descending: true)
           .get();
 
-      return query.docs.map((doc) {
+      final referrals = query.docs.map((doc) {
         final data = doc.data();
         data['id'] = doc.id;
         return ReferralModel.fromFirestore(data);
       }).toList();
+
+      // Merge any cross-facility status updates (fire-and-forget failures ok)
+      try {
+        final updatedReferrals = <ReferralModel>[];
+        for (final r in referrals) {
+          final statusDoc = await _statusUpdates.doc(r.id).get();
+          if (statusDoc.exists) {
+            final statusData = statusDoc.data() as Map<String, dynamic>;
+            final remoteStatus = _parseStatus(statusData['status'] as String?);
+            // Only apply if the remote status represents a progression forward
+            if (remoteStatus != null && _statusPriority(remoteStatus) > _statusPriority(r.status)) {
+              // Write the updated status into local facility DB so it persists offline
+              await _facilityDb
+                  .collection('referrals')
+                  .doc(r.id)
+                  .set(statusData, SetOptions(merge: true));
+              final mergedData = {
+                ...query.docs.firstWhere((d) => d.id == r.id).data(),
+                ...statusData,
+                'id': r.id,
+              };
+              updatedReferrals.add(ReferralModel.fromFirestore(mergedData));
+              debugPrint('[Referral] 🔄 Status merged for outgoing ${r.id}: ${r.status.name} → ${remoteStatus.name}');
+              continue;
+            }
+          }
+          updatedReferrals.add(r);
+        }
+        return updatedReferrals;
+      } catch (e) {
+        debugPrint('[Referral] ⚠ Status merge failed (non-fatal): $e');
+        return referrals; // Return unmerged list — better than crashing
+      }
     } catch (e) {
       throw ServerException('Failed to get outgoing referrals: $e');
     }
@@ -164,23 +210,31 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
         if (status == ReferralStatus.completed) 'completed_at': Timestamp.fromDate(now),
       };
 
-      // Update own local DB
+      // 1. Update own local facility DB
       try {
         await _facilityDb
             .collection('referrals')
             .doc(referralId)
             .update(updateData);
       } catch (_) {
-        // Referral may only exist locally via cache — set instead of update
         await _facilityDb
             .collection('referrals')
             .doc(referralId)
             .set(updateData, SetOptions(merge: true));
       }
 
-      // NOTE: blockchain is immutable — status tracking stays in local DB only.
-      // The other facility will see the status change when they next query
-      // incoming referrals (via gateway), which returns the blockchain record.
+      // 2. Cross-facility status broadcast on shared Firestore bus.
+      //    The SENDING facility reads this when it next loads its outgoing
+      //    referrals, so it sees accepted/rejected/completed without needing
+      //    a gateway change (blockchain records are immutable).
+      //    Only non-sensitive status metadata is written here — no clinical data.
+      try {
+        await _statusUpdates.doc(referralId).set(updateData, SetOptions(merge: true));
+        debugPrint('[Referral] ✅ Cross-facility status update written for $referralId → ${status.name}');
+      } catch (e) {
+        // Non-fatal — local update succeeded; cross-facility will catch up on next refresh
+        debugPrint('[Referral] ⚠ Cross-facility status write failed (non-fatal): $e');
+      }
 
       return getReferral(referralId);
     } catch (e) {
@@ -286,6 +340,29 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
       };
     } catch (e) {
       throw ServerException('Failed to get referral stats: $e');
+    }
+  }
+
+  // ── STATUS HELPERS ────────────────────────────────────────────────────────
+
+  ReferralStatus? _parseStatus(String? raw) {
+    if (raw == null) return null;
+    try {
+      return ReferralStatus.values.firstWhere((s) => s.name == raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  int _statusPriority(ReferralStatus s) {
+    switch (s) {
+      case ReferralStatus.pending:   return 0;
+      case ReferralStatus.accepted:  return 1;
+      case ReferralStatus.inTransit: return 2;
+      case ReferralStatus.arrived:   return 3;
+      case ReferralStatus.completed: return 4;
+      case ReferralStatus.cancelled: return 5;
+      case ReferralStatus.rejected:  return 5;
     }
   }
 }

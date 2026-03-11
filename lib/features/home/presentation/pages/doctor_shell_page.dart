@@ -19,6 +19,7 @@ import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../../disease_program/presentation/bloc/program_bloc.dart';
 import '../../../disease_program/presentation/pages/program_dashboard_page.dart';
+import '../../../notifications/presentation/widgets/notification_bell.dart';
 import '../../../patient/presentation/bloc/patient_bloc.dart';
 import '../../../patient/presentation/bloc/patient_event.dart';
 import '../../../patient/presentation/pages/nupi_lookup_page.dart';
@@ -116,6 +117,9 @@ class _DoctorShellPageState extends State<DoctorShellPage> {
   }
 
   PreferredSizeWidget _buildAppBar(String facilityName) {
+    final authState = context.read<AuthBloc>().state;
+    final facilityId = authState is Authenticated ? authState.user.facilityId : '';
+
     return AppBar(
       backgroundColor: Colors.white,
       elevation: 0,
@@ -139,6 +143,7 @@ class _DoctorShellPageState extends State<DoctorShellPage> {
           padding: EdgeInsets.symmetric(vertical: 12),
           child: SyncStatusWidget(),
         ),
+        NotificationBell(facilityId: facilityId),
         const SizedBox(width: 8),
       ],
     );
