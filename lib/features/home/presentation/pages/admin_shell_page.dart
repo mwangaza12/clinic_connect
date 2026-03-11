@@ -1,4 +1,3 @@
-// TODO Implement this library.
 // lib/features/home/presentation/pages/admin_shell_page.dart
 //
 // Admin shell — 5 tabs:
@@ -263,7 +262,7 @@ class _AdminStaffTabState extends State<AdminStaffTab> {
   String _filter = 'all';
 
   Stream<QuerySnapshot> get _stream {
-    final fid = FacilityInfo().facilityId ?? '';
+    final fid = FacilityInfo().facilityId;
     var q = FirebaseFirestore.instance
         .collection('users')
         .where('facility_id', isEqualTo: fid);
@@ -462,8 +461,8 @@ class _AddStaffSheetState extends State<AddStaffSheet> {
         'name':          _name.text.trim(),
         'email':         _email.text.trim().toLowerCase(),
         'role':          _role,
-        'facility_id':   FacilityInfo().facilityId ?? '',
-        'facility_name': FacilityInfo().facilityName ?? '',
+        'facility_id':   FacilityInfo().facilityId,
+        'facility_name': FacilityInfo().facilityName,
         'is_active':     true,
         'created_at':    FieldValue.serverTimestamp(),
         'updated_at':    FieldValue.serverTimestamp(),
