@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'core/constants/storage_keys.dart';
 import 'core/services/hie_api_service.dart';
@@ -36,7 +37,12 @@ Future<void> runClinicApp() async {
 }
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  // Preserve the native splash until we explicitly remove it.
+  // This must be called before any async work so there's never
+  // a white frame between the OS launch screen and Flutter.
+  final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
+
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
@@ -74,16 +80,17 @@ class _RootNavigatorState extends State<RootNavigator> {
   bool _splashDone = false;
 
   void _onSplashComplete() {
+    // Dismiss the native splash now that the Flutter animated splash
+    // has taken over — no double-splash, no white frame.
+    FlutterNativeSplash.remove();
+
     if (mounted) {
-      setState(() {
-        _splashDone = true;
-      });
+      setState(() => _splashDone = true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Always show splash immediately — no blank screen while checking storage
     if (!_splashDone) {
       return SplashScreen(onComplete: _onSplashComplete);
     }
@@ -111,10 +118,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
   Future<void> _checkSetup() async {
     const storage = FlutterSecureStorage();
     final apiKey = await storage.read(key: StorageKeys.facilityApiKey);
-    final facId = await storage.read(key: StorageKeys.facilityId);
+    final facId  = await storage.read(key: StorageKeys.facilityId);
     if (mounted) {
       setState(() {
-        _needsSetup = apiKey == null || apiKey.isEmpty || facId == null || facId.isEmpty;
+        _needsSetup =
+            apiKey == null || apiKey.isEmpty || facId == null || facId.isEmpty;
         _checkingSetup = false;
       });
     }
