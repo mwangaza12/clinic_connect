@@ -6,6 +6,7 @@ import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
 import 'register_page.dart';
+import '../../../../core/sync/connectivity_manager.dart';
 
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
@@ -28,6 +29,18 @@ class _LoginViewState extends State<LoginView> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  bool _isOnline = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkConnectivity();
+  }
+
+  Future<void> _checkConnectivity() async {
+    final online = await ConnectivityManager().checkConnectivity();
+    if (mounted) setState(() => _isOnline = online);
+  }
 
   @override
   void dispose() {
@@ -101,6 +114,35 @@ class _LoginViewState extends State<LoginView> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          // Offline Banner
+                          if (!_isOnline) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF3CD),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0xFFFFCA28), width: 1),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.wifi_off_rounded, color: Color(0xFF856404), size: 18),
+                                  const SizedBox(width: 10),
+                                  const Expanded(
+                                    child: Text(
+                                      'You are offline. You can still log in using your last saved session.',
+                                      style: TextStyle(
+                                        color: Color(0xFF856404),
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                          ],
+
                           // Brand Logo Section
                           Center(
                             child: Container(

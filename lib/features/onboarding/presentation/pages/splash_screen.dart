@@ -2,11 +2,13 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../../../core/constants/storage_keys.dart';
 import 'onboarding_page.dart';
 
 class SplashScreen extends StatefulWidget {
   final VoidCallback onComplete;
-  
+
   const SplashScreen({
     super.key,
     required this.onComplete,
@@ -75,25 +77,42 @@ class _SplashScreenState extends State<SplashScreen>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    _checkAndNavigate();
+    _runSplash();
   }
 
-  Future<void> _checkAndNavigate() async {
-    // Run animations
-    await Future.delayed(const Duration(milliseconds: 200));
+  Future<void> _runSplash() async {
+    // Kick off storage check and animations in parallel
+    final storageFuture = _checkOnboardingStatus();
+
+    // Start animations immediately — no blank screen
+    await Future.delayed(const Duration(milliseconds: 100));
     _logoController.forward();
     await Future.delayed(const Duration(milliseconds: 500));
     _textController.forward();
 
-    // Wait for animations + a brief hold
-    await Future.delayed(const Duration(milliseconds: 1800));
+    // Wait for animations to finish AND at least a minimum display time
+    await Future.wait([
+      storageFuture,
+      Future.delayed(const Duration(milliseconds: 2000)),
+    ]);
 
     if (!mounted || _isNavigating) return;
     _isNavigating = true;
 
-    // RootNavigator already confirmed this is a first-time user,
-    // so always go straight to onboarding — no extra storage check needed.
-    _showOnboarding();
+    final hasSeenOnboarding = await storageFuture;
+    if (hasSeenOnboarding) {
+      // Returning user — go straight to auth
+      widget.onComplete();
+    } else {
+      // First-time user — show onboarding
+      _showOnboarding();
+    }
+  }
+
+  Future<bool> _checkOnboardingStatus() async {
+    const storage = FlutterSecureStorage();
+    final value = await storage.read(key: StorageKeys.hasSeenOnboarding);
+    return value == 'true';
   }
 
   void _showOnboarding() {

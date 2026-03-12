@@ -71,51 +71,22 @@ class RootNavigator extends StatefulWidget {
 }
 
 class _RootNavigatorState extends State<RootNavigator> {
-  // Three states: null = still checking, true = show splash, false = go to app
-  bool? _showSplash;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkOnboardingStatus();
-  }
-
-  Future<void> _checkOnboardingStatus() async {
-    const storage = FlutterSecureStorage();
-    final hasSeenOnboarding = await storage.read(key: StorageKeys.hasSeenOnboarding);
-
-    if (mounted) {
-      setState(() {
-        // Only show splash+onboarding if user hasn't seen it
-        _showSplash = hasSeenOnboarding != 'true';
-      });
-    }
-  }
+  bool _splashDone = false;
 
   void _onSplashComplete() {
     if (mounted) {
       setState(() {
-        _showSplash = false;
+        _splashDone = true;
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Show nothing (blank) while we check — avoids any flicker
-    if (_showSplash == null) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF1A3C2E),
-        body: SizedBox.shrink(),
-      );
-    }
-
-    if (_showSplash == true) {
-      // SplashScreen handles both the splash animation AND
-      // pushing OnboardingPage via its own Navigator.of(context).push()
+    // Always show splash immediately — no blank screen while checking storage
+    if (!_splashDone) {
       return SplashScreen(onComplete: _onSplashComplete);
     }
-
     return const AuthWrapper();
   }
 }
