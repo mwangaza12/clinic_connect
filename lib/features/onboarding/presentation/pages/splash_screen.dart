@@ -7,6 +7,7 @@
 // Routing is NOT the responsibility of this widget.  main.dart owns that.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -42,7 +43,7 @@ class _SplashScreenState extends State<SplashScreen>
       statusBarIconBrightness: Brightness.light,
     ));
 
-    // Logo entrance — scale up + fade in
+    // ── Logo entrance — scale up + fade in ──────────────────────
     _logoController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -57,7 +58,7 @@ class _SplashScreenState extends State<SplashScreen>
       ),
     );
 
-    // Text slides up after logo settles
+    // ── Text slides up after logo settles ───────────────────────
     _textController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
@@ -72,7 +73,7 @@ class _SplashScreenState extends State<SplashScreen>
       CurvedAnimation(parent: _textController, curve: Curves.easeOutCubic),
     );
 
-    // Subtle pulse on the logo ring
+    // ── Subtle pulse on the logo ring ────────────────────────────
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
@@ -81,20 +82,32 @@ class _SplashScreenState extends State<SplashScreen>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    _runSequence();
+    // ── Start the sequence after the first frame is painted ──────
+    // Using addPostFrameCallback ensures the widget tree is fully
+    // laid out before we kick off animations, which prevents the
+    // "dark screen / invisible splash" issue on some devices.
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _runSequence();
+    });
   }
 
   Future<void> _runSequence() async {
-    await Future.delayed(const Duration(milliseconds: 200));
+    // Small settle delay so the background renders before we animate.
+    await Future.delayed(const Duration(milliseconds: 100));
+    if (!mounted) return;
+
     _logoController.forward();
+
     await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+
     _textController.forward();
 
-    // Hold for a beat, then hand off — no navigation here
+    // Hold for a beat, then hand off — routing stays in main.dart.
     await Future.delayed(const Duration(milliseconds: 1800));
 
     if (mounted) {
-      // Restore normal status bar style before handing off
+      // Restore normal status-bar style before handing off.
       SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.dark,
@@ -127,8 +140,8 @@ class _SplashScreenState extends State<SplashScreen>
               children: [
                 // Logo with pulse ring
                 AnimatedBuilder(
-                  animation:
-                      Listenable.merge([_logoController, _pulseController]),
+                  animation: Listenable.merge(
+                      [_logoController, _pulseController]),
                   builder: (_, __) => Opacity(
                     opacity: _logoOpacity.value,
                     child: Transform.scale(
@@ -205,8 +218,7 @@ class _SplashScreenState extends State<SplashScreen>
                             'Interoperable EHR for Kenya',
                             style: TextStyle(
                               fontSize: 15,
-                              color:
-                                  const Color(0xFF52B788).withOpacity(0.9),
+                              color: const Color(0xFF52B788).withOpacity(0.9),
                               fontWeight: FontWeight.w500,
                               letterSpacing: 0.3,
                             ),

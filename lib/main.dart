@@ -17,12 +17,26 @@ import 'features/home/presentation/pages/home_page.dart';
 import 'features/onboarding/presentation/pages/splash_screen.dart';
 import 'injection_container.dart' as di;
 
-Future<void> runClinicApp() async {
+/// Resolved once before [runApp] so [AuthWrapper] can read it synchronously —
+/// zero async gap, no loading spinner ever shown to the user.
+late final bool appNeedsSetup;
+
+Future<void> _initApp() async {
   await di.init();
   await SyncManager().init();
 
   const storage = FlutterSecureStorage();
-  final savedUrl = await storage.read(key: StorageKeys.hieGatewayUrl);
+
+  // Read all keys in parallel to keep startup fast.
+  final results = await Future.wait([
+    storage.read(key: StorageKeys.hieGatewayUrl),
+    storage.read(key: StorageKeys.facilityApiKey),
+    storage.read(key: StorageKeys.facilityId),
+  ]);
+
+  final savedUrl = results[0];
+  final apiKey   = results[1];
+  final facId    = results[2];
 
   HieApiService.init(
     savedUrl?.isNotEmpty == true
@@ -33,21 +47,29 @@ Future<void> runClinicApp() async {
           ),
   );
 
-  runApp(const ClinicConnectApp());
+  // Cached globally so AuthWrapper never needs its own async check.
+  appNeedsSetup =
+      apiKey == null || apiKey.isEmpty || facId == null || facId.isEmpty;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 void main() async {
-  // Preserve the native splash until we explicitly remove it.
-  // This must be called before any async work so there's never
-  // a white frame between the OS launch screen and Flutter.
+  // Must be called first — before any async work — so the native splash is
+  // held open and there is never a blank frame between platform and Flutter.
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  await runClinicApp();
+
+  await _initApp();
+
+  runApp(const ClinicConnectApp());
 }
+
+// ── App ───────────────────────────────────────────────────────────────────────
 
 class ClinicConnectApp extends StatelessWidget {
   const ClinicConnectApp({super.key});
@@ -60,7 +82,8 @@ class ClinicConnectApp extends StatelessWidget {
         title: 'ClinicConnect',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2D6A4F)),
+          colorScheme:
+              ColorScheme.fromSeed(seedColor: const Color(0xFF2D6A4F)),
           useMaterial3: true,
         ),
         home: const RootNavigator(),
@@ -68,6 +91,15 @@ class ClinicConnectApp extends StatelessWidget {
     );
   }
 }
+
+// ── RootNavigator ─────────────────────────────────────────────────────────────
+//
+// Flow:
+//   1. Renders [SplashScreen] (the animated Flutter splash).
+//   2. [SplashScreen] calls onComplete when its animation finishes.
+//   3. We remove the *native* splash at that exact moment — one seamless
+//      transition, no white/blank frames, no double-splash.
+//   4. Switch to [AuthWrapper].
 
 class RootNavigator extends StatefulWidget {
   const RootNavigator({super.key});
@@ -83,10 +115,7 @@ class _RootNavigatorState extends State<RootNavigator> {
     // Dismiss the native splash now that the Flutter animated splash
     // has taken over — no double-splash, no white frame.
     FlutterNativeSplash.remove();
-
-    if (mounted) {
-      setState(() => _splashDone = true);
-    }
+    if (mounted) setState(() => _splashDone = true);
   }
 
   @override
@@ -98,6 +127,11 @@ class _RootNavigatorState extends State<RootNavigator> {
   }
 }
 
+// ── AuthWrapper ───────────────────────────────────────────────────────────────
+//
+// [appNeedsSetup] is resolved before runApp, so this widget reads it
+// synchronously — no async check, no loading state, no spinner, no green page.
+
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
 
@@ -106,42 +140,14 @@ class AuthWrapper extends StatefulWidget {
 }
 
 class _AuthWrapperState extends State<AuthWrapper> {
-  bool _checkingSetup = true;
-  bool _needsSetup = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkSetup();
-  }
-
-  Future<void> _checkSetup() async {
-    const storage = FlutterSecureStorage();
-    final apiKey = await storage.read(key: StorageKeys.facilityApiKey);
-    final facId  = await storage.read(key: StorageKeys.facilityId);
-    if (mounted) {
-      setState(() {
-        _needsSetup =
-            apiKey == null || apiKey.isEmpty || facId == null || facId.isEmpty;
-        _checkingSetup = false;
-      });
-    }
-  }
+  /// Local mutable copy so completing setup clears the flag instantly.
+  late bool _setupRequired = appNeedsSetup;
 
   @override
   Widget build(BuildContext context) {
-    if (_checkingSetup) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF1A3C2E),
-        body: Center(
-          child: CircularProgressIndicator(color: Color(0xFF52B788)),
-        ),
-      );
-    }
-
-    if (_needsSetup) {
+    if (_setupRequired) {
       return SetupWizardPage(
-        onComplete: () => setState(() => _needsSetup = false),
+        onComplete: () => setState(() => _setupRequired = false),
       );
     }
 
