@@ -786,62 +786,64 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
     );
   }
 
+  // ── Vitals card — FIXED: FittedBox + mainAxisSize.min prevents overflow ──
+
   Widget _buildVitalsCard(Vitals vitals) {
     final vitalItems = <Map<String, String>>[];
     if (vitals.bpDisplay != null) {
       vitalItems.add({
         'label': 'Blood Pressure',
         'value': vitals.bpDisplay!,
-        'unit': ''
+        'unit': '',
       });
     }
     if (vitals.temperature != null) {
       vitalItems.add({
         'label': 'Temperature',
         'value': vitals.temperature!.toStringAsFixed(1),
-        'unit': '°C'
+        'unit': '°C',
       });
     }
     if (vitals.pulseRate != null) {
       vitalItems.add({
         'label': 'Pulse',
         'value': vitals.pulseRate!.toString(),
-        'unit': 'bpm'
+        'unit': 'bpm',
       });
     }
     if (vitals.oxygenSaturation != null) {
       vitalItems.add({
         'label': 'O₂ Sat',
         'value': vitals.oxygenSaturation!.toString(),
-        'unit': '%'
+        'unit': '%',
       });
     }
     if (vitals.weight != null) {
       vitalItems.add({
         'label': 'Weight',
         'value': vitals.weight!.toString(),
-        'unit': 'kg'
+        'unit': 'kg',
       });
     }
     if (vitals.height != null) {
       vitalItems.add({
         'label': 'Height',
         'value': vitals.height!.toString(),
-        'unit': 'cm'
+        'unit': 'cm',
       });
     }
     if (vitals.bmi != null) {
       vitalItems.add({
         'label': 'BMI',
         'value': vitals.bmi!.toStringAsFixed(1),
-        'unit': ''
+        'unit': '',
       });
     }
     if (vitals.bloodGlucose != null) {
       vitalItems.add({
         'label': 'Glucose',
         'value': vitals.bloodGlucose!.toStringAsFixed(1),
-        'unit': 'mmol/L'
+        'unit': 'mmol/L',
       });
     }
     if (vitalItems.isEmpty) return const SizedBox();
@@ -865,7 +867,8 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
-            childAspectRatio: 1.2,
+            // Slightly taller cells so value + label never clip
+            childAspectRatio: 1.05,
             crossAxisSpacing: 8,
             mainAxisSpacing: 8,
           ),
@@ -873,28 +876,42 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
           itemBuilder: (context, index) {
             final item = vitalItems[index];
             return Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 6, vertical: 8),
               decoration: BoxDecoration(
                 color: const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text('${item['value']} ${item['unit']}'.trim(),
-                        style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A)),
-                        textAlign: TextAlign.center),
-                    const SizedBox(height: 4),
-                    Text(item['label']!,
-                        style: const TextStyle(
-                            fontSize: 10,
-                            color: Color(0xFF94A3B8),
-                            fontWeight: FontWeight.w500),
-                        textAlign: TextAlign.center),
-                  ]),
+                mainAxisAlignment: MainAxisAlignment.center,
+                // ✅ min prevents Column from demanding more height than it needs
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // ✅ FittedBox scales down value text on narrow screens
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      '${item['value']} ${item['unit']}'.trim(),
+                      style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A)),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    item['label']!,
+                    style: const TextStyle(
+                        fontSize: 9,
+                        color: Color(0xFF94A3B8),
+                        fontWeight: FontWeight.w500),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             );
           },
         ),
