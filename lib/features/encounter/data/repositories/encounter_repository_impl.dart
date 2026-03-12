@@ -1,17 +1,28 @@
 // lib/features/encounter/data/repositories/encounter_repository_impl.dart
 //
-// CHANGE: After saving to Firestore/SQLite, also calls
-// HieApiService.recordEncounter() to mint an ENCOUNTER_RECORDED block
-// on AfyaChain via the Node.js backend.
+// OFFLINE-FIRST ENCOUNTER FLOW:
 //
-// The blockchain call is fire-and-forget — if it fails the encounter
-// is still saved locally. A console warning is printed.
+//   createEncounter:
+//     EncounterRemoteDatasource already does:
+//       1. SQLite insert
+//       2. SyncManager.enqueue(SyncEntityType.encounter) → Firestore
+//     This repo additionally enqueues the HIE blockchain call:
+//       3. SyncManager.enqueue(SyncEntityType.hieEncounter) → AfyaChain
+//     Online  → queue flushes in 500 ms.
+//     Offline → runs automatically on reconnect.
+//
+//   getPatientEncounters / getFacilityEncounters:
+//     Offline → reads SQLite directly.
+//     Online  → Firestore (existing behaviour).
 
 import 'package:dartz/dartz.dart';
 import 'package:flutter/foundation.dart';
+import '../../../../core/database/database_helper.dart';
 import '../../../../core/errors/exceptions.dart';
 import '../../../../core/errors/failures.dart';
-import '../../../../core/services/hie_api_service.dart';
+import '../../../../core/sync/connectivity_manager.dart';
+import '../../../../core/sync/sync_manager.dart';
+import '../../../../core/sync/sync_queue_item.dart';
 import '../../domain/entities/encounter.dart';
 import '../../domain/repositories/encounter_repository.dart';
 import '../datasources/encounter_remote_datasource.dart';
@@ -19,20 +30,24 @@ import '../models/encounter_model.dart';
 
 class EncounterRepositoryImpl implements EncounterRepository {
   final EncounterRemoteDatasource remoteDatasource;
+  final _dbHelper = DatabaseHelper();
+  final _conn     = ConnectivityManager();
+
   EncounterRepositoryImpl({required this.remoteDatasource});
 
+  // ── CREATE ─────────────────────────────────────────────────────
+
   @override
-  Future<Either<Failure, Encounter>> createEncounter(Encounter encounter) async {
+  Future<Either<Failure, Encounter>> createEncounter(
+      Encounter encounter) async {
     try {
-      // 1. Save to Firestore + SQLite (existing flow)
+      // 1 + 2: SQLite insert + Firestore sync queue (via remoteDatasource)
       final model  = EncounterModel.fromEntity(encounter);
       final result = await remoteDatasource.createEncounter(model);
 
-      // 2. Notify blockchain via Node.js backend (fire-and-forget)
-      //    We pass an empty token here — the backend will accept it because
-      //    staff are already authenticated to the system.  The gateway logs
-      //    the encounter block without needing a patient access token.
-      _notifyBlockchain(encounter);
+      // 3: Queue the HIE blockchain call — fire now if online,
+      //    otherwise runs automatically on reconnect.
+      _queueHieEncounter(encounter);
 
       return Right(result);
     } on ServerException catch (e) {
@@ -40,72 +55,125 @@ class EncounterRepositoryImpl implements EncounterRepository {
     }
   }
 
-  void _notifyBlockchain(Encounter encounter) {
-    // Build vital-signs map if present
+  void _queueHieEncounter(Encounter encounter) {
+    // Build vitals map
     Map<String, dynamic>? vitals;
     if (encounter.vitals != null) {
       final v = encounter.vitals!;
       vitals = {
-        if (v.systolicBP   != null) 'systolicBP':      v.systolicBP,
-        if (v.diastolicBP  != null) 'diastolicBP':     v.diastolicBP,
-        if (v.temperature  != null) 'temperature':     v.temperature,
-        if (v.weight       != null) 'weight':          v.weight,
-        if (v.height       != null) 'height':          v.height,
-        if (v.pulseRate    != null) 'pulseRate':       v.pulseRate,
+        if (v.systolicBP      != null) 'systolicBP':      v.systolicBP,
+        if (v.diastolicBP     != null) 'diastolicBP':     v.diastolicBP,
+        if (v.temperature     != null) 'temperature':     v.temperature,
+        if (v.weight          != null) 'weight':          v.weight,
+        if (v.height          != null) 'height':          v.height,
+        if (v.pulseRate       != null) 'pulseRate':       v.pulseRate,
         if (v.respiratoryRate != null) 'respiratoryRate': v.respiratoryRate,
-        if (v.oxygenSaturation != null) 'oxygenSaturation': v.oxygenSaturation,
-        if (v.bloodGlucose != null) 'bloodGlucose':   v.bloodGlucose,
+        if (v.oxygenSaturation != null)
+          'oxygenSaturation': v.oxygenSaturation,
+        if (v.bloodGlucose    != null) 'bloodGlucose':    v.bloodGlucose,
       };
     }
 
-    // Diagnoses list
-    final diagnoses = encounter.diagnoses.map((d) => {
-      'code':        d.code,
-      'description': d.description,
-      'isPrimary':   d.isPrimary,
-    }).toList();
+    final diagnoses = encounter.diagnoses
+        .map((d) => {
+              'code':        d.code,
+              'description': d.description,
+              'isPrimary':   d.isPrimary,
+            })
+        .toList();
 
-    HieApiService.instance.recordEncounter(
-      nupi:             encounter.patientNupi,
-      accessToken:      '',       // staff token — backend accepts empty for encounter recording
-      encounterType:    encounter.type.name,
-      chiefComplaint:   encounter.chiefComplaint ?? '',
-      practitionerName: encounter.clinicianName,
-      vitalSigns:       vitals,
-      diagnoses:        diagnoses.isEmpty ? null : diagnoses,
-      notes:            encounter.clinicalNotes,
-      encounterDate:    encounter.encounterDate.toIso8601String(),
-    ).then((result) {
-      if (result.success) {
-        debugPrint('[HIE] ⛓ Encounter block #${result.blockIndex} minted for ${encounter.patientNupi}');
-      } else {
-        debugPrint('[HIE] ⚠ Blockchain notification failed: ${result.error}');
-      }
-    });
+    SyncManager()
+        .enqueue(
+          entityType: SyncEntityType.hieEncounter,
+          entityId:   'hie_${encounter.id}',
+          operation:  SyncOperation.create,
+          payload: {
+            'nupi':             encounter.patientNupi,
+            'accessToken':      '',
+            'encounterType':    encounter.type.name,
+            'chiefComplaint':   encounter.chiefComplaint ?? '',
+            'practitionerName': encounter.clinicianName,
+            'vitalSigns':       vitals,
+            'diagnoses':        diagnoses.isEmpty ? null : diagnoses,
+            'notes':            encounter.clinicalNotes,
+            'encounterDate':    encounter.encounterDate.toIso8601String(),
+          },
+        )
+        .then((_) =>
+            debugPrint('[Encounter] HIE block queued for ${encounter.patientNupi}'))
+        .catchError((e) =>
+            debugPrint('[Encounter] HIE queue error: $e'));
   }
 
+  // ── READ ───────────────────────────────────────────────────────
+
   @override
-  Future<Either<Failure, List<Encounter>>> getPatientEncounters(String patientId) async {
+  Future<Either<Failure, List<Encounter>>> getPatientEncounters(
+      String patientId) async {
+    final online = await _conn.checkConnectivity();
+    if (!online) {
+      return _getPatientEncountersSQLite(patientId);
+    }
     try {
       final result = await remoteDatasource.getPatientEncounters(patientId);
       return Right(result);
-    } on ServerException catch (e) {
-      return Left(ServerFailure(e.message));
+    } on ServerException catch (_) {
+      return _getPatientEncountersSQLite(patientId);
     }
   }
 
-  @override
-  Future<Either<Failure, List<Encounter>>> getFacilityEncounters(String facilityId) async {
+  Future<Either<Failure, List<Encounter>>>
+      _getPatientEncountersSQLite(String patientId) async {
     try {
-      final result = await remoteDatasource.getFacilityEncounters(facilityId);
-      return Right(result);
-    } on ServerException catch (e) {
-      return Left(ServerFailure(e.message));
+      final db   = await _dbHelper.database;
+      final rows = await db.query('encounters',
+          where:     'patient_id = ?',
+          whereArgs: [patientId],
+          orderBy:   'encounter_date DESC');
+      return Right(rows
+          .map((r) => EncounterModel.fromSqlite(r))
+          .toList());
+    } catch (e) {
+      return Left(LocalFailure(e.toString()));
     }
   }
 
   @override
-  Future<Either<Failure, Encounter>> updateEncounter(Encounter encounter) async {
+  Future<Either<Failure, List<Encounter>>> getFacilityEncounters(
+      String facilityId) async {
+    final online = await _conn.checkConnectivity();
+    if (!online) {
+      return _getFacilityEncountersSQLite(facilityId);
+    }
+    try {
+      final result =
+          await remoteDatasource.getFacilityEncounters(facilityId);
+      return Right(result);
+    } on ServerException catch (_) {
+      return _getFacilityEncountersSQLite(facilityId);
+    }
+  }
+
+  Future<Either<Failure, List<Encounter>>>
+      _getFacilityEncountersSQLite(String facilityId) async {
+    try {
+      final db   = await _dbHelper.database;
+      final rows = await db.query('encounters',
+          where:     'facility_id = ?',
+          whereArgs: [facilityId],
+          orderBy:   'encounter_date DESC',
+          limit:     50);
+      return Right(rows
+          .map((r) => EncounterModel.fromSqlite(r))
+          .toList());
+    } catch (e) {
+      return Left(LocalFailure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, Encounter>> updateEncounter(
+      Encounter encounter) async {
     try {
       final model  = EncounterModel.fromEntity(encounter);
       final result = await remoteDatasource.updateEncounter(model);
@@ -116,9 +184,22 @@ class EncounterRepositoryImpl implements EncounterRepository {
   }
 
   @override
-  Future<Either<Failure, Encounter>> getEncounter(String encounterId) async {
+  Future<Either<Failure, Encounter>> getEncounter(
+      String encounterId) async {
+    // Try SQLite first (offline-safe)
     try {
-      final result = await remoteDatasource.getEncounter(encounterId);
+      final db   = await _dbHelper.database;
+      final rows = await db.query('encounters',
+          where: 'id = ?', whereArgs: [encounterId], limit: 1);
+      if (rows.isNotEmpty) {
+        return Right(EncounterModel.fromSqlite(rows.first));
+      }
+    } catch (_) {}
+
+    // Firestore fallback
+    try {
+      final result =
+          await remoteDatasource.getEncounter(encounterId);
       return Right(result);
     } on ServerException catch (e) {
       return Left(ServerFailure(e.message));
