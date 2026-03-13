@@ -125,25 +125,23 @@ class PatientRepositoryImpl implements PatientRepository {
     try {
       final patientModel = PatientModel.fromEntity(patient);
 
-      // Update local first
-      await localDatasource.savePatient(patientModel);
+      // 1. Update SQLite immediately (offline-safe, returns instantly)
+      await localDatasource.updatePatient(patientModel);
 
-      // Try remote update
+      // 2. Try remote update with a 10-second timeout so we never hang
       try {
-        final updatedPatient = await remoteDatasource.updatePatient(
-          patientModel,
-        );
+        final updatedPatient = await remoteDatasource
+            .updatePatient(patientModel)
+            .timeout(const Duration(seconds: 10));
         await localDatasource.updateSyncStatus(patientModel.id, 'synced');
         return Right(updatedPatient);
-      } catch (e) {
-        // Mark as pending sync
+      } catch (_) {
+        // Remote failed or timed out — local is already saved, mark pending
         await localDatasource.updateSyncStatus(patientModel.id, 'pending');
         return Right(patientModel);
       }
     } on LocalException catch (e) {
       return Left(LocalFailure(e.message));
-    } on ServerException catch (e) {
-      return Left(ServerFailure(e.message));
     } catch (e) {
       return Left(ServerFailure(e.toString()));
     }

@@ -172,8 +172,8 @@ class EncounterModel extends Encounter {
             ).toMap(),
 
       'chief_complaint':               chiefComplaint,
-      'history_of_presenting_illness': historyOfPresentingIllness,
-      'examination_findings':          examinationFindings,
+      'history':     historyOfPresentingIllness,
+      'examination': examinationFindings,
 
       // ✅ Safe conversion — no cast needed
       'diagnoses': diagnoses
@@ -237,8 +237,8 @@ class EncounterModel extends Encounter {
       ),
       vitals: vitalsMap != null ? VitalsModel.fromMap(vitalsMap) : null,
       chiefComplaint:             row['chief_complaint'] as String?,
-      historyOfPresentingIllness: row['history_of_presenting_illness'] as String?,
-      examinationFindings:        row['examination_findings'] as String?,
+      historyOfPresentingIllness: row['history'] as String?,
+      examinationFindings:        row['examination'] as String?,
       diagnoses: diagnosesList
           .map((d) => DiagnosisModel.fromMap(
                 Map<String, dynamic>.from(d as Map),
@@ -289,8 +289,8 @@ class EncounterModel extends Encounter {
             ).toMap()),
 
       'chief_complaint':               chiefComplaint,
-      'history_of_presenting_illness': historyOfPresentingIllness,
-      'examination_findings':          examinationFindings,
+      'history':     historyOfPresentingIllness,
+      'examination': examinationFindings,
 
       'diagnoses': json.encode(diagnoses
           .map((d) => DiagnosisModel(

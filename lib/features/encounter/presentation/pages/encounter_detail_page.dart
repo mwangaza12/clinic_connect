@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../domain/entities/encounter.dart';
 import '../../../../core/services/hie_api_service.dart';
+import 'edit_encounter_page.dart';
 
 extension MapExtension on Map<String, dynamic> {
   dynamic safeGet(List<String> keys, {dynamic defaultValue}) {
@@ -47,9 +48,14 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
   bool _fetching = false;
   String? _fetchError;
 
+  /// Local (non-FHIR) encounter — starts as the passed-in entity,
+  /// gets replaced when the user saves edits.
+  late Encounter? _localEncounter;
+
   @override
   void initState() {
     super.initState();
+    _localEncounter = _isFhirMap ? null : widget.encounter as Encounter;
     if (_isFhirMap) {
       _fullEncounter = widget.encounter as Map<String, dynamic>;
       _fetchFullEncounter();
@@ -116,6 +122,28 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
+      // Show Edit FAB only for local (non-FHIR) encounters
+      floatingActionButton: !_isFhirMap
+          ? FloatingActionButton.extended(
+              onPressed: () async {
+                final enc = _localEncounter ?? (widget.encounter as Encounter);
+                final updated = await Navigator.push<Encounter>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => EditEncounterPage(encounter: enc),
+                  ),
+                );
+                if (updated != null && mounted) {
+                  setState(() => _localEncounter = updated);
+                }
+              },
+              backgroundColor: const Color(0xFF1B4332),
+              icon: const Icon(Icons.edit_outlined, color: Colors.white),
+              label: const Text('Edit',
+                  style: TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.w700)),
+            )
+          : null,
       body: CustomScrollView(
         slivers: [
           _buildSliverAppBar(),
@@ -627,7 +655,7 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
   // ── Local content ────────────────────────────────────────────────────────
 
   Widget _buildLocalContent() {
-    final localEnc = widget.encounter as Encounter;
+    final localEnc = (_localEncounter ?? widget.encounter) as Encounter;
     return Column(children: [
       if (localEnc.vitals != null) ...[
         _buildVitalsCard(localEnc.vitals!),
@@ -1036,135 +1064,271 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
     );
   }
 
+  // ── Vital thresholds ─────────────────────────────────────────────────────
+  static const Map<String, Map<String, double>> _thresholds = {
+    'Blood Pressure': {'low': 90,  'high': 140, 'criticalLow': 70,  'criticalHigh': 180},
+    'Temperature':    {'low': 36.0,'high': 37.5,'criticalLow': 35.0,'criticalHigh': 39.5},
+    'Pulse':          {'low': 60,  'high': 100, 'criticalLow': 40,  'criticalHigh': 130},
+    'O\u2082 Sat':   {'low': 95,  'high': 100, 'criticalLow': 90,  'criticalHigh': 100},
+    'Resp. Rate':     {'low': 12,  'high': 20,  'criticalLow': 8,   'criticalHigh': 30},
+    'Glucose':        {'low': 3.9, 'high': 7.8, 'criticalLow': 2.8, 'criticalHigh': 13.9},
+    'BMI':            {'low': 18.5,'high': 24.9,'criticalLow': 15.0,'criticalHigh': 40.0},
+  };
+
+  /// null=normal  low  high  critical_low  critical_high
+  String? _vitalStatus(String label, double value) {
+    final t = _thresholds[label];
+    if (t == null) return null;
+    if (t['criticalLow']  != null && value < t['criticalLow']!)  return 'critical_low';
+    if (t['criticalHigh'] != null && value > t['criticalHigh']!) return 'critical_high';
+    if (t['low']  != null && value < t['low']!)  return 'low';
+    if (t['high'] != null && value > t['high']!) return 'high';
+    return null;
+  }
+
+  Widget _vitalStatusBadge(String status) {
+    final isCritical = status.startsWith('critical');
+    final isLow      = status.contains('low');
+    final label = isCritical
+        ? (isLow ? '\u25bc CRITICAL' : '\u25b2 CRITICAL')
+        : (isLow ? '\u25bc LOW' : '\u25b2 HIGH');
+    final bg   = isCritical ? const Color(0xFFFEE2E2) : const Color(0xFFFEF3C7);
+    final fg   = isCritical ? const Color(0xFFDC2626) : const Color(0xFFD97706);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(4)),
+      child: Text(label, style: TextStyle(
+          fontSize: 8, fontWeight: FontWeight.w900, color: fg, letterSpacing: 0.3)),
+    );
+  }
+
   Widget _buildVitalsCard(Vitals vitals) {
-    final vitalItems = <Map<String, String>>[];
-    if (vitals.bpDisplay != null) {
-      vitalItems.add({
+    // Each item: label, numericValue (for threshold check), displayValue, unit, icon, color
+    final items = <Map<String, dynamic>>[];
+
+    if (vitals.systolicBP != null && vitals.diastolicBP != null) {
+      items.add({
         'label': 'Blood Pressure',
-        'value': vitals.bpDisplay!,
-        'unit': ''
+        'numValue': vitals.systolicBP!,   // threshold on systolic
+        'display': vitals.bpDisplay!,
+        'icon': Icons.favorite_outline,
+        'color': const Color(0xFFE11D48),
       });
     }
     if (vitals.temperature != null) {
-      vitalItems.add({
+      items.add({
         'label': 'Temperature',
-        'value': vitals.temperature!.toStringAsFixed(1),
-        'unit': '°C'
+        'numValue': vitals.temperature!,
+        'display': '${vitals.temperature!.toStringAsFixed(1)} \u00b0C',
+        'icon': Icons.thermostat_outlined,
+        'color': const Color(0xFFF59E0B),
       });
     }
     if (vitals.pulseRate != null) {
-      vitalItems.add({
+      items.add({
         'label': 'Pulse',
-        'value': vitals.pulseRate!.toString(),
-        'unit': 'bpm'
+        'numValue': vitals.pulseRate!.toDouble(),
+        'display': '${vitals.pulseRate} bpm',
+        'icon': Icons.monitor_heart_outlined,
+        'color': const Color(0xFF8B5CF6),
       });
     }
     if (vitals.oxygenSaturation != null) {
-      vitalItems.add({
-        'label': 'O₂ Sat',
-        'value': vitals.oxygenSaturation!.toString(),
-        'unit': '%'
+      items.add({
+        'label': 'O\u2082 Sat',
+        'numValue': vitals.oxygenSaturation!,
+        'display': '${vitals.oxygenSaturation}%',
+        'icon': Icons.air_outlined,
+        'color': const Color(0xFF0EA5E9),
+      });
+    }
+    if (vitals.respiratoryRate != null) {
+      items.add({
+        'label': 'Resp. Rate',
+        'numValue': vitals.respiratoryRate!.toDouble(),
+        'display': '${vitals.respiratoryRate} /min',
+        'icon': Icons.wind_power_outlined,
+        'color': const Color(0xFF06B6D4),
       });
     }
     if (vitals.weight != null) {
-      vitalItems.add({
+      items.add({
         'label': 'Weight',
-        'value': vitals.weight!.toString(),
-        'unit': 'kg'
+        'numValue': null,   // no clinical threshold
+        'display': '${vitals.weight} kg',
+        'icon': Icons.monitor_weight_outlined,
+        'color': const Color(0xFF2D6A4F),
       });
     }
     if (vitals.height != null) {
-      vitalItems.add({
+      items.add({
         'label': 'Height',
-        'value': vitals.height!.toString(),
-        'unit': 'cm'
+        'numValue': null,
+        'display': '${vitals.height} cm',
+        'icon': Icons.height_outlined,
+        'color': const Color(0xFF2D6A4F),
       });
     }
     if (vitals.bmi != null) {
-      vitalItems.add({
+      items.add({
         'label': 'BMI',
-        'value': vitals.bmi!.toStringAsFixed(1),
-        'unit': ''
+        'numValue': vitals.bmi!,
+        'display': vitals.bmi!.toStringAsFixed(1),
+        'icon': Icons.accessibility_new_outlined,
+        'color': const Color(0xFF6366F1),
       });
     }
     if (vitals.bloodGlucose != null) {
-      vitalItems.add({
+      items.add({
         'label': 'Glucose',
-        'value': vitals.bloodGlucose!.toStringAsFixed(1),
-        'unit': 'mmol/L'
+        'numValue': vitals.bloodGlucose!,
+        'display': '${vitals.bloodGlucose!.toStringAsFixed(1)} mmol/L',
+        'icon': Icons.water_drop_outlined,
+        'color': const Color(0xFFF59E0B),
       });
     }
-    if (vitalItems.isEmpty) return const SizedBox();
+
+    if (items.isEmpty) return const SizedBox();
+
+    // Check if ANY vital is abnormal for the header alert banner
+    final anyAbnormal = items.any((item) {
+      final num = item['numValue'] as double?;
+      if (num == null) return false;
+      return _vitalStatus(item['label'] as String, num) != null;
+    });
+    final anyCritical = items.any((item) {
+      final num = item['numValue'] as double?;
+      if (num == null) return false;
+      final s = _vitalStatus(item['label'] as String, num);
+      return s == 'critical_low' || s == 'critical_high';
+    });
 
     return _card(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Row(children: [
+        // Header row
+        Row(children: [
           Icon(Icons.monitor_heart_outlined,
-              size: 18, color: Color(0xFFE11D48)),
-          SizedBox(width: 8),
-          Text('VITALS',
-              style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF94A3B8),
-                  letterSpacing: 0.5)),
+              size: 18,
+              color: anyCritical
+                  ? const Color(0xFFDC2626)
+                  : anyAbnormal
+                      ? const Color(0xFFD97706)
+                      : const Color(0xFFE11D48)),
+          const SizedBox(width: 8),
+          const Text('VITALS',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800,
+                  color: Color(0xFF94A3B8), letterSpacing: 0.5)),
+          const Spacer(),
+          if (anyCritical)
+            _alertChip('CRITICAL VALUES', const Color(0xFFDC2626), const Color(0xFFFEE2E2))
+          else if (anyAbnormal)
+            _alertChip('ABNORMAL VALUES', const Color(0xFFD97706), const Color(0xFFFEF3C7)),
         ]),
         const SizedBox(height: 16),
+
+        // Grid of vital tiles
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            // FIX: 1.2 gave ~44px cell height — too short for value + label.
-            // 1.5 gives ~56px which comfortably fits both lines.
-            childAspectRatio: 1.5,
-            crossAxisSpacing: 8,
-            mainAxisSpacing: 8,
+            crossAxisCount: 2,
+            childAspectRatio: 2.2,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
           ),
-          itemCount: vitalItems.length,
+          itemCount: items.length,
           itemBuilder: (context, index) {
-            final item = vitalItems[index];
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+            final item    = items[index];
+            final numVal  = item['numValue'] as double?;
+            final status  = numVal != null
+                ? _vitalStatus(item['label'] as String, numVal)
+                : null;
+            final isCrit  = status == 'critical_low' || status == 'critical_high';
+            final isAbnormal = status != null && !isCrit;
+
+            final tileBg = isCrit
+                ? const Color(0xFFFEF2F2)
+                : isAbnormal
+                    ? const Color(0xFFFFFBEB)
+                    : const Color(0xFFF8FAFC);
+            final borderColor = isCrit
+                ? const Color(0xFFDC2626)
+                : isAbnormal
+                    ? const Color(0xFFD97706)
+                    : const Color(0xFFE2E8F0);
+            final baseColor = item['color'] as Color;
+            final valueColor = isCrit
+                ? const Color(0xFFDC2626)
+                : isAbnormal
+                    ? const Color(0xFFD97706)
+                    : const Color(0xFF0F172A);
+            final accentColor = isCrit
+                ? const Color(0xFFDC2626)
+                : isAbnormal
+                    ? const Color(0xFFD97706)
+                    : baseColor;
+
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
+                color: tileBg,
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                    color: borderColor,
+                    width: (isCrit || isAbnormal) ? 1.5 : 1.0),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    '${item['value']} ${item['unit']}'.trim(),
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                    ),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+              child: Row(children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: accentColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    item['label']!,
-                    style: const TextStyle(
-                      fontSize: 9,
-                      color: Color(0xFF94A3B8),
-                      fontWeight: FontWeight.w500,
-                    ),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
+                  child: Icon(item['icon'] as IconData,
+                      size: 14, color: accentColor),
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(children: [
+                      Expanded(
+                        child: Text(item['label'] as String,
+                            style: TextStyle(fontSize: 9,
+                                color: accentColor.withOpacity(0.8),
+                                fontWeight: FontWeight.w600),
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                      if (status != null) _vitalStatusBadge(status),
+                    ]),
+                    const SizedBox(height: 2),
+                    Text(item['display'] as String,
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: valueColor),
+                        overflow: TextOverflow.ellipsis),
+                  ],
+                )),
+              ]),
             );
           },
         ),
       ]),
     );
   }
+
+  Widget _alertChip(String label, Color fg, Color bg) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+            color: bg, borderRadius: BorderRadius.circular(20)),
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 9, fontWeight: FontWeight.w900,
+                color: fg, letterSpacing: 0.4)),
+      );
 
   Widget _buildDiagnosesCard(List<Diagnosis> diagnoses) {
     return _card(

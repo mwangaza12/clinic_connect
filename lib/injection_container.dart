@@ -27,6 +27,7 @@ import 'features/patient/data/repositories/patient_repository_impl.dart';
 import 'features/patient/domain/repositories/patient_repository.dart';
 import 'features/patient/domain/usecases/get_all_patients_by_facility.dart';
 import 'features/patient/domain/usecases/register_patient.dart';
+import 'features/patient/domain/usecases/update_patient.dart';
 import 'features/patient/domain/usecases/search_patient.dart';
 import 'features/patient/presentation/bloc/lookup_bloc.dart';
 import 'features/patient/presentation/bloc/patient_bloc.dart';
@@ -196,6 +197,7 @@ Future<void> init() async {
   sl.registerLazySingleton(() => Logout(sl()));
 
   sl.registerLazySingleton(() => RegisterPatient(sl()));
+  sl.registerLazySingleton(() => UpdatePatient(sl()));
   sl.registerLazySingleton(() => SearchPatient(sl()));
   sl.registerLazySingleton(() => GetAllPatients(sl()));
   sl.registerLazySingleton(() => GetAllPatientsByFacility(sl()));
@@ -235,6 +237,7 @@ Future<void> init() async {
   sl.registerFactory(
     () => PatientBloc(
       registerPatientUsecase: sl(),
+      updatePatientUsecase: sl(),
       searchPatientUsecase: sl(),
       getAllPatientsUsecase: sl(),
       getAllPatientsByFacilityUsecase: sl(),

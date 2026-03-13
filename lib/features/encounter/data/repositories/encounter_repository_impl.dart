@@ -175,11 +175,40 @@ class EncounterRepositoryImpl implements EncounterRepository {
   Future<Either<Failure, Encounter>> updateEncounter(
       Encounter encounter) async {
     try {
-      final model  = EncounterModel.fromEntity(encounter);
-      final result = await remoteDatasource.updateEncounter(model);
-      return Right(result);
+      final model = EncounterModel.fromEntity(encounter);
+
+      // 1. Update SQLite immediately — offline-safe, returns instantly
+      final db = await _dbHelper.database;
+      await db.update(
+        'encounters',
+        model.toSqlite(),
+        where: 'id = ?',
+        whereArgs: [model.id],
+      );
+
+      // 2. Enqueue as an update for Firestore sync
+      await SyncManager().enqueue(
+        entityType: SyncEntityType.encounter,
+        entityId: model.id,
+        operation: SyncOperation.update,
+        payload: model.toSqlite(),
+      );
+
+      // 3. Try live Firestore update with a 10-second timeout
+      //    If it fails/times out the sync queue will retry on reconnect
+      try {
+        await remoteDatasource
+            .updateEncounter(model)
+            .timeout(const Duration(seconds: 10));
+      } catch (_) {
+        // Offline or slow — local already saved, sync will handle it
+      }
+
+      return Right(model);
     } on ServerException catch (e) {
       return Left(ServerFailure(e.message));
+    } catch (e) {
+      return Left(ServerFailure(e.toString()));
     }
   }
 

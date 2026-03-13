@@ -9,6 +9,7 @@ import '../../../encounter/presentation/bloc/encounter_state.dart';
 import '../../../encounter/presentation/pages/create_encounter_page.dart';
 import '../../../encounter/presentation/pages/encounter_detail_page.dart';
 import '../../domain/entities/patient.dart';
+import '../../presentation/pages/edit_patient_page.dart';
 import '../../../fhir/presentation/pages/fhir_export_page.dart';
 
 class PatientDetailPage extends StatelessWidget {
@@ -36,6 +37,7 @@ class _PatientDetailView extends StatefulWidget {
 class _PatientDetailViewState extends State<_PatientDetailView>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  late Patient _patient; // mutable — updated after edit
 
   static const Color _primary = Color(0xFF1B4332);
   static const Color _bg = Color(0xFFF1F5F9);
@@ -43,6 +45,7 @@ class _PatientDetailViewState extends State<_PatientDetailView>
   @override
   void initState() {
     super.initState();
+    _patient = widget.patient;
     _tabController = TabController(length: 2, vsync: this);
   }
 
@@ -54,7 +57,7 @@ class _PatientDetailViewState extends State<_PatientDetailView>
 
   @override
   Widget build(BuildContext context) {
-    final p = widget.patient;
+    final p = _patient;
 
     return Scaffold(
       backgroundColor: _bg,
@@ -122,7 +125,17 @@ class _PatientDetailViewState extends State<_PatientDetailView>
                 constraints: const BoxConstraints(),
               ),
               const Spacer(),
-              _actionIcon(Icons.edit_outlined, 'Edit', () {}),
+              _actionIcon(Icons.edit_outlined, 'Edit', () async {
+                final updated = await Navigator.push<Patient>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => EditPatientPage(patient: _patient),
+                  ),
+                );
+                if (updated != null && mounted) {
+                  setState(() => _patient = updated);
+                }
+              }),
               const SizedBox(width: 8),
               _actionIcon(Icons.share_outlined, 'Share', () {}),
               const SizedBox(width: 8),

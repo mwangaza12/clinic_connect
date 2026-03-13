@@ -7,6 +7,7 @@ import '../models/patient_model.dart';
 
 abstract class PatientLocalDatasource {
   Future<PatientModel> savePatient(PatientModel patient);
+  Future<PatientModel> updatePatient(PatientModel patient);
   Future<List<PatientModel>> getAllPatients();
   Future<PatientModel?> getPatientByNupi(String nupi);
   Future<void> updateSyncStatus(String patientId, String status);
@@ -44,6 +45,33 @@ class PatientLocalDatasourceImpl implements PatientLocalDatasource {
       return patient;
     } catch (e) {
       throw LocalException('Failed to save patient: $e');
+    }
+  }
+
+  @override
+  Future<PatientModel> updatePatient(PatientModel patient) async {
+    try {
+      final db = await dbHelper.database;
+
+      // Update existing row in SQLite
+      await db.update(
+        'patients',
+        patient.toSqlite(),
+        where: 'id = ?',
+        whereArgs: [patient.id],
+      );
+
+      // Enqueue as an UPDATE (not create) for Firestore sync
+      await syncManager.enqueue(
+        entityType: SyncEntityType.patient,
+        entityId: patient.id,
+        operation: SyncOperation.update,
+        payload: patient.toSqlite(),
+      );
+
+      return patient;
+    } catch (e) {
+      throw LocalException('Failed to update patient locally: $e');
     }
   }
 
