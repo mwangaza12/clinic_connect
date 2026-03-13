@@ -7,6 +7,7 @@ import '../../domain/entities/disease_program.dart';
 import '../bloc/program_bloc.dart';
 import '../bloc/program_event.dart';
 import '../bloc/program_state.dart';
+import 'enrollment_detail_page.dart';
 
 class ProgramDashboardPage extends StatefulWidget {
   final String facilityId;
@@ -135,7 +136,7 @@ class _ProgramDashboardPageState extends State<ProgramDashboardPage> {
                           itemCount: filteredEnrollments.length,
                           itemBuilder: (context, index) {
                             final enrollment = filteredEnrollments[index];
-                            return _buildEnrollmentCard(enrollment);
+                            return _buildEnrollmentCard(context, enrollment);
                           },
                         ),
                 ),
@@ -247,7 +248,7 @@ class _ProgramDashboardPageState extends State<ProgramDashboardPage> {
     );
   }
 
-  Widget _buildEnrollmentCard(ProgramEnrollment enrollment) {
+  Widget _buildEnrollmentCard(BuildContext context, ProgramEnrollment enrollment) {
     final colors = {
       DiseaseProgram.hivArt: Colors.red,
       DiseaseProgram.ncdDiabetes: Colors.blue,
@@ -259,7 +260,15 @@ class _ProgramDashboardPageState extends State<ProgramDashboardPage> {
 
     final color = colors[enrollment.program]!;
 
-    return Container(
+    return InkWell(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => EnrollmentDetailPage(enrollment: enrollment),
+        ),
+      ),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -328,9 +337,26 @@ class _ProgramDashboardPageState extends State<ProgramDashboardPage> {
             const SizedBox(height: 8),
             _buildProgramSpecificInfo(enrollment),
           ],
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Text(
+                'View details',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(Icons.chevron_right, size: 16, color: color),
+            ],
+          ),
         ],
       ),
-    );
+    ), // InkWell child
+    ); // InkWell
   }
 
   Widget _buildStatusBadge(ProgramEnrollmentStatus status) {
