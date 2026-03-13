@@ -1,3 +1,5 @@
+// lib/features/disease_program/presentation/pages/enroll_patient_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
@@ -5,6 +7,8 @@ import '../../domain/entities/disease_program.dart';
 import '../bloc/program_bloc.dart';
 import '../bloc/program_event.dart';
 import '../bloc/program_state.dart';
+// All non-HIV enrollment forms live in diabetes_enrollment_form.dart
+// (Hypertension, Malaria, TB, MCH classes are all defined there too).
 import '../widgets/diabetes_enrollment_form.dart';
 import '../widgets/hiv_enrollment_form.dart';
 
@@ -37,7 +41,8 @@ class _EnrollPatientPageState extends State<EnrollPatientPage> {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: Colors.black),
+          icon: const Icon(Icons.arrow_back_ios_new,
+              size: 20, color: Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
         title: Column(
@@ -71,7 +76,7 @@ class _EnrollPatientPageState extends State<EnrollPatientPage> {
                 backgroundColor: const Color(0xFF2D6A4F),
               ),
             );
-            Navigator.pop(context, true); // Return true to indicate success
+            Navigator.pop(context, true);
           } else if (state is ProgramError) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -100,7 +105,8 @@ class _EnrollPatientPageState extends State<EnrollPatientPage> {
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        border:
+                            Border.all(color: const Color(0xFFE2E8F0)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -128,7 +134,8 @@ class _EnrollPatientPageState extends State<EnrollPatientPage> {
                             spacing: 8,
                             runSpacing: 8,
                             children: DiseaseProgram.values.map((program) {
-                              final isSelected = _selectedProgram == program;
+                              final isSelected =
+                                  _selectedProgram == program;
                               return GestureDetector(
                                 onTap: () {
                                   setState(() {
@@ -137,7 +144,8 @@ class _EnrollPatientPageState extends State<EnrollPatientPage> {
                                   });
                                 },
                                 child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 200),
+                                  duration:
+                                      const Duration(milliseconds: 200),
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 16,
                                     vertical: 12,
@@ -152,7 +160,8 @@ class _EnrollPatientPageState extends State<EnrollPatientPage> {
                                           : const Color(0xFFE2E8F0),
                                       width: 2,
                                     ),
-                                    borderRadius: BorderRadius.circular(12),
+                                    borderRadius:
+                                        BorderRadius.circular(12),
                                   ),
                                   child: Text(
                                     program.code,
@@ -173,22 +182,25 @@ class _EnrollPatientPageState extends State<EnrollPatientPage> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Program-Specific Enrollment Form
+                    // Program-specific form + enroll button
                     if (_selectedProgram != null) ...[
                       _buildProgramSpecificForm(_selectedProgram!),
                       const SizedBox(height: 24),
-
-                      // Enroll Button
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: state is ProgramLoading ? null : _handleEnrollment,
-                          icon: const Icon(Icons.check_circle_rounded),
-                          label: Text('Enroll in ${_selectedProgram!.code}'),
+                          onPressed: state is ProgramLoading
+                              ? null
+                              : _handleEnrollment,
+                          icon:
+                              const Icon(Icons.check_circle_rounded),
+                          label: Text(
+                              'Enroll in ${_selectedProgram!.code}'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF2D6A4F),
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 16),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
                             ),
@@ -210,17 +222,23 @@ class _EnrollPatientPageState extends State<EnrollPatientPage> {
   Widget _buildProgramSpecificForm(DiseaseProgram program) {
     switch (program) {
       case DiseaseProgram.hivArt:
-        return HivEnrollmentForm(onDataChanged: (data) => _formData.addAll(data));
+        return HivEnrollmentForm(
+            onDataChanged: (data) => _formData.addAll(data));
       case DiseaseProgram.ncdDiabetes:
-        return DiabetesEnrollmentForm(onDataChanged: (data) => _formData.addAll(data));
+        return DiabetesEnrollmentForm(
+            onDataChanged: (data) => _formData.addAll(data));
       case DiseaseProgram.hypertension:
-        return HypertensionEnrollmentForm(onDataChanged: (data) => _formData.addAll(data));
+        return HypertensionEnrollmentForm(
+            onDataChanged: (data) => _formData.addAll(data));
       case DiseaseProgram.malaria:
-        return MalariaEnrollmentForm(onDataChanged: (data) => _formData.addAll(data));
+        return MalariaEnrollmentForm(
+            onDataChanged: (data) => _formData.addAll(data));
       case DiseaseProgram.tb:
-        return TbEnrollmentForm(onDataChanged: (data) => _formData.addAll(data));
+        return TbEnrollmentForm(
+            onDataChanged: (data) => _formData.addAll(data));
       case DiseaseProgram.mch:
-        return MchEnrollmentForm(onDataChanged: (data) => _formData.addAll(data));
+        return MchEnrollmentForm(
+            onDataChanged: (data) => _formData.addAll(data));
     }
   }
 
@@ -229,15 +247,15 @@ class _EnrollPatientPageState extends State<EnrollPatientPage> {
       _formKey.currentState?.save();
 
       final enrollment = ProgramEnrollment(
-        id: const Uuid().v4(),
-        patientNupi: widget.patientNupi,
-        patientName: widget.patientName,
-        facilityId: widget.facilityId,
-        program: _selectedProgram!,
-        status: ProgramEnrollmentStatus.active,
-        enrollmentDate: DateTime.now(),
-        programSpecificData: _formData,
-        createdAt: DateTime.now(),
+        id:                  const Uuid().v4(),
+        patientNupi:         widget.patientNupi,
+        patientName:         widget.patientName,
+        facilityId:          widget.facilityId,
+        program:             _selectedProgram!,
+        status:              ProgramEnrollmentStatus.active,
+        enrollmentDate:      DateTime.now(),
+        programSpecificData: _formData.isEmpty ? null : Map.from(_formData),
+        createdAt:           DateTime.now(),
       );
 
       context.read<ProgramBloc>().add(EnrollPatientInProgram(enrollment));

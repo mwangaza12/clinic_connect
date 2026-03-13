@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import '../../../../injection_container.dart';
+import '../../../disease_program/presentation/bloc/program_bloc.dart';
+import '../../../disease_program/presentation/pages/enroll_patient_page.dart';
 import '../../../encounter/domain/entities/encounter.dart';
 import '../../../encounter/presentation/bloc/encounter_bloc.dart';
 import '../../../encounter/presentation/bloc/encounter_event.dart';
@@ -567,6 +569,48 @@ class _ProfileTab extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 8),
+          // Disease Programs — full-width button so it is easy to find
+          GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => BlocProvider(
+                  create: (_) => sl<ProgramBloc>(),
+                  child: EnrollPatientPage(
+                    patientNupi: patient.nupi,
+                    patientName: '${patient.firstName} ${patient.lastName}',
+                    facilityId:  patient.facilityId,
+                  ),
+                ),
+              ),
+            ),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF7C3AED).withOpacity(0.08),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                    color: const Color(0xFF7C3AED).withOpacity(0.2)),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.monitor_heart_outlined,
+                      color: Color(0xFF7C3AED), size: 22),
+                  SizedBox(width: 10),
+                  Text(
+                    'Enroll in Disease Program',
+                    style: TextStyle(
+                      color: Color(0xFF7C3AED),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),

@@ -30,10 +30,15 @@ class ProgramBloc extends Bloc<ProgramEvent, ProgramState> {
   ) async {
     emit(ProgramLoading());
 
-    final result = await enrollPatient(event.enrollment as EnrollPatientParams);
+    // BUG FIX: was casting event.enrollment directly as EnrollPatientParams
+    // (ProgramEnrollment is not EnrollPatientParams — this threw a cast error).
+    // Correct: wrap the entity in the params object the use-case expects.
+    final result = await enrollPatient(
+      EnrollPatientParams(enrollment: event.enrollment),
+    );
 
     result.fold(
-      (failure) => emit(const ProgramError('Failed to enroll patient')),
+      (failure) => emit(ProgramError(failure.message)),
       (_) => emit(const EnrollmentSuccess('Patient enrolled successfully')),
     );
   }
@@ -44,10 +49,14 @@ class ProgramBloc extends Bloc<ProgramEvent, ProgramState> {
   ) async {
     emit(ProgramLoading());
 
-    final result = await getFacilityEnrollments(event.facilityId as GetFacilityEnrollmentsParams);
+    // BUG FIX: was casting event.facilityId (a String) as GetFacilityEnrollmentsParams
+    // — runtime cast error. Correct: wrap in params object.
+    final result = await getFacilityEnrollments(
+      GetFacilityEnrollmentsParams(facilityId: event.facilityId),
+    );
 
     result.fold(
-      (failure) => emit(const ProgramError('Failed to load enrollments')),
+      (failure) => emit(ProgramError(failure.message)),
       (enrollments) => emit(EnrollmentsLoaded(enrollments)),
     );
   }
@@ -61,7 +70,7 @@ class ProgramBloc extends Bloc<ProgramEvent, ProgramState> {
     final result = await repository.getPatientEnrollments(event.patientNupi);
 
     result.fold(
-      (failure) => emit(const ProgramError('Failed to load patient enrollments')),
+      (failure) => emit(ProgramError(failure.message)),
       (enrollments) => emit(EnrollmentsLoaded(enrollments)),
     );
   }
@@ -72,11 +81,15 @@ class ProgramBloc extends Bloc<ProgramEvent, ProgramState> {
   ) async {
     emit(ProgramLoading());
 
+    // BUG FIX: getProgramStats returns Either<Failure, ProgramStatistics>.
+    // The old code tried to cast ProgramStatistics as Map<String, int> — crash.
+    // Correct: emit ProgramStatsLoaded with the actual ProgramStatistics object,
+    // and update ProgramStatsLoaded state to hold ProgramStatistics (see state file).
     final result = await repository.getProgramStats(event.facilityId);
 
     result.fold(
-      (failure) => emit(const ProgramError('Failed to load statistics')),
-      (stats) => emit(ProgramStatsLoaded(stats as Map<String, int>)),
+      (failure) => emit(ProgramError(failure.message)),
+      (stats) => emit(ProgramStatsLoaded(stats)),
     );
   }
 
@@ -93,7 +106,7 @@ class ProgramBloc extends Bloc<ProgramEvent, ProgramState> {
     );
 
     result.fold(
-      (failure) => emit(const ProgramError('Failed to update status')),
+      (failure) => emit(ProgramError(failure.message)),
       (_) => emit(const StatusUpdateSuccess('Status updated successfully')),
     );
   }

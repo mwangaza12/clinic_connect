@@ -2,6 +2,7 @@
 
 import 'package:equatable/equatable.dart';
 import '../../domain/entities/disease_program.dart';
+import '../../domain/entities/program_statistics.dart';
 
 abstract class ProgramState extends Equatable {
   const ProgramState();
@@ -16,7 +17,6 @@ class ProgramLoading extends ProgramState {}
 
 class EnrollmentSuccess extends ProgramState {
   final String message;
-
   const EnrollmentSuccess(this.message);
 
   @override
@@ -25,16 +25,16 @@ class EnrollmentSuccess extends ProgramState {
 
 class EnrollmentsLoaded extends ProgramState {
   final List<ProgramEnrollment> enrollments;
-
   const EnrollmentsLoaded(this.enrollments);
 
   @override
   List<Object?> get props => [enrollments];
 }
 
+// BUG FIX: was Map<String, int> — caused a runtime cast crash in the bloc
+// because getProgramStats returns ProgramStatistics, not a raw Map.
 class ProgramStatsLoaded extends ProgramState {
-  final Map<String, int> stats;
-
+  final ProgramStatistics stats;
   const ProgramStatsLoaded(this.stats);
 
   @override
@@ -43,7 +43,6 @@ class ProgramStatsLoaded extends ProgramState {
 
 class StatusUpdateSuccess extends ProgramState {
   final String message;
-
   const StatusUpdateSuccess(this.message);
 
   @override
@@ -52,7 +51,6 @@ class StatusUpdateSuccess extends ProgramState {
 
 class ProgramError extends ProgramState {
   final String message;
-
   const ProgramError(this.message);
 
   @override

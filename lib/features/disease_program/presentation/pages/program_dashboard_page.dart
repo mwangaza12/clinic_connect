@@ -156,7 +156,7 @@ class _ProgramDashboardPageState extends State<ProgramDashboardPage> {
       physics: const NeverScrollableScrollPhysics(),
       mainAxisSpacing: 12,
       crossAxisSpacing: 12,
-      childAspectRatio: 1.1,
+      childAspectRatio: 1.4,
       children: DiseaseProgram.values.map((program) {
         final count = stats[program] ?? 0;
         return _buildStatCard(program, count);
@@ -177,7 +177,7 @@ class _ProgramDashboardPageState extends State<ProgramDashboardPage> {
     final color = colors[program]!;
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: color.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
@@ -185,25 +185,26 @@ class _ProgramDashboardPageState extends State<ProgramDashboardPage> {
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             count.toString(),
             style: TextStyle(
-              fontSize: 24,
+              fontSize: 20,
               fontWeight: FontWeight.w900,
               color: color,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Text(
             program.code,
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 10,
               fontWeight: FontWeight.w600,
               color: color,
             ),
             textAlign: TextAlign.center,
-            maxLines: 2,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
         ],
