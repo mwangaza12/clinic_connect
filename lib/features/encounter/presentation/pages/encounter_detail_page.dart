@@ -128,8 +128,12 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
                   _buildPartialDataBanner(),
                 const SizedBox(height: 8),
                 if (_isFhirMap)
-                  _buildFhirContent(
-                      _fullEncounter ??
+                  _isFirestoreMap(
+                          _fullEncounter ??
+                              (widget.encounter as Map<String, dynamic>))
+                      ? _buildFirestoreContent(widget.encounter
+                          as Map<String, dynamic>)
+                      : _buildFhirContent(_fullEncounter ??
                           (widget.encounter as Map<String, dynamic>))
                 else
                   _buildLocalContent(),
@@ -153,27 +157,60 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
     if (_isFhirMap) {
       final enc =
           (_fullEncounter ?? widget.encounter) as Map<String, dynamic>;
-      final rawTitle = enc['class']?['display']?.toString() ??
-          enc['type']?[0]?['text']?.toString() ??
-          'Clinical Encounter';
-      title = rawTitle[0].toUpperCase() +
-          rawTitle.substring(1).toLowerCase();
 
-      final period = enc['period'] as Map?;
-      if (period?['start'] != null) {
+      // BUG FIX: enc['type'] from Firestore is a plain String (e.g. "outpatient"),
+      // not a FHIR List. Indexing a String with [0] returns a character code (int),
+      // then ['text'] tries to use that int as a map key →
+      // "type 'String' is not a subtype of type 'int' of 'index'" crash.
+      //
+      // Safe resolution order:
+      //   1. FHIR class.display
+      //   2. FHIR type[0].text  (only when type is actually a List)
+      //   3. Firestore 'encounter_type' / 'type' plain string
+      //   4. Fallback label
+      String rawTitle;
+      final typeField = enc['type'];
+      if (enc['class'] is Map &&
+          (enc['class'] as Map)['display'] != null) {
+        rawTitle = enc['class']['display'].toString();
+      } else if (typeField is List && typeField.isNotEmpty) {
+        rawTitle = typeField[0]?['text']?.toString() ?? 'Clinical Encounter';
+      } else if (typeField is String && typeField.isNotEmpty) {
+        rawTitle = typeField;
+      } else {
+        rawTitle = enc['encounter_type']?.toString() ?? 'Clinical Encounter';
+      }
+      title = rawTitle.isNotEmpty
+          ? rawTitle[0].toUpperCase() + rawTitle.substring(1).toLowerCase()
+          : 'Clinical Encounter';
+
+      // Date: try FHIR period.start first, then Firestore encounter_date
+      final period = enc['period'] is Map ? enc['period'] as Map : null;
+      final rawDate = period?['start'] ?? enc['encounter_date'];
+      if (rawDate != null) {
         try {
-          date = DateFormat('dd MMM yyyy, HH:mm')
-              .format(DateTime.parse(period!['start'].toString()));
+          final dt = rawDate is String
+              ? DateTime.parse(rawDate)
+              : (rawDate as dynamic).toDate(); // Firestore Timestamp
+          date = DateFormat('dd MMM yyyy, HH:mm').format(dt);
         } catch (_) {
-          date = period!['start']?.toString() ?? '';
+          date = rawDate.toString();
         }
       }
 
-      clinician = enc['participant']?[0]?['individual']?['display']
-              ?.toString() ??
-          '';
+      // Clinician: FHIR participant[0] or Firestore clinician_name
+      final participants = enc['participant'];
+      if (participants is List && participants.isNotEmpty) {
+        clinician = participants[0]?['individual']?['display']?.toString() ?? '';
+      }
+      if (clinician.isEmpty) {
+        clinician = enc['clinician_name']?.toString() ?? '';
+      }
+
+      // Subtitle: facility name
       final sourceName = enc['meta']?['sourceName']?.toString() ??
           enc['serviceProvider']?['display']?.toString() ??
+          enc['facility_name']?.toString() ??
           '';
       subtitle = sourceName.isNotEmpty ? 'at $sourceName' : '';
     } else {
@@ -288,6 +325,219 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
           ),
         ]),
       );
+
+  // ── Firestore map detection ───────────────────────────────────────────────
+  // Firestore encounter maps use snake_case keys (chief_complaint, patient_name,
+  // encounter_date, etc.). FHIR maps use camelCase with 'resourceType' present.
+  bool _isFirestoreMap(Map<String, dynamic> enc) =>
+      enc.containsKey('chief_complaint') ||
+      enc.containsKey('encounter_date') ||
+      enc.containsKey('patient_nupi') ||
+      !enc.containsKey('resourceType');
+
+  // ── Firestore encounter content ───────────────────────────────────────────
+  Widget _buildFirestoreContent(Map<String, dynamic> enc) {
+    String _s(String key) => enc[key]?.toString() ?? '';
+    String _orDash(String v) => v.trim().isEmpty ? '—' : v;
+
+    // Parse vitals JSON if stored as a string
+    Map<String, dynamic> vitals = {};
+    final rawVitals = enc['vitals'];
+    if (rawVitals is Map) {
+      vitals = Map<String, dynamic>.from(rawVitals);
+    } else if (rawVitals is String && rawVitals.isNotEmpty) {
+      try {
+        vitals = Map<String, dynamic>.from(
+            (rawVitals as dynamic) == null ? {} : {}); // safe fallback
+      } catch (_) {}
+    }
+
+    // Parse diagnoses list
+    List<dynamic> diagnoses = [];
+    final rawDx = enc['diagnoses'];
+    if (rawDx is List) diagnoses = rawDx;
+
+    Widget section(String title, IconData icon, List<Widget> rows) {
+      if (rows.isEmpty) return const SizedBox.shrink();
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: _primary.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, size: 15, color: _primary),
+              ),
+              const SizedBox(width: 10),
+              Text(title,
+                  style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A))),
+            ]),
+            const SizedBox(height: 12),
+            const Divider(height: 1, color: Color(0xFFE2E8F0)),
+            const SizedBox(height: 12),
+            ...rows,
+          ],
+        ),
+      );
+    }
+
+    Widget row(String label, String value) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 130,
+                child: Text(label,
+                    style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF64748B),
+                        fontWeight: FontWeight.w500)),
+              ),
+              Expanded(
+                child: Text(_orDash(value),
+                    style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF0F172A),
+                        fontWeight: FontWeight.w600)),
+              ),
+            ],
+          ),
+        );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Patient & encounter info
+        section('Encounter Info', Icons.info_outline, [
+          row('Patient', _orDash(_s('patient_name'))),
+          row('NUPI', _orDash(_s('patient_nupi'))),
+          row('Type', _orDash(_s('encounter_type') == '' ? _s('type') : _s('encounter_type'))),
+          row('Status', _orDash(_s('status'))),
+          row('Facility', _orDash(_s('facility_name'))),
+          row('Clinician', _orDash(_s('clinician_name'))),
+          row('Disposition', _orDash(_s('disposition'))),
+        ]),
+
+        // Chief complaint & history
+        if (_s('chief_complaint').isNotEmpty || _s('history').isNotEmpty)
+          section('Presenting Complaint', Icons.chat_bubble_outline, [
+            if (_s('chief_complaint').isNotEmpty)
+              row('Chief Complaint', _s('chief_complaint')),
+            if (_s('history').isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('History',
+                        style: TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF64748B),
+                            fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 4),
+                    Text(_s('history'),
+                        style: const TextStyle(
+                            fontSize: 13, color: Color(0xFF0F172A), height: 1.5)),
+                  ],
+                ),
+              ),
+          ]),
+
+        // Vitals
+        if (vitals.isNotEmpty)
+          section('Vitals', Icons.monitor_heart_outlined, [
+            if (vitals['temperature'] != null)
+              row('Temperature', '${vitals['temperature']} °C'),
+            if (vitals['pulse'] != null)
+              row('Pulse', '${vitals['pulse']} bpm'),
+            if (vitals['systolic'] != null && vitals['diastolic'] != null)
+              row('Blood Pressure',
+                  '${vitals['systolic']}/${vitals['diastolic']} mmHg'),
+            if (vitals['oxygen_saturation'] != null)
+              row('SpO₂', '${vitals['oxygen_saturation']}%'),
+            if (vitals['respiratory_rate'] != null)
+              row('Resp. Rate', '${vitals['respiratory_rate']} /min'),
+            if (vitals['weight'] != null)
+              row('Weight', '${vitals['weight']} kg'),
+            if (vitals['height'] != null)
+              row('Height', '${vitals['height']} cm'),
+          ]),
+
+        // Examination
+        if (_s('examination').isNotEmpty)
+          section('Examination Findings', Icons.search_outlined, [
+            Text(_s('examination'),
+                style: const TextStyle(
+                    fontSize: 13, color: Color(0xFF0F172A), height: 1.5)),
+          ]),
+
+        // Diagnoses
+        if (diagnoses.isNotEmpty)
+          section('Diagnoses', Icons.local_hospital_outlined,
+              diagnoses.asMap().entries.map((e) {
+            final d = e.value;
+            final name = d is Map
+                ? (d['name']?.toString() ??
+                    d['description']?.toString() ??
+                    d.toString())
+                : d.toString();
+            final isPrimary = d is Map && d['isPrimary'] == true;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    isPrimary ? Icons.star_rounded : Icons.circle,
+                    size: isPrimary ? 14 : 8,
+                    color: isPrimary ? _primary : const Color(0xFF94A3B8),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(name,
+                        style: TextStyle(
+                            fontSize: 13,
+                            color: const Color(0xFF0F172A),
+                            fontWeight: isPrimary
+                                ? FontWeight.w700
+                                : FontWeight.w400)),
+                  ),
+                ],
+              ),
+            );
+          }).toList()),
+
+        // Treatment plan & clinical notes
+        if (_s('treatment_plan').isNotEmpty)
+          section('Treatment Plan', Icons.medication_outlined, [
+            Text(_s('treatment_plan'),
+                style: const TextStyle(
+                    fontSize: 13, color: Color(0xFF0F172A), height: 1.5)),
+          ]),
+        if (_s('clinical_notes').isNotEmpty)
+          section('Clinical Notes', Icons.notes_outlined, [
+            Text(_s('clinical_notes'),
+                style: const TextStyle(
+                    fontSize: 13, color: Color(0xFF0F172A), height: 1.5)),
+          ]),
+      ],
+    );
+  }
 
   // ── FHIR content ─────────────────────────────────────────────────────────
 
@@ -786,64 +1036,62 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
     );
   }
 
-  // ── Vitals card — FIXED: FittedBox + mainAxisSize.min prevents overflow ──
-
   Widget _buildVitalsCard(Vitals vitals) {
     final vitalItems = <Map<String, String>>[];
     if (vitals.bpDisplay != null) {
       vitalItems.add({
         'label': 'Blood Pressure',
         'value': vitals.bpDisplay!,
-        'unit': '',
+        'unit': ''
       });
     }
     if (vitals.temperature != null) {
       vitalItems.add({
         'label': 'Temperature',
         'value': vitals.temperature!.toStringAsFixed(1),
-        'unit': '°C',
+        'unit': '°C'
       });
     }
     if (vitals.pulseRate != null) {
       vitalItems.add({
         'label': 'Pulse',
         'value': vitals.pulseRate!.toString(),
-        'unit': 'bpm',
+        'unit': 'bpm'
       });
     }
     if (vitals.oxygenSaturation != null) {
       vitalItems.add({
         'label': 'O₂ Sat',
         'value': vitals.oxygenSaturation!.toString(),
-        'unit': '%',
+        'unit': '%'
       });
     }
     if (vitals.weight != null) {
       vitalItems.add({
         'label': 'Weight',
         'value': vitals.weight!.toString(),
-        'unit': 'kg',
+        'unit': 'kg'
       });
     }
     if (vitals.height != null) {
       vitalItems.add({
         'label': 'Height',
         'value': vitals.height!.toString(),
-        'unit': 'cm',
+        'unit': 'cm'
       });
     }
     if (vitals.bmi != null) {
       vitalItems.add({
         'label': 'BMI',
         'value': vitals.bmi!.toStringAsFixed(1),
-        'unit': '',
+        'unit': ''
       });
     }
     if (vitals.bloodGlucose != null) {
       vitalItems.add({
         'label': 'Glucose',
         'value': vitals.bloodGlucose!.toStringAsFixed(1),
-        'unit': 'mmol/L',
+        'unit': 'mmol/L'
       });
     }
     if (vitalItems.isEmpty) return const SizedBox();
@@ -867,8 +1115,7 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
-            // Slightly taller cells so value + label never clip
-            childAspectRatio: 1.05,
+            childAspectRatio: 1.2,
             crossAxisSpacing: 8,
             mainAxisSpacing: 8,
           ),
@@ -876,42 +1123,28 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
           itemBuilder: (context, index) {
             final item = vitalItems[index];
             return Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 6, vertical: 8),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 color: const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                // ✅ min prevents Column from demanding more height than it needs
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // ✅ FittedBox scales down value text on narrow screens
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      '${item['value']} ${item['unit']}'.trim(),
-                      style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF0F172A)),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    item['label']!,
-                    style: const TextStyle(
-                        fontSize: 9,
-                        color: Color(0xFF94A3B8),
-                        fontWeight: FontWeight.w500),
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text('${item['value']} ${item['unit']}'.trim(),
+                        style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF0F172A)),
+                        textAlign: TextAlign.center),
+                    const SizedBox(height: 4),
+                    Text(item['label']!,
+                        style: const TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFF94A3B8),
+                            fontWeight: FontWeight.w500),
+                        textAlign: TextAlign.center),
+                  ]),
             );
           },
         ),

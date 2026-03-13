@@ -19,13 +19,13 @@ import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../../disease_program/presentation/bloc/program_bloc.dart';
 import '../../../disease_program/presentation/pages/program_dashboard_page.dart';
-import '../../../notifications/presentation/widgets/notification_bell.dart';
 import '../../../patient/presentation/bloc/patient_bloc.dart';
 import '../../../patient/presentation/bloc/patient_event.dart';
 import '../../../patient/presentation/pages/nupi_lookup_page.dart';
 import '../../../patient/presentation/pages/patient_list_page.dart';
 import '../../../patient/presentation/pages/patient_registration_page.dart';
 import '../../../referral/presentation/pages/referrals_page.dart';
+import '../../../encounter/presentation/pages/encounter_detail_page.dart';
 import '../bloc/dashboard_bloc.dart';
 import '../bloc/dashboard_event.dart';
 import '../bloc/dashboard_state.dart';
@@ -117,9 +117,6 @@ class _DoctorShellPageState extends State<DoctorShellPage> {
   }
 
   PreferredSizeWidget _buildAppBar(String facilityName) {
-    final authState = context.read<AuthBloc>().state;
-    final facilityId = authState is Authenticated ? authState.user.facilityId : '';
-
     return AppBar(
       backgroundColor: Colors.white,
       elevation: 0,
@@ -143,7 +140,6 @@ class _DoctorShellPageState extends State<DoctorShellPage> {
           padding: EdgeInsets.symmetric(vertical: 12),
           child: SyncStatusWidget(),
         ),
-        NotificationBell(facilityId: facilityId),
         const SizedBox(width: 8),
       ],
     );
@@ -290,7 +286,18 @@ class _EncounterMiniCard extends StatelessWidget {
         ? (encounter['encounter_date'] as Timestamp).toDate()
         : DateTime.now();
 
-    return Container(
+    return InkWell(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => EncounterDetailPage(
+            encounter: encounter,
+            patientName: encounter['patient_name'] as String?,
+          ),
+        ),
+      ),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -327,11 +334,20 @@ class _EncounterMiniCard extends StatelessWidget {
               ],
             ),
           ),
-          Text(DateFormat('HH:mm').format(date),
-              style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
+          Row(
+            children: [
+              Text(DateFormat('HH:mm').format(date),
+                  style: const TextStyle(
+                      fontSize: 12, color: Color(0xFF94A3B8))),
+              const SizedBox(width: 4),
+              const Icon(Icons.chevron_right,
+                  size: 16, color: Color(0xFFCBD5E1)),
+            ],
+          ),
         ],
       ),
-    );
+    ), // InkWell child
+    ); // InkWell
   }
 }
 
@@ -395,7 +411,18 @@ class DoctorEncountersTab extends StatelessWidget {
             final patientName = data['patient_name'] as String?;
             final nupi        = data['patient_nupi'] as String? ?? '';
 
-            return Container(
+            return InkWell(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => EncounterDetailPage(
+                    encounter: data,
+                    patientName: patientName,
+                  ),
+                ),
+              ),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -442,9 +469,13 @@ class DoctorEncountersTab extends StatelessWidget {
                               fontSize: 11, color: Color(0xFFCBD5E1))),
                     ],
                   ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.chevron_right,
+                      size: 16, color: Color(0xFFCBD5E1)),
                 ],
               ),
-            );
+            ), // InkWell child
+            ); // InkWell
           },
         );
       },
