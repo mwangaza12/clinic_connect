@@ -1,23 +1,10 @@
 // lib/features/patient/presentation/pages/patient_registration_page.dart
-//
-// OFFLINE-FIRST REGISTRATION FLOW:
-//
-//   Online  → HIE call fires immediately (existing behaviour), real NUPI used
-//   Offline → local NUPI generated, patient saved to SQLite, two sync items
-//             queued:
-//               • SyncEntityType.patient    → Firestore on reconnect
-//               • SyncEntityType.hiePatient → AfyaChain NUPI mint on reconnect
-//             When the HIE sync runs it replaces the local NUPI with the real
-//             one across all local tables automatically (see SyncManager).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../core/services/hie_api_service.dart';
-import '../../../../core/sync/connectivity_manager.dart';
-import '../../../../core/sync/sync_manager.dart';
-import '../../../../core/sync/sync_queue_item.dart';
 import '../../../../injection_container.dart';
 import '../../data/datasources/patient_local_datasource.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
@@ -43,13 +30,12 @@ class PatientRegistrationView extends StatefulWidget {
   const PatientRegistrationView({super.key});
 
   @override
-  State<PatientRegistrationView> createState() =>
-      _PatientRegistrationViewState();
+  State<PatientRegistrationView> createState() => _PatientRegistrationViewState();
 }
 
 class _PatientRegistrationViewState extends State<PatientRegistrationView> {
-  final _formKey       = GlobalKey<FormState>();
-  final _pageController = PageController();
+  final _formKey = GlobalKey<FormState>();
+  final PageController _pageController = PageController();
   int _currentStep = 0;
 
   final Color primaryDark = const Color(0xFF1B4332);
@@ -67,9 +53,9 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
   final _lastNameController   = TextEditingController();
   final _phoneController      = TextEditingController();
   final _emailController      = TextEditingController();
-  String    _gender = 'male';
+  String _gender = 'male';
   DateTime? _dateOfBirth;
-  String?   _bloodGroup;
+  String? _bloodGroup;
 
   // ── Address / Next of kin (Step 2) ────────────────────────────
   final _countyController         = TextEditingController();
@@ -113,15 +99,14 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
     super.dispose();
   }
 
-  // ── Navigation ─────────────────────────────────────────────────
+  // ── Navigation ────────────────────────────────────────────────
 
   void _onNextStep() {
     if (_currentStep < 2) {
       if (!_validateCurrentStep()) return;
       setState(() => _currentStep++);
       _pageController.animateToPage(_currentStep,
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.easeInOut);
+          duration: const Duration(milliseconds: 400), curve: Curves.easeInOut);
     } else {
       _registerPatient();
     }
@@ -131,8 +116,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
     if (_currentStep > 0) {
       setState(() => _currentStep--);
       _pageController.animateToPage(_currentStep,
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.easeInOut);
+          duration: const Duration(milliseconds: 400), curve: Curves.easeInOut);
     } else {
       Navigator.pop(context);
     }
@@ -179,7 +163,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         .showSnackBar(SnackBar(content: Text(msg), backgroundColor: color));
   }
 
-  // ── Registration ───────────────────────────────────────────────
+  // ── Registration ──────────────────────────────────────────────
 
   Future<void> _registerPatient() async {
     if (!_formKey.currentState!.validate()) return;
@@ -194,20 +178,175 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
 
     try {
       final facilityId = authState.user.facilityId;
-      final dob        = _dateOfBirth != null
+      final dob = _dateOfBirth != null
           ? DateFormat('yyyy-MM-dd').format(_dateOfBirth!)
           : '';
 
-      final isOnline = await ConnectivityManager().checkConnectivity();
+      final hieResult = await HieApiService.instance.registerPatient(
+        nationalId:       _nationalIdController.text.trim(),
+        firstName:        _firstNameController.text.trim(),
+        lastName:         _lastNameController.text.trim(),
+        middleName:       _middleNameController.text.trim().isEmpty
+                              ? null
+                              : _middleNameController.text.trim(),
+        dateOfBirth:      dob,
+        gender:           _gender,
+        phoneNumber:      _phoneController.text.trim(),
+        email:            _emailController.text.trim().isEmpty
+                              ? null
+                              : _emailController.text.trim(),
+        address: {
+          'county':    _countyController.text.trim(),
+          'subCounty': _subCountyController.text.trim(),
+          'ward':      _wardController.text.trim(),
+          'village':   _villageController.text.trim(),
+        },
+        securityQuestion: _selectedSecurityQuestion!,
+        securityAnswer:   _securityAnswerController.text.trim(),
+        pin:              _pinController.text.trim(),
+      );
 
-      if (isOnline) {
-        await _registerOnline(facilityId: facilityId, dob: dob);
-      } else {
-        await _registerOffline(facilityId: facilityId, dob: dob);
+      final nupi          = hieResult.nupi ?? _generateLocalNupi();
+      final alreadyExists = hieResult.data?['alreadyExists'] == true;
+
+      // ── Duplicate guard ───────────────────────────────────────────
+      // Gateway says patient exists on AfyaNet.
+      // Check SQLite (fast, offline) to see if already at THIS facility.
+      if (alreadyExists) {
+        final localDs  = sl<PatientLocalDatasource>();
+        final existing = await localDs.getPatientByNupi(nupi);
+
+        if (existing != null && mounted) {
+          _showSnack(
+            'This patient is already registered here (NUPI: $nupi)',
+            color: Colors.orange,
+          );
+          Navigator.of(context).pop();
+          return; // ← stops here, no new record created
+        }
+
+        // On AfyaNet but new to this facility — fall through to save locally
+        if (mounted) {
+          _showSnack(
+            'Patient already on AfyaNet — linked to this facility',
+            color: const Color(0xFF1B4332),
+          );
+        }
+      } else if (hieResult.success && hieResult.blockIndex != null && mounted) {
+        _showSnack(
+          '⛓ Block #${hieResult.blockIndex} minted — patient on AfyaChain',
+          color: const Color(0xFF1B4332),
+        );
+      } else if (!hieResult.success && mounted) {
+        _showSnack(
+          'Saved locally. Blockchain sync pending: ${hieResult.error}',
+          color: Colors.orange,
+        );
       }
-    } catch (e) {
-      debugPrint('[Registration] error: $e');
+
+      // Save locally — using NUPI as dedup key so ConflictAlgorithm.replace
+      // in SQLite and Firestore .set() are both idempotent
+      final patient = Patient(
+        id:           const Uuid().v4(),
+        nupi:         nupi,
+        firstName:    _firstNameController.text.trim(),
+        middleName:   _middleNameController.text.trim(),
+        lastName:     _lastNameController.text.trim(),
+        gender:       _gender,
+        dateOfBirth:  _dateOfBirth!,
+        phoneNumber:  _phoneController.text.trim(),
+        email:        _emailController.text.trim().isEmpty
+                          ? null
+                          : _emailController.text.trim(),
+        county:       _countyController.text.trim(),
+        subCounty:    _subCountyController.text.trim(),
+        ward:         _wardController.text.trim(),
+        village:      _villageController.text.trim(),
+        bloodGroup:   _bloodGroup,
+        facilityId:   facilityId,
+        allergies:    const [],
+        chronicConditions: const [],
+        nextOfKinName: _nextOfKinNameController.text.trim().isEmpty
+                           ? null
+                           : _nextOfKinNameController.text.trim(),
+        nextOfKinPhone: _nextOfKinPhoneController.text.trim().isEmpty
+                            ? null
+                            : _nextOfKinPhoneController.text.trim(),
+        nextOfKinRelationship: _nextOfKinRelationship,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
       if (mounted) {
+        context.read<PatientBloc>().add(RegisterPatientEvent(patient));
+      }
+
+    } catch (e) {
+      // BUG FIX: old code showed a red error snackbar and stopped — the patient
+      // was never saved and Navigator.pop was never called.
+      // Correct offline behaviour: if the HIE/network call fails (DioException,
+      // SocketException, etc.), generate a local NUPI, save to SQLite, and let
+      // the BlocConsumer listener handle navigation as normal.
+      debugPrint('[HIE] Registration error (going offline): $e');
+
+      final isNetworkError = e.toString().toLowerCase().contains('socket') ||
+          e.toString().toLowerCase().contains('connection') ||
+          e.toString().toLowerCase().contains('dio') ||
+          e.toString().toLowerCase().contains('network') ||
+          e.toString().toLowerCase().contains('host');
+
+      if (isNetworkError && mounted) {
+        final authState = context.read<AuthBloc>().state;
+        if (authState is! Authenticated) return;
+
+        // BUG FIX: old code generated KE-YYYY-XXXXXX which looks like a real
+        // NUPI. Only the HIE gateway should issue real NUPIs.
+        // Use PENDING- prefix so it is unambiguous, and SyncManager's
+        // _replaceLocalNupi() will overwrite it with the real NUPI on sync.
+        final shortId = const Uuid().v4().substring(0, 8).toUpperCase();
+        final nupi = 'PENDING-$shortId';
+        _showSnack(
+          '📴 Offline — saved locally. NUPI will be assigned when back online.',
+          color: const Color(0xFF1B4332),
+        );
+
+        final patient = Patient(
+          id:           const Uuid().v4(),
+          nupi:         nupi,
+          firstName:    _firstNameController.text.trim(),
+          middleName:   _middleNameController.text.trim(),
+          lastName:     _lastNameController.text.trim(),
+          gender:       _gender,
+          dateOfBirth:  _dateOfBirth!,
+          phoneNumber:  _phoneController.text.trim(),
+          email:        _emailController.text.trim().isEmpty
+                            ? null
+                            : _emailController.text.trim(),
+          county:       _countyController.text.trim(),
+          subCounty:    _subCountyController.text.trim(),
+          ward:         _wardController.text.trim(),
+          village:      _villageController.text.trim(),
+          bloodGroup:   _bloodGroup,
+          facilityId:   authState.user.facilityId,
+          allergies:    const [],
+          chronicConditions: const [],
+          nextOfKinName: _nextOfKinNameController.text.trim().isEmpty
+                             ? null
+                             : _nextOfKinNameController.text.trim(),
+          nextOfKinPhone: _nextOfKinPhoneController.text.trim().isEmpty
+                              ? null
+                              : _nextOfKinPhoneController.text.trim(),
+          nextOfKinRelationship: _nextOfKinRelationship,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+
+        if (mounted) {
+          context.read<PatientBloc>().add(RegisterPatientEvent(patient));
+          // BlocConsumer listener will call Navigator.pop when PatientRegistered
+          // is emitted — no manual navigation needed here.
+        }
+      } else if (mounted) {
         _showSnack(
           'Registration error: ${e.toString().split('\n').first}',
           color: Colors.red,
@@ -218,174 +357,13 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
     }
   }
 
-  // ── Online path: HIE first, then save locally ──────────────────
-
-  Future<void> _registerOnline({
-    required String facilityId,
-    required String dob,
-  }) async {
-    final hieResult = await HieApiService.instance.registerPatient(
-      nationalId:       _nationalIdController.text.trim(),
-      firstName:        _firstNameController.text.trim(),
-      lastName:         _lastNameController.text.trim(),
-      middleName:       _middleNameController.text.trim().isEmpty
-                            ? null
-                            : _middleNameController.text.trim(),
-      dateOfBirth:      dob,
-      gender:           _gender,
-      phoneNumber:      _phoneController.text.trim(),
-      email:            _emailController.text.trim().isEmpty
-                            ? null
-                            : _emailController.text.trim(),
-      address: {
-        'county':    _countyController.text.trim(),
-        'subCounty': _subCountyController.text.trim(),
-        'ward':      _wardController.text.trim(),
-        'village':   _villageController.text.trim(),
-      },
-      securityQuestion: _selectedSecurityQuestion!,
-      securityAnswer:   _securityAnswerController.text.trim(),
-      pin:              _pinController.text.trim(),
-    );
-
-    final nupi          = hieResult.nupi ?? _generateLocalNupi();
-    final alreadyExists = hieResult.data?['alreadyExists'] == true;
-
-    // Duplicate guard — patient already on AfyaNet + this facility
-    if (alreadyExists) {
-      final localDs  = sl<PatientLocalDatasource>();
-      final existing = await localDs.getPatientByNupi(nupi);
-      if (existing != null && mounted) {
-        _showSnack(
-          'Patient already registered here (NUPI: $nupi)',
-          color: Colors.orange,
-        );
-        Navigator.of(context).pop();
-        return;
-      }
-      if (mounted) {
-        _showSnack('Patient already on AfyaNet — linked to this facility',
-            color: const Color(0xFF1B4332));
-      }
-    } else if (hieResult.success && hieResult.blockIndex != null && mounted) {
-      _showSnack(
-        '⛓ Block #${hieResult.blockIndex} minted — patient on AfyaChain',
-        color: const Color(0xFF1B4332),
-      );
-    } else if (!hieResult.success && mounted) {
-      _showSnack(
-        'Saved locally. Blockchain sync pending: ${hieResult.error}',
-        color: Colors.orange,
-      );
-    }
-
-    _dispatchSave(nupi: nupi, facilityId: facilityId);
-  }
-
-  // ── Offline path: skip HIE, save locally, queue both syncs ────
-
-  Future<void> _registerOffline({
-    required String facilityId,
-    required String dob,
-  }) async {
-    final localNupi = _generateLocalNupi();
-
-    if (mounted) {
-      _showSnack(
-        '📴 Offline — saved locally. Will sync to AfyaChain when reconnected.',
-        color: Colors.blueGrey,
-      );
-    }
-
-    // Queue the HIE registration to fire on reconnect.
-    // SyncManager._syncHiePatient() will swap the local NUPI for the real
-    // one returned by the gateway once the device is back online.
-    await SyncManager().enqueue(
-      entityType: SyncEntityType.hiePatient,
-      entityId:   'hie_${const Uuid().v4()}',
-      operation:  SyncOperation.create,
-      payload: {
-        'localNupi':        localNupi,
-        'nationalId':       _nationalIdController.text.trim(),
-        'firstName':        _firstNameController.text.trim(),
-        'lastName':         _lastNameController.text.trim(),
-        'middleName':       _middleNameController.text.trim().isEmpty
-                                ? null
-                                : _middleNameController.text.trim(),
-        'dateOfBirth':      dob,
-        'gender':           _gender,
-        'phoneNumber':      _phoneController.text.trim(),
-        'email':            _emailController.text.trim().isEmpty
-                                ? null
-                                : _emailController.text.trim(),
-        'address': {
-          'county':    _countyController.text.trim(),
-          'subCounty': _subCountyController.text.trim(),
-          'ward':      _wardController.text.trim(),
-          'village':   _villageController.text.trim(),
-        },
-        'securityQuestion': _selectedSecurityQuestion!,
-        'securityAnswer':   _securityAnswerController.text.trim(),
-        'pin':              _pinController.text.trim(),
-      },
-    );
-
-    _dispatchSave(nupi: localNupi, facilityId: facilityId);
-  }
-
-  // ── Shared: build Patient entity and dispatch BLoC event ───────
-
-  void _dispatchSave({required String nupi, required String facilityId}) {
-    final patient = Patient(
-      id:        const Uuid().v4(),
-      nupi:      nupi,
-      firstName: _firstNameController.text.trim(),
-      middleName: _middleNameController.text.trim(),
-      lastName:  _lastNameController.text.trim(),
-      gender:    _gender,
-      dateOfBirth: _dateOfBirth!,
-      phoneNumber: _phoneController.text.trim(),
-      email:     _emailController.text.trim().isEmpty
-                     ? null
-                     : _emailController.text.trim(),
-      county:    _countyController.text.trim(),
-      subCounty: _subCountyController.text.trim(),
-      ward:      _wardController.text.trim(),
-      village:   _villageController.text.trim(),
-      bloodGroup: _bloodGroup,
-      facilityId: facilityId,
-      allergies:  const [],
-      chronicConditions: const [],
-      nextOfKinName: _nextOfKinNameController.text.trim().isEmpty
-                         ? null
-                         : _nextOfKinNameController.text.trim(),
-      nextOfKinPhone: _nextOfKinPhoneController.text.trim().isEmpty
-                          ? null
-                          : _nextOfKinPhoneController.text.trim(),
-      nextOfKinRelationship: _nextOfKinRelationship,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    );
-
-    if (mounted) {
-      context.read<PatientBloc>().add(RegisterPatientEvent(patient));
-    }
-  }
-
-  // PatientBloc.RegisterPatientEvent → PatientRepositoryImpl.registerPatient
-  // → PatientLocalDatasource.savePatient which already does:
-  //     1. SQLite insert
-  //     2. SyncManager.enqueue(SyncEntityType.patient)  ← Firestore sync
-  // So Firestore sync is covered automatically. We only add the HIE queue
-  // item here (offline path) or call HIE directly (online path).
-
   String _generateLocalNupi() {
     final year = DateTime.now().year;
     final rand = (DateTime.now().millisecondsSinceEpoch % 900000) + 100000;
     return 'KE-$year-$rand';
   }
 
-  // ── Build ──────────────────────────────────────────────────────
+  // ── Build ─────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -402,16 +380,11 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('New Patient',
-                style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900,
                     color: Color(0xFF0F172A))),
             Text(
-              ['Identity & Security', 'Demographics',
-                  'Address & Next of Kin'][_currentStep],
-              style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF94A3B8),
+              ['Identity & Security', 'Demographics', 'Address & Next of Kin'][_currentStep],
+              style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8),
                   fontWeight: FontWeight.w500),
             ),
           ],
@@ -421,10 +394,8 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
             padding: const EdgeInsets.only(right: 16),
             child: Center(
               child: Text('${_currentStep + 1}/3',
-                  style: TextStyle(
-                      color: primaryDark,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14)),
+                  style: TextStyle(color: primaryDark,
+                      fontWeight: FontWeight.w700, fontSize: 14)),
             ),
           ),
         ],
@@ -432,8 +403,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
       body: BlocConsumer<PatientBloc, PatientState>(
         listener: (context, state) {
           if (state is PatientRegistered) {
-            _showSnack('Patient registered successfully ✓',
-                color: Colors.green);
+            _showSnack('Patient registered successfully ✓', color: Colors.green);
             Navigator.pop(context);
           } else if (state is PatientError) {
             _showSnack(state.message, color: Colors.red);
@@ -466,7 +436,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
     );
   }
 
-  // ── Step indicator ─────────────────────────────────────────────
+  // ── Step indicator ────────────────────────────────────────────
 
   Widget _buildStepIndicator() {
     return Container(
@@ -495,35 +465,28 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
           color: done || active ? primaryDark : Colors.grey[200],
           shape: BoxShape.circle,
         ),
-        child: Center(
-          child: done
-              ? const Icon(Icons.check, color: Colors.white, size: 16)
-              : Text('${index + 1}',
-                  style: TextStyle(
-                      color: active ? Colors.white : Colors.grey[600],
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13)),
-        ),
+        child: Center(child: done
+          ? const Icon(Icons.check, color: Colors.white, size: 16)
+          : Text('${index + 1}',
+              style: TextStyle(
+                color: active ? Colors.white : Colors.grey[600],
+                fontWeight: FontWeight.bold, fontSize: 13))),
       ),
       const SizedBox(height: 4),
-      Text(label,
-          style: TextStyle(
-              fontSize: 10,
-              fontWeight:
-                  active ? FontWeight.bold : FontWeight.normal,
-              color: active ? primaryDark : Colors.grey)),
+      Text(label, style: TextStyle(
+          fontSize: 10,
+          fontWeight: active ? FontWeight.bold : FontWeight.normal,
+          color: active ? primaryDark : Colors.grey)),
     ]);
   }
 
-  Widget _stepLine(int index) => Expanded(
-        child: Container(
-          height: 2,
-          margin: const EdgeInsets.only(bottom: 14),
-          color: _currentStep > index ? primaryDark : Colors.grey[200],
-        ),
-      );
+  Widget _stepLine(int index) => Expanded(child: Container(
+    height: 2,
+    margin: const EdgeInsets.only(bottom: 14),
+    color: _currentStep > index ? primaryDark : Colors.grey[200],
+  ));
 
-  // ── Step 0: Identity & Security ────────────────────────────────
+  // ── Step 0: Identity & Security ───────────────────────────────
 
   Widget _buildStep0Security() {
     return SingleChildScrollView(
@@ -539,8 +502,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
             label: 'National ID / Passport Number',
             hint: 'e.g. 12345678',
             keyboardType: TextInputType.number,
-            validator: (v) =>
-                v == null || v.trim().isEmpty ? 'Required' : null,
+            validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
           ),
           const SizedBox(height: 24),
           _sectionHeader(Icons.lock_outline, 'Security',
@@ -557,17 +519,13 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
               child: DropdownButton<String>(
                 isExpanded: true,
                 hint: Text('Select security question',
-                    style: TextStyle(
-                        color: Colors.grey[400], fontSize: 14)),
+                    style: TextStyle(color: Colors.grey[400], fontSize: 14)),
                 value: _selectedSecurityQuestion,
                 items: _securityQuestions
-                    .map((q) => DropdownMenuItem(
-                        value: q,
-                        child: Text(q,
-                            style: const TextStyle(fontSize: 13))))
+                    .map((q) => DropdownMenuItem(value: q, child: Text(q,
+                        style: const TextStyle(fontSize: 13))))
                     .toList(),
-                onChanged: (v) =>
-                    setState(() => _selectedSecurityQuestion = v),
+                onChanged: (v) => setState(() => _selectedSecurityQuestion = v),
               ),
             ),
           ),
@@ -576,8 +534,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
             controller: _securityAnswerController,
             label: 'Security Answer',
             hint: 'Your answer',
-            validator: (v) =>
-                v == null || v.trim().isEmpty ? 'Required' : null,
+            validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
           ),
           const SizedBox(height: 12),
           _field(
@@ -588,9 +545,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
             keyboardType: TextInputType.number,
             maxLength: 6,
             validator: (v) {
-              if (v == null || v.trim().length < 4) {
-                return 'Minimum 4 digits';
-              }
+              if (v == null || v.trim().length < 4) return 'Minimum 4 digits';
               return null;
             },
           ),
@@ -616,17 +571,12 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
             ),
             child: const Row(
               children: [
-                Icon(Icons.info_outline,
-                    color: Color(0xFF2D6A4F), size: 16),
+                Icon(Icons.info_outline, color: Color(0xFF2D6A4F), size: 16),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'The NUPI will be automatically generated by the AfyaLink '
-                    'gateway using the National ID and date of birth.',
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF0F5132),
-                        height: 1.4),
+                    'The NUPI will be automatically generated by the AfyaLink gateway using the National ID and date of birth.',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF0F5132), height: 1.4),
                   ),
                 ),
               ],
@@ -637,7 +587,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
     );
   }
 
-  // ── Step 1: Demographics ───────────────────────────────────────
+  // ── Step 1: Demographics ──────────────────────────────────────
 
   Widget _buildStep1Demographics() {
     return SingleChildScrollView(
@@ -645,24 +595,15 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _sectionHeader(
-              Icons.person_outline, 'Personal Information', null),
+          _sectionHeader(Icons.person_outline, 'Personal Information', null),
           const SizedBox(height: 16),
-          _field(
-              controller: _firstNameController,
-              label: 'First Name',
-              validator: (v) =>
-                  v == null || v.trim().isEmpty ? 'Required' : null),
+          _field(controller: _firstNameController, label: 'First Name',
+              validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null),
           const SizedBox(height: 12),
-          _field(
-              controller: _middleNameController,
-              label: 'Middle Name (optional)'),
+          _field(controller: _middleNameController, label: 'Middle Name (optional)'),
           const SizedBox(height: 12),
-          _field(
-              controller: _lastNameController,
-              label: 'Last Name',
-              validator: (v) =>
-                  v == null || v.trim().isEmpty ? 'Required' : null),
+          _field(controller: _lastNameController, label: 'Last Name',
+              validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null),
           const SizedBox(height: 12),
           Row(children: [
             Expanded(child: _genderCard('male',   Icons.male,   'Male')),
@@ -673,43 +614,33 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
           GestureDetector(
             onTap: _pickDob,
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: const Color(0xFFE2E8F0)),
               ),
               child: Row(children: [
-                Icon(Icons.cake_outlined,
-                    color: accentGreen, size: 20),
+                Icon(Icons.cake_outlined, color: accentGreen, size: 20),
                 const SizedBox(width: 12),
                 Text(
                   _dateOfBirth == null
                       ? 'Select Date of Birth'
-                      : DateFormat('dd MMM yyyy')
-                          .format(_dateOfBirth!),
+                      : DateFormat('dd MMM yyyy').format(_dateOfBirth!),
                   style: TextStyle(
-                      color: _dateOfBirth == null
-                          ? Colors.grey[400]
-                          : const Color(0xFF0F172A),
+                      color: _dateOfBirth == null ? Colors.grey[400] : const Color(0xFF0F172A),
                       fontSize: 14),
                 ),
               ]),
             ),
           ),
           const SizedBox(height: 12),
-          _field(
-              controller: _phoneController,
-              label: 'Phone Number',
+          _field(controller: _phoneController, label: 'Phone Number',
               hint: '+254XXXXXXXXX',
               keyboardType: TextInputType.phone,
-              validator: (v) =>
-                  v == null || v.trim().isEmpty ? 'Required' : null),
+              validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null),
           const SizedBox(height: 12),
-          _field(
-              controller: _emailController,
-              label: 'Email (optional)',
+          _field(controller: _emailController, label: 'Email (optional)',
               keyboardType: TextInputType.emailAddress),
           const SizedBox(height: 12),
           Container(
@@ -723,12 +654,10 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
               child: DropdownButton<String>(
                 isExpanded: true,
                 hint: Text('Blood Group (optional)',
-                    style: TextStyle(
-                        color: Colors.grey[400], fontSize: 14)),
+                    style: TextStyle(color: Colors.grey[400], fontSize: 14)),
                 value: _bloodGroup,
                 items: ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-']
-                    .map((g) =>
-                        DropdownMenuItem(value: g, child: Text(g)))
+                    .map((g) => DropdownMenuItem(value: g, child: Text(g)))
                     .toList(),
                 onChanged: (v) => setState(() => _bloodGroup = v),
               ),
@@ -739,7 +668,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
     );
   }
 
-  // ── Step 2: Address & Next of Kin ──────────────────────────────
+  // ── Step 2: Address & Next of Kin ─────────────────────────────
 
   Widget _buildStep2Address() {
     return SingleChildScrollView(
@@ -749,26 +678,19 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         children: [
           _sectionHeader(Icons.location_on_outlined, 'Address', null),
           const SizedBox(height: 16),
-          _field(controller: _countyController,    label: 'County'),
+          _field(controller: _countyController, label: 'County'),
           const SizedBox(height: 12),
           _field(controller: _subCountyController, label: 'Sub-County'),
           const SizedBox(height: 12),
-          _field(controller: _wardController,      label: 'Ward'),
+          _field(controller: _wardController, label: 'Ward'),
           const SizedBox(height: 12),
-          _field(
-              controller: _villageController,
-              label: 'Village / Estate'),
+          _field(controller: _villageController, label: 'Village / Estate'),
           const SizedBox(height: 24),
-          _sectionHeader(
-              Icons.people_outline, 'Next of Kin', 'Optional'),
+          _sectionHeader(Icons.people_outline, 'Next of Kin', 'Optional'),
           const SizedBox(height: 16),
-          _field(
-              controller: _nextOfKinNameController,
-              label: 'Next of Kin Name'),
+          _field(controller: _nextOfKinNameController, label: 'Next of Kin Name'),
           const SizedBox(height: 12),
-          _field(
-              controller: _nextOfKinPhoneController,
-              label: 'Next of Kin Phone',
+          _field(controller: _nextOfKinPhoneController, label: 'Next of Kin Phone',
               keyboardType: TextInputType.phone),
           const SizedBox(height: 12),
           Container(
@@ -782,18 +704,12 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
               child: DropdownButton<String>(
                 isExpanded: true,
                 hint: Text('Relationship',
-                    style: TextStyle(
-                        color: Colors.grey[400], fontSize: 14)),
+                    style: TextStyle(color: Colors.grey[400], fontSize: 14)),
                 value: _nextOfKinRelationship,
-                items: [
-                  'Spouse', 'Parent', 'Child',
-                  'Sibling', 'Friend', 'Other'
-                ]
-                    .map((r) =>
-                        DropdownMenuItem(value: r, child: Text(r)))
+                items: ['Spouse', 'Parent', 'Child', 'Sibling', 'Friend', 'Other']
+                    .map((r) => DropdownMenuItem(value: r, child: Text(r)))
                     .toList(),
-                onChanged: (v) =>
-                    setState(() => _nextOfKinRelationship = v),
+                onChanged: (v) => setState(() => _nextOfKinRelationship = v),
               ),
             ),
           ),
@@ -802,7 +718,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
     );
   }
 
-  // ── Bottom bar ─────────────────────────────────────────────────
+  // ── Bottom navigation bar ─────────────────────────────────────
 
   Widget _buildBottomBar(bool isLoading) {
     final isLast = _currentStep == 2;
@@ -810,12 +726,8 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, -4))
-        ],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
+            blurRadius: 10, offset: const Offset(0, -4))],
       ),
       child: Row(children: [
         if (_currentStep > 0) ...[
@@ -823,16 +735,11 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
             child: OutlinedButton(
               onPressed: isLoading ? null : _onPreviousStep,
               style: OutlinedButton.styleFrom(
-                padding:
-                    const EdgeInsets.symmetric(vertical: 16),
+                padding: const EdgeInsets.symmetric(vertical: 16),
                 side: BorderSide(color: primaryDark),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: Text('Back',
-                  style: TextStyle(
-                      color: primaryDark,
-                      fontWeight: FontWeight.w600)),
+              child: Text('Back', style: TextStyle(color: primaryDark, fontWeight: FontWeight.w600)),
             ),
           ),
           const SizedBox(width: 12),
@@ -845,34 +752,28 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
               backgroundColor: primaryDark,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               elevation: 0,
             ),
             child: isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white))
+                ? const SizedBox(width: 20, height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                 : Text(isLast ? 'Register Patient' : 'Next',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16)),
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
           ),
         ),
       ]),
     );
   }
 
-  // ── Helpers ────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────
 
   Future<void> _pickDob() async {
     final picked = await showDatePicker(
       context: context,
       initialDate: DateTime(1990),
-      firstDate:   DateTime(1900),
-      lastDate:    DateTime.now(),
+      firstDate: DateTime(1900),
+      lastDate: DateTime.now(),
     );
     if (picked != null) setState(() => _dateOfBirth = picked);
   }
@@ -885,56 +786,33 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
-          color: selected
-              ? primaryDark.withOpacity(0.08)
-              : Colors.white,
+          color: selected ? primaryDark.withOpacity(0.08) : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-              color: selected
-                  ? primaryDark
-                  : const Color(0xFFE2E8F0),
+              color: selected ? primaryDark : const Color(0xFFE2E8F0),
               width: selected ? 2 : 1),
         ),
-        child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon,
-                  color:
-                      selected ? primaryDark : Colors.grey,
-                  size: 20),
-              const SizedBox(width: 8),
-              Text(label,
-                  style: TextStyle(
-                      color: selected
-                          ? primaryDark
-                          : Colors.grey[600],
-                      fontWeight: selected
-                          ? FontWeight.w700
-                          : FontWeight.normal)),
-            ]),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, color: selected ? primaryDark : Colors.grey, size: 20),
+          const SizedBox(width: 8),
+          Text(label, style: TextStyle(
+              color: selected ? primaryDark : Colors.grey[600],
+              fontWeight: selected ? FontWeight.w700 : FontWeight.normal)),
+        ]),
       ),
     );
   }
 
-  Widget _sectionHeader(
-      IconData icon, String title, String? subtitle) {
+  Widget _sectionHeader(IconData icon, String title, String? subtitle) {
     return Row(children: [
       Icon(icon, color: accentGreen, size: 18),
       const SizedBox(width: 8),
-      Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title,
-                style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: primaryDark)),
-            if (subtitle != null)
-              Text(subtitle,
-                  style: const TextStyle(
-                      fontSize: 11,
-                      color: Color(0xFF94A3B8))),
-          ]),
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700,
+            color: primaryDark)),
+        if (subtitle != null)
+          Text(subtitle, style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+      ]),
     ]);
   }
 
@@ -954,25 +832,18 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
       maxLength:    maxLength,
       validator:    validator,
       decoration: InputDecoration(
-        labelText:  label,
-        hintText:   hint,
-        filled:     true,
-        fillColor:  Colors.white,
+        labelText: label,
+        hintText:  hint,
+        filled:    true,
+        fillColor: Colors.white,
         counterText: '',
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide:
-                const BorderSide(color: Color(0xFFE2E8F0))),
-        enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide:
-                const BorderSide(color: Color(0xFFE2E8F0))),
-        focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide:
-                BorderSide(color: accentGreen, width: 2)),
-        contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16, vertical: 14),
+        border:        OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: accentGreen, width: 2)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
     );
   }

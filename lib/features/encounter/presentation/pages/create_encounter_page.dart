@@ -935,6 +935,34 @@ class _CreateEncounterViewState extends State<_CreateEncounterView> {
     );
   }
 
+  // ── Vital sign thresholds ────────────────────────────────────────────────
+  // Each vital has four optional boundaries:
+  //   criticalLow  <  low  ≤  normal  ≤  high  <  criticalHigh
+  // Outside low/high → amber "HIGH"/"LOW".
+  // Outside criticalLow/criticalHigh → red "CRITICAL".
+  static const Map<String, Map<String, double>> _vitalThresholds = {
+    'Systolic BP':      {'low': 90,  'high': 140, 'criticalLow': 70,  'criticalHigh': 180},
+    'Diastolic BP':     {'low': 60,  'high': 90,  'criticalLow': 40,  'criticalHigh': 120},
+    'Temperature':      {'low': 36.0,'high': 37.5,'criticalLow': 35.0,'criticalHigh': 39.5},
+    'O\u2082 Saturation':  {'low': 95,  'high': 100, 'criticalLow': 90,  'criticalHigh': 100},
+    'Pulse Rate':       {'low': 60,  'high': 100, 'criticalLow': 40,  'criticalHigh': 130},
+    'Respiratory Rate': {'low': 12,  'high': 20,  'criticalLow': 8,   'criticalHigh': 30},
+    'Blood Glucose':    {'low': 3.9, 'high': 7.8, 'criticalLow': 2.8, 'criticalHigh': 13.9},
+  };
+
+  /// Returns null = normal | 'elevated' = amber | 'critical' = red
+  String? _vitalStatus(String label, String text) {
+    final v = double.tryParse(text.trim());
+    if (v == null) return null;
+    final t = _vitalThresholds[label];
+    if (t == null) return null;
+    if ((t['criticalLow']  != null && v < t['criticalLow']!) ||
+        (t['criticalHigh'] != null && v > t['criticalHigh']!)) return 'critical';
+    if ((t['low']  != null && v < t['low']!) ||
+        (t['high'] != null && v > t['high']!)) return 'elevated';
+    return null;
+  }
+
   Widget _vitalField({
     required TextEditingController controller,
     required String label,
@@ -944,40 +972,109 @@ class _CreateEncounterViewState extends State<_CreateEncounterView> {
     bool isInt = false,
     bool fullWidth = false,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE2E8F0))),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 4),
-          Expanded(child: Text(label,
-              style: TextStyle(fontSize: 11, color: color,
-                  fontWeight: FontWeight.w700),
-              overflow: TextOverflow.ellipsis)),
-        ]),
-        const SizedBox(height: 8),
-        Row(children: [
-          Expanded(child: TextField(
-            controller:  controller,
-            keyboardType: isInt ? TextInputType.number
-                : const TextInputType.numberWithOptions(decimal: true),
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800,
-                color: Color(0xFF0F172A)),
-            decoration: InputDecoration(
-              hintText:       '—',
-              hintStyle: TextStyle(color: Colors.grey[300], fontSize: 18),
-              border:         InputBorder.none,
-              isDense:        true,
-              contentPadding: EdgeInsets.zero,
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: controller,
+      builder: (context, value, _) {
+        final status     = _vitalStatus(label, value.text);
+        final isCritical = status == 'critical';
+        final isElevated = status == 'elevated';
+
+        final borderColor = isCritical
+            ? const Color(0xFFDC2626)
+            : isElevated
+                ? const Color(0xFFD97706)
+                : const Color(0xFFE2E8F0);
+
+        final bgColor = isCritical
+            ? const Color(0xFFFEF2F2)
+            : isElevated
+                ? const Color(0xFFFFFBEB)
+                : Colors.white;
+
+        final accentColor = isCritical
+            ? const Color(0xFFDC2626)
+            : isElevated
+                ? const Color(0xFFD97706)
+                : color;
+
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: borderColor,
+              width: (isCritical || isElevated) ? 1.5 : 1.0,
             ),
-          )),
-          Text(unit, style: TextStyle(fontSize: 11, color: Colors.grey[400],
-              fontWeight: FontWeight.w500)),
-        ]),
-      ]),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Icon(icon, size: 14, color: accentColor),
+              const SizedBox(width: 4),
+              Expanded(child: Text(label,
+                  style: TextStyle(fontSize: 11, color: accentColor,
+                      fontWeight: FontWeight.w700),
+                  overflow: TextOverflow.ellipsis)),
+              if (isCritical)
+                _vitalAlertTag('CRITICAL',
+                    const Color(0xFFDC2626), const Color(0xFFFEE2E2))
+              else if (isElevated)
+                _vitalAlertTag('HIGH',
+                    const Color(0xFFD97706), const Color(0xFFFEF3C7)),
+            ]),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(child: TextField(
+                controller: controller,
+                keyboardType: isInt
+                    ? TextInputType.number
+                    : const TextInputType.numberWithOptions(decimal: true),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: isCritical
+                      ? const Color(0xFFDC2626)
+                      : isElevated
+                          ? const Color(0xFFD97706)
+                          : const Color(0xFF0F172A),
+                ),
+                decoration: InputDecoration(
+                  hintText: '—',
+                  hintStyle: TextStyle(color: Colors.grey[300], fontSize: 18),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              )),
+              Text(unit, style: TextStyle(
+                  fontSize: 11,
+                  color: isCritical
+                      ? const Color(0xFFDC2626)
+                      : isElevated
+                          ? const Color(0xFFD97706)
+                          : Colors.grey[400],
+                  fontWeight: FontWeight.w500)),
+            ]),
+          ]),
+        );
+      },
+    );
+  }
+
+  Widget _vitalAlertTag(String text, Color textColor, Color bgColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(text, style: TextStyle(
+        fontSize: 9,
+        fontWeight: FontWeight.w900,
+        color: textColor,
+        letterSpacing: 0.3,
+      )),
     );
   }
 

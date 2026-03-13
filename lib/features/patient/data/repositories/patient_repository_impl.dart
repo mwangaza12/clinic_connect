@@ -181,44 +181,40 @@ class PatientRepositoryImpl implements PatientRepository {
 
   @override
   Future<Either<Failure, List<Patient>>> getPatientsByFacility() async {
+    final facilityId = FacilityInfo().facilityId.trim();
+
+    // BUG FIX: old code called Firestore first with no timeout — offline this
+    // blocked 30+ seconds before falling back to SQLite.
+    // New pattern: return SQLite immediately (instant), refresh Firestore in
+    // the background so the next load gets fresh data.
     try {
-      // Try remote first
-      try {
-        final patients = await remoteDatasource.getPatientsByFacility();
-        
-        // Update local cache
-        for (final patient in patients) {
-          await localDatasource.savePatient(patient);
-          await localDatasource.updateSyncStatus(patient.id, 'synced');
-        }
-        
-        return Right(patients.map((p) => p.toEntity()).toList());
-      } on ServerException {
-        // ✅ FIX: Filter local patients by facility ID
-        final allPatients = await localDatasource.getAllPatients();
-        final facilityId = FacilityInfo().facilityId.trim();
-        
-        // Filter patients by facility ID
-        final facilityPatients = allPatients.where((patient) => 
-          patient.facilityId == facilityId
-        ).toList();
-        
-        return Right(facilityPatients.map((p) => p.toEntity()).toList());
-      }
+      final allPatients = await localDatasource.getAllPatients();
+      final localPatients = allPatients
+          .where((p) => p.facilityId == facilityId)
+          .toList();
+
+      // Fire-and-forget — never awaited, never blocks the UI
+      _refreshFromFirestoreInBackground(facilityId);
+
+      return Right(localPatients.map((p) => p.toEntity()).toList());
     } catch (e) {
-      // ✅ FIX: Also filter here
-      try {
-        final allPatients = await localDatasource.getAllPatients();
-        final facilityId = FacilityInfo().facilityId.trim();
-        
-        final facilityPatients = allPatients.where((patient) => 
-          patient.facilityId == facilityId
-        ).toList();
-        
-        return Right(facilityPatients.map((p) => p.toEntity()).toList());
-      } catch (cacheError) {
-        return Left(ServerFailure(e.toString()));
+      return Left(CacheFailure('Failed to load patients: $e'));
+    }
+  }
+
+  /// Pulls the latest patients from Firestore and writes them into SQLite.
+  /// Called without await so callers get their SQLite data immediately.
+  Future<void> _refreshFromFirestoreInBackground(String facilityId) async {
+    try {
+      final patients = await remoteDatasource
+          .getPatientsByFacility()
+          .timeout(const Duration(seconds: 10));
+      for (final patient in patients) {
+        await localDatasource.savePatient(patient);
+        await localDatasource.updateSyncStatus(patient.id, 'synced');
       }
+    } catch (_) {
+      // Network unavailable or timed out — silently ignored.
     }
   }
 }

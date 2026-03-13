@@ -205,7 +205,11 @@ class DoctorDashboardTab extends StatelessWidget {
               icon: Icons.person_add_rounded, color: Colors.teal,
               title: 'Register Patient', subtitle: 'Add new patient record',
               onTap: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const PatientRegistrationPage())),
+                  MaterialPageRoute(builder: (_) => const PatientRegistrationPage()))
+                .then((_) {
+                  // Navigate to the Patients tab and reload after registration
+                  onNavigate(1);
+                }),
             ),
             ActionRow(
               icon: Icons.medical_services_rounded, color: Colors.blue,

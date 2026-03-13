@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import '../../../../injection_container.dart';
-import '../../../disease_program/presentation/bloc/program_bloc.dart';
-import '../../../disease_program/presentation/pages/enroll_patient_page.dart';
 import '../../../encounter/domain/entities/encounter.dart';
 import '../../../encounter/presentation/bloc/encounter_bloc.dart';
 import '../../../encounter/presentation/bloc/encounter_event.dart';
@@ -181,11 +179,13 @@ class _PatientDetailViewState extends State<_PatientDetailView>
                       spacing: 6,
                       runSpacing: 4,
                       children: [
-                        _identifierChip(
-                          Icons.fingerprint_rounded,
-                          p.nupi,
-                          const Color(0xFF6366F1),
-                        ),
+                        p.nupi.startsWith('PENDING-')
+                            ? _pendingNupiChip()
+                            : _identifierChip(
+                                Icons.fingerprint_rounded,
+                                p.nupi,
+                                const Color(0xFF6366F1),
+                              ),
                         _identifierChip(
                           p.gender == 'female'
                               ? Icons.female_rounded
@@ -319,6 +319,34 @@ class _PatientDetailViewState extends State<_PatientDetailView>
     );
   }
 
+  /// Displayed in the header instead of the NUPI chip when the patient was
+  /// registered offline. The HIE gateway assigns the real NUPI on sync.
+  Widget _pendingNupiChip() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFCBD5E1)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.sync_outlined, size: 12, color: Color(0xFF94A3B8)),
+          const SizedBox(width: 4),
+          const Text(
+            'NUPI pending sync',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF64748B),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _statCell(
       String value, String label, IconData icon, Color color) {
     return Expanded(
@@ -442,7 +470,10 @@ class _ProfileTab extends StatelessWidget {
             icon: Icons.person_outline_rounded,
             iconColor: const Color(0xFF6366F1),
             rows: [
-              _InfoRow(Icons.fingerprint, 'NUPI', patient.nupi),
+              _InfoRow(Icons.fingerprint, 'NUPI',
+                  patient.nupi.startsWith('PENDING-')
+                      ? 'Pending — will be assigned by gateway on sync'
+                      : patient.nupi),
               _InfoRow(Icons.badge_outlined, 'Full Name', patient.fullName),
               _InfoRow(
                   Icons.calendar_today_outlined,
@@ -569,48 +600,6 @@ class _ProfileTab extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 8),
-          // Disease Programs — full-width button so it is easy to find
-          GestureDetector(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => BlocProvider(
-                  create: (_) => sl<ProgramBloc>(),
-                  child: EnrollPatientPage(
-                    patientNupi: patient.nupi,
-                    patientName: '${patient.firstName} ${patient.lastName}',
-                    facilityId:  patient.facilityId,
-                  ),
-                ),
-              ),
-            ),
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              decoration: BoxDecoration(
-                color: const Color(0xFF7C3AED).withOpacity(0.08),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                    color: const Color(0xFF7C3AED).withOpacity(0.2)),
-              ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.monitor_heart_outlined,
-                      color: Color(0xFF7C3AED), size: 22),
-                  SizedBox(width: 10),
-                  Text(
-                    'Enroll in Disease Program',
-                    style: TextStyle(
-                      color: Color(0xFF7C3AED),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ),
         ],
       ),

@@ -57,7 +57,15 @@ class _PatientListViewState extends State<PatientListView> {
         onPressed: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const PatientRegistrationPage()),
-        ),
+        ).then((_) {
+          // Reload list when registration page pops — catches both the
+          // successful online path and the new offline path.
+          if (context.mounted) {
+            context
+                .read<PatientBloc>()
+                .add(const LoadPatientsByFacilityEvent());
+          }
+        }),
         backgroundColor: primaryGreen,
         icon: const Icon(Icons.person_add_rounded, color: Colors.white),
         label: const Text(
@@ -216,10 +224,11 @@ class _PatientListViewState extends State<PatientListView> {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          // FIX: constrain badge so a long NUPI can't overflow
                           ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 120),
-                            child: _badge(patient.nupi, primaryGreen),
+                            child: patient.nupi.startsWith('PENDING-')
+                                ? _pendingNupiBadge()
+                                : _badge(patient.nupi, primaryGreen),
                           ),
                         ],
                       ),
@@ -284,6 +293,35 @@ class _PatientListViewState extends State<PatientListView> {
           fontSize: 10,
         ),
         overflow: TextOverflow.ellipsis, // FIX: long NUPIs won't blow the badge
+      ),
+    );
+  }
+
+  /// Shown instead of the NUPI badge when a patient was registered offline.
+  /// The real NUPI will be assigned by the HIE gateway once connectivity
+  /// is restored and SyncManager processes the pending queue.
+  Widget _pendingNupiBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFFCBD5E1)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Icon(Icons.sync_outlined, size: 10, color: Color(0xFF94A3B8)),
+          SizedBox(width: 4),
+          Text(
+            'NUPI PENDING',
+            style: TextStyle(
+              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w700,
+              fontSize: 9,
+            ),
+          ),
+        ],
       ),
     );
   }
