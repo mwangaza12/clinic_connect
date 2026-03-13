@@ -1115,7 +1115,9 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
-            childAspectRatio: 1.2,
+            // FIX: 1.2 gave ~44px cell height — too short for value + label.
+            // 1.5 gives ~56px which comfortably fits both lines.
+            childAspectRatio: 1.5,
             crossAxisSpacing: 8,
             mainAxisSpacing: 8,
           ),
@@ -1123,28 +1125,40 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
           itemBuilder: (context, index) {
             final item = vitalItems[index];
             return Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
               decoration: BoxDecoration(
                 color: const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text('${item['value']} ${item['unit']}'.trim(),
-                        style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A)),
-                        textAlign: TextAlign.center),
-                    const SizedBox(height: 4),
-                    Text(item['label']!,
-                        style: const TextStyle(
-                            fontSize: 10,
-                            color: Color(0xFF94A3B8),
-                            fontWeight: FontWeight.w500),
-                        textAlign: TextAlign.center),
-                  ]),
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '${item['value']} ${item['unit']}'.trim(),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    item['label']!,
+                    style: const TextStyle(
+                      fontSize: 9,
+                      color: Color(0xFF94A3B8),
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             );
           },
         ),
