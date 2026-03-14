@@ -241,11 +241,11 @@ class SyncManager {
         if (realNupi.isNotEmpty && localNupi != realNupi) {
           await _replaceLocalNupi(localNupi, realNupi);
         }
-        debugPrint('[Sync] ⛓ HIE patient synced — NUPI: $realNupi');
+        debugPrint('[Sync] HIE patient synced — NUPI: $realNupi');
         return true;
       }
 
-      debugPrint('[Sync] ⚠ HIE patient failed: ${result.error}');
+      debugPrint('[Sync] HIE patient failed: ${result.error}');
       return false;
     } catch (e) {
       await _recordError(item, e);

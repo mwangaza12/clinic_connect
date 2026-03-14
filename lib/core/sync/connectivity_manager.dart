@@ -16,11 +16,11 @@ class ConnectivityManager {
   Stream<bool> get onConnectivityChanged => _controller.stream;
 
   Future<void> init() async {
-    // ✅ checkConnectivity() returns List<ConnectivityResult>
+    // checkConnectivity() returns List<ConnectivityResult>
     final results = await _connectivity.checkConnectivity();
     _isOnline = _isConnected(results);
 
-    // ✅ onConnectivityChanged emits List<ConnectivityResult>
+    // onConnectivityChanged emits List<ConnectivityResult>
     _connectivity.onConnectivityChanged.listen((results) {
       final wasOnline = _isOnline;
       _isOnline = _isConnected(results);
@@ -31,7 +31,7 @@ class ConnectivityManager {
     });
   }
 
-  // ✅ Takes List — online if ANY result is connected
+  // Takes List — online if ANY result is connected
   bool _isConnected(List<ConnectivityResult> results) {
     return results.any(
       (r) =>
@@ -42,7 +42,7 @@ class ConnectivityManager {
   }
 
   Future<bool> checkConnectivity() async {
-    // ✅ Returns List now
+    // Returns List now
     final results = await _connectivity.checkConnectivity();
     _isOnline = _isConnected(results);
     return _isOnline;
