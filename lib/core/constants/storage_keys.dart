@@ -1,18 +1,27 @@
 class StorageKeys {
-  static const String accessToken  = 'access_token';
-  static const String refreshToken = 'refresh_token';
-  static const String userId       = 'user_id';
-  static const String facilityId   = 'facility_id';
-  static const String isFirstLaunch = 'is_first_launch';
+  StorageKeys._();
 
-  // ── HIE Gateway credentials ──────────────────────────────────
-  // Stored securely after setup wizard / login.
-  // Required by HieApiService for every call to the gateway.
-  static const String facilityApiKey = 'facility_api_key';
-  static const String hieGatewayUrl  = 'hie_gateway_url';
+  static const String accessToken       = 'access_token';
+  static const String refreshToken      = 'refresh_token';
+  static const String userId            = 'user_id';
+  static const String facilityId        = 'facility_id';
+  static const String facilityName      = 'facility_name';
+  static const String facilityCounty    = 'facility_county';
+  static const String isFirstLaunch     = 'is_first_launch';
 
-  // ── Onboarding ───────────────────────────────────────────────
-  // Set to 'true' after the user finishes the onboarding slides.
-  // Never shown again after that.
+  // ── HIE Gateway credentials ───────────────────────────────────────────────
+  static const String facilityApiKey    = 'facility_api_key';
+  static const String hieGatewayUrl     = 'hie_gateway_url';
+
+  // ── Firebase credentials (fetched from HIE Gateway at setup, persisted
+  //    for cold-start restore — Firebase re-inits without a network call) ────
+  static const String firebaseApiKey            = 'fb_api_key';
+  static const String firebaseAppId             = 'fb_app_id';
+  static const String firebaseProjectId         = 'fb_project_id';
+  static const String firebaseMessagingSenderId  = 'fb_sender_id';
+  static const String firebaseStorageBucket      = 'fb_bucket';
+  static const String firebaseAuthDomain         = 'fb_auth_domain';
+
+  // ── Onboarding ────────────────────────────────────────────────────────────
   static const String hasSeenOnboarding = 'has_seen_onboarding';
 }

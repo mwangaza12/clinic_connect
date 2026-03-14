@@ -710,4 +710,29 @@ class HieApiService {
       'isFederatedRecord': true,
     };
   }
+
+  // ════════════════════════════════════════════════════════════════
+  //  GET FACILITY FIREBASE CONFIG  →  GET /api/facilities/:id/firebase-config
+  //
+  //  Called once during setup wizard to fetch this facility's
+  //  Firebase credentials from the HIE Gateway.
+  //  Protected by X-Api-Key — only a registered facility can fetch
+  //  its own config.
+  // ════════════════════════════════════════════════════════════════
+
+  Future<HieResult> getFacilityFirebaseConfig({
+    required String facilityId,
+    required String apiKey,
+  }) async {
+    try {
+      return await _requestWithRetry(
+        () => _dio.get(
+          '/api/facilities/$facilityId/firebase-config',
+          options: Options(headers: {'X-Api-Key': apiKey}),
+        ),
+      );
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
 }
