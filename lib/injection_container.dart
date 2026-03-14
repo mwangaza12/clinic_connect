@@ -5,6 +5,7 @@ import 'package:clinic_connect/features/patient/data/datasources/patient_lookup_
 import 'package:clinic_connect/features/patient/domain/usecases/get_all_patients.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'core/config/firebase_config.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:get_it/get_it.dart';
 import 'package:internet_connection_checker/internet_connection_checker.dart';
@@ -70,8 +71,10 @@ Future<void> init() async {
   // ==================
   // EXTERNAL DEPENDENCIES
   // ==================
-  sl.registerLazySingleton(() => FirebaseAuth.instance);
-  sl.registerLazySingleton(() => FirebaseFirestore.instance);
+  // Uses FirebaseConfig getters — lazy so they're only resolved after
+  // Firebase.initializeApp() has been called in FirebaseConfig.restoreFromStorage()
+  sl.registerLazySingleton<FirebaseAuth>(() => FirebaseConfig.auth);
+  sl.registerLazySingleton<FirebaseFirestore>(() => FirebaseConfig.facilityDb);
   sl.registerLazySingleton(() => const FlutterSecureStorage());
   sl.registerLazySingleton(() => DatabaseHelper());
   sl.registerLazySingleton(() => InternetConnectionChecker());

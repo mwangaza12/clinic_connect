@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import '../../../../core/sync/sync_manager.dart';
+import '../../../../core/sync/sync_queue_item.dart';
 import '../../../../core/services/hie_api_service.dart';
 import '../../../../injection_container.dart';
 import '../../data/datasources/patient_local_datasource.dart';
@@ -176,11 +178,13 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
 
     setState(() => _isSubmitting = true);
 
+    // Declared outside try so catch block can access it for offline HIE enqueue
+    final dob = _dateOfBirth != null
+        ? DateFormat('yyyy-MM-dd').format(_dateOfBirth!)
+        : '';
+
     try {
       final facilityId = authState.user.facilityId;
-      final dob = _dateOfBirth != null
-          ? DateFormat('yyyy-MM-dd').format(_dateOfBirth!)
-          : '';
 
       final hieResult = await HieApiService.instance.registerPatient(
         nationalId:       _nationalIdController.text.trim(),
@@ -346,6 +350,35 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
           // BlocConsumer listener will call Navigator.pop when PatientRegistered
           // is emitted — no manual navigation needed here.
         }
+
+        // Enqueue HIE registration for when connectivity returns.
+        // We store the full credentials now while they are still in memory —
+        // they are never written to SQLite for security.
+        // SyncManager._syncHiePatient() will call HieApiService.registerPatient()
+        // on reconnect and replace the PENDING- NUPI with the real one.
+        await SyncManager().enqueue(
+          entityType: SyncEntityType.hiePatient,
+          entityId:   'hie_${patient.id}',
+          operation:  SyncOperation.create,
+          payload: {
+            'localNupi':       nupi,
+            'nationalId':      _nationalIdController.text.trim(),
+            'firstName':       _firstNameController.text.trim(),
+            'lastName':        _lastNameController.text.trim(),
+            'middleName':      _middleNameController.text.trim().isEmpty
+                                   ? null
+                                   : _middleNameController.text.trim(),
+            'dateOfBirth':     dob,
+            'gender':          _gender,
+            'phoneNumber':     _phoneController.text.trim(),
+            'email':           _emailController.text.trim().isEmpty
+                                   ? null
+                                   : _emailController.text.trim(),
+            'securityQuestion': _selectedSecurityQuestion,
+            'securityAnswer':   _securityAnswerController.text.trim(),
+            'pin':              _pinController.text.trim(),
+          },
+        );
       } else if (mounted) {
         _showSnack(
           'Registration error: ${e.toString().split('\n').first}',

@@ -1,7 +1,4 @@
 // lib/main.dart
-//
-// Single entry point — one APK for all facilities.
-// Firebase initializes dynamically from saved credentials on cold start.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -24,46 +21,50 @@ late final bool appNeedsSetup;
 Future<void> _initApp() async {
   const storage = FlutterSecureStorage();
 
+  // Read HIE credentials and check if Firebase creds are saved
   final results = await Future.wait([
     storage.read(key: StorageKeys.hieGatewayUrl),
     storage.read(key: StorageKeys.facilityApiKey),
     storage.read(key: StorageKeys.facilityId),
   ]);
 
-  final gatewayUrl = results[0];
+  final savedUrl   = results[0];
   final apiKey     = results[1];
   final facilityId = results[2];
 
-  // Init HIE service — needed even before Firebase (for setup wizard)
+  // Init HIE service — needed before anything else including setup wizard
   HieApiService.init(
-    gatewayUrl?.isNotEmpty == true
-        ? gatewayUrl!
+    savedUrl?.isNotEmpty == true
+        ? savedUrl!
         : const String.fromEnvironment(
             'HIE_BACKEND_URL',
             defaultValue: 'https://hie-gateway.onrender.com',
           ),
   );
 
-  // Try to restore Firebase from saved credentials (no network call)
+  // Try to restore Firebase from previously saved credentials
   final firebaseReady = await FirebaseConfig.restoreFromStorage();
 
-  // Setup is required if Firebase isn't ready or gateway creds are missing
   appNeedsSetup = !firebaseReady ||
       apiKey     == null || apiKey.isEmpty     ||
       facilityId == null || facilityId.isEmpty;
 
-  // Only init DI and SyncManager when Firebase is ready
-  if (!appNeedsSetup) {
-    await di.init();
-    await SyncManager().init();
-  }
+  // Always init DI — BlocProvider in ClinicConnectApp needs it at build time.
+  // If setup is needed, DI will init with a dummy/unconnected Firebase state
+  // but that's fine — no Firestore calls happen until after login which only
+  // appears after setup is complete.
+  await di.init();
+  await SyncManager().init();
 }
 
 void main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
-  // No Firebase.initializeApp() here — done dynamically in FirebaseConfig
+  // No static Firebase.initializeApp() here —
+  // Firebase is initialized dynamically inside FirebaseConfig.restoreFromStorage()
+  // using credentials saved during the setup wizard.
+
   await _initApp();
 
   runApp(const ClinicConnectApp());
@@ -76,14 +77,17 @@ class ClinicConnectApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title:                    'ClinicConnect',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2D6A4F)),
-        useMaterial3: true,
+    return BlocProvider(
+      create: (_) => di.sl<AuthBloc>(),
+      child: MaterialApp(
+        title:                      'ClinicConnect',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2D6A4F)),
+          useMaterial3: true,
+        ),
+        home: const RootNavigator(),
       ),
-      home: const RootNavigator(),
     );
   }
 }
@@ -126,10 +130,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
   Widget build(BuildContext context) {
     if (_setupRequired) {
       return SetupWizardPage(
+        // After setup wizard completes, Firebase is now initialized.
+        // We don't need to re-init DI — it's already running.
+        // We just need to rebuild so AuthWrapper shows LoginPage.
         onComplete: () async {
-          // Firebase is ready now — initialize DI and SyncManager
-          await di.init();
-          await SyncManager().init();
           if (mounted) setState(() => _setupRequired = false);
         },
       );
