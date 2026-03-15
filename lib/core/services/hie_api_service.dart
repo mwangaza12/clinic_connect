@@ -210,25 +210,20 @@ class HieApiService {
     try {
       await _wakeUp();
 
-      // FIX: send full demographics so the gateway can store them centrally.
-      // Previously only nationalId, dob, name, securityQuestion, securityAnswer, pin
-      // were sent — the gateway discarded everything else, so Facility B could
-      // never retrieve phone, gender, address, etc. via verify/answer or verify/pin.
       return await _requestWithRetry(() => _dio.post('/api/patients/register', data: {
-        'nationalId':      nationalId,
-        'dob':             dateOfBirth,
-        'name':            [firstName, if (middleName != null && middleName.isNotEmpty) middleName, lastName].join(' ').trim(),
+        'nationalId':       nationalId,
+        'dob':              dateOfBirth,
+        'name':             [firstName, if (middleName != null && middleName.isNotEmpty) middleName, lastName].join(' ').trim(),
         'securityQuestion': securityQuestion,
         'securityAnswer':   securityAnswer,
         'pin':              pin,
-        // demographics — stored on chain, returned by verify endpoints
-        'gender':      gender,
-        'phoneNumber': phoneNumber ?? '',
-        'email':       email ?? '',
-        'county':      address?['county']    ?? '',
-        'subCounty':   address?['subCounty'] ?? '',
-        'ward':        address?['ward']      ?? '',
-        'village':     address?['village']   ?? '',
+        'gender':           gender,
+        'phoneNumber':      phoneNumber ?? '',
+        'email':            email       ?? '',
+        'county':           address?['county']    ?? '',
+        'subCounty':        address?['subCounty'] ?? '',
+        'ward':             address?['ward']      ?? '',
+        'village':          address?['village']   ?? '',
       }));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
@@ -435,6 +430,44 @@ class HieApiService {
           options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
         ),
         nupi: nupi,
+      );
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  FETCH ENCOUNTER INDEX  →  GET /api/patients/:nupi/encounters
+  //  Returns encounter index directly from blockchain — no FHIR proxy.
+  //  Works even when the registering facility is offline.
+  // ════════════════════════════════════════════════════════════════
+
+  Future<HieResult> fetchPatientEncounterIndex({required String nupi}) async {
+    try {
+      return await _requestWithRetry(
+        () => _dio.get('/api/patients/$nupi/encounters'),
+        nupi: nupi,
+      );
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  UPDATE REFERRAL STATUS  →  PATCH /api/referrals/:id/status
+  // ════════════════════════════════════════════════════════════════
+
+  Future<HieResult> updateReferralStatus({
+    required String referralId,
+    required String status,
+    String? notes,
+  }) async {
+    try {
+      return await _requestWithRetry(
+        () => _dio.patch('/api/referrals/$referralId/status', data: {
+          'status': status,
+          if (notes != null && notes.isNotEmpty) 'notes': notes,
+        }),
       );
     } catch (e) {
       return HieResult(success: false, error: e.toString());
@@ -693,27 +726,21 @@ class HieApiService {
   Map<String, dynamic> parsePatientFromVerification(
     Map<String, dynamic> verifyData,
   ) {
-    // FIX: patient demographics now come directly in the patient object
-    // returned by verify/answer and verify/pin, instead of being fetched
-    // via the FHIR proxy (which required the registering facility to be online).
     final p = (verifyData['patient'] as Map?)?.cast<String, dynamic>() ?? {};
     final nupi = verifyData['nupi'] as String? ?? p['nupi'] as String? ?? '';
-
     return {
       'nupi':       nupi,
-      'name':       p['name']      ?? 'Unknown',
-      // demographics stored on chain at registration time
-      'gender':     p['gender']     ?? p['sex']         ?? '',
-      'dateOfBirth': p['dob']       ?? p['dateOfBirth']  ?? p['birthDate'] ?? '',
-      'phoneNumber': p['phoneNumber'] ?? p['phone']      ?? p['msisdn']    ?? '',
-      'email':       p['email']     ?? '',
-      'county':      p['county']    ?? '',
-      'subCounty':   p['subCounty'] ?? p['sub_county']  ?? '',
-      'ward':        p['ward']      ?? '',
-      'village':     p['village']   ?? '',
-      'bloodGroup':  p['bloodGroup'] ?? p['blood_group'] ?? '',
-      'nationalId':  p['nationalId'] ?? p['national_id'] ?? '',
-      // facility info
+      'name':       p['name']        ?? 'Unknown',
+      'gender':     p['gender']      ?? p['sex']          ?? '',
+      'dateOfBirth': p['dob']        ?? p['dateOfBirth']   ?? p['birthDate'] ?? '',
+      'phoneNumber': p['phoneNumber'] ?? p['phone']        ?? p['msisdn']    ?? '',
+      'email':       p['email']      ?? '',
+      'county':      p['county']     ?? '',
+      'subCounty':   p['subCounty']  ?? p['sub_county']   ?? '',
+      'ward':        p['ward']       ?? '',
+      'village':     p['village']    ?? '',
+      'bloodGroup':  p['bloodGroup'] ?? p['blood_group']  ?? '',
+      'nationalId':  p['nationalId'] ?? p['national_id']  ?? '',
       'registeredFacility':   p['registeredFacility']   ?? '',
       'registeredFacilityId': p['registeredFacilityId'] ?? '',
       'facilityCounty':       p['facilityCounty']       ?? '',

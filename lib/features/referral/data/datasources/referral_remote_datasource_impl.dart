@@ -87,18 +87,29 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
     if (!online) return _getLocalOutgoing(facilityId);
 
     try {
-      final query = await _facilityDb
-          .collection('referrals')
-          .where('from_facility_id', isEqualTo: facilityId)
-          .orderBy('created_at', descending: true)
-          .get();
-      return query.docs.map((doc) {
-        final data = doc.data()..['id'] = doc.id;
-        return ReferralModel.fromFirestore(data);
-      }).toList();
-    } catch (_) {
-      return _getLocalOutgoing(facilityId);
-    }
+      // Query HIE chain — source of truth for outgoing referrals.
+      // Local Firestore only has referrals created on THIS install;
+      // the chain has all of them across reinstalls.
+      final result = await HieApiService.instance
+          .getReferrals(direction: 'outgoing', facilityId: facilityId);
+
+      if (result.success) {
+        final list = result.data?['referrals'] as List<dynamic>? ?? [];
+        final referrals = list
+            .map((r) => ReferralModel.fromGateway(r as Map<String, dynamic>))
+            .toList();
+        // Cache locally
+        for (final r in referrals) {
+          try {
+            final db = await _dbHelper.database;
+            await db.insert('referrals', _toSqlite(r),
+                conflictAlgorithm: ConflictAlgorithm.replace);
+          } catch (_) {}
+        }
+        return referrals;
+      }
+    } catch (_) {}
+    return _getLocalOutgoing(facilityId);
   }
 
   Future<List<ReferralModel>> _getLocalOutgoing(
@@ -200,7 +211,7 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
       );
     } catch (_) {}
 
-    // Firestore update — best-effort
+    // Firestore update — best-effort (local facility only)
     final online = await _conn.checkConnectivity();
     if (online) {
       try {
@@ -220,6 +231,19 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
             .doc(referralId)
             .set(updateData, SetOptions(merge: true));
       } catch (_) {}
+
+      // Post status update to HIE chain so the SENDING facility
+      // can see it when they next query /api/referrals/outgoing/:id
+      try {
+        await HieApiService.instance.updateReferralStatus(
+          referralId: referralId,
+          status:     status.name,
+          notes:      feedbackNotes,
+        );
+        debugPrint('[Referral] HIE status updated → ${status.name}');
+      } catch (e) {
+        debugPrint('[Referral] HIE status update failed (non-critical): $e');
+      }
     }
 
     return getReferral(referralId);

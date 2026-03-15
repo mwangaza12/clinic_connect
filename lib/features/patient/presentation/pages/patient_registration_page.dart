@@ -210,7 +210,9 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         pin:              _pinController.text.trim(),
       );
 
-      final nupi          = hieResult.nupi ?? _generateLocalNupi();
+      final _failShort = const Uuid().v4().substring(0, 8).toUpperCase();
+      final nupi = hieResult.nupi ??
+          (hieResult.success ? _generateLocalNupi() : 'PENDING-$_failShort');
       final alreadyExists = hieResult.data?['alreadyExists'] == true;
 
       // ── Duplicate guard ───────────────────────────────────────────
@@ -243,7 +245,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         );
       } else if (!hieResult.success && mounted) {
         _showSnack(
-          'Saved locally. Blockchain sync pending: ${hieResult.error}',
+          '⚠ HIE unreachable — saved locally, will sync to AfyaChain automatically.',
           color: Colors.orange,
         );
       }
@@ -283,6 +285,38 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
 
       if (mounted) {
         context.read<PatientBloc>().add(RegisterPatientEvent(patient));
+      }
+
+      // When HIE registration fails online (non-exception path), enqueue
+      // for automatic retry so the patient reaches AfyaChain.
+      if (!hieResult.success || hieResult.nupi == null) {
+        await SyncManager().enqueue(
+          entityType: SyncEntityType.hiePatient,
+          entityId:   'hie_${patient.id}',
+          operation:  SyncOperation.create,
+          payload: {
+            'localNupi':        nupi,
+            'nationalId':       _nationalIdController.text.trim(),
+            'firstName':        _firstNameController.text.trim(),
+            'lastName':         _lastNameController.text.trim(),
+            'middleName':       _middleNameController.text.trim().isEmpty
+                                    ? null : _middleNameController.text.trim(),
+            'dateOfBirth':      dob,
+            'gender':           _gender,
+            'phoneNumber':      _phoneController.text.trim(),
+            'email':            _emailController.text.trim().isEmpty
+                                    ? null : _emailController.text.trim(),
+            'securityQuestion': _selectedSecurityQuestion,
+            'securityAnswer':   _securityAnswerController.text.trim(),
+            'pin':              _pinController.text.trim(),
+            'address': {
+              'county':    _countyController.text.trim(),
+              'subCounty': _subCountyController.text.trim(),
+              'ward':      _wardController.text.trim(),
+              'village':   _villageController.text.trim(),
+            },
+          },
+        );
       }
 
     } catch (e) {
@@ -377,10 +411,6 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
             'securityQuestion': _selectedSecurityQuestion,
             'securityAnswer':   _securityAnswerController.text.trim(),
             'pin':              _pinController.text.trim(),
-            // FIX: include address so SyncManager._syncHiePatient can pass it
-            // to HieApiService.registerPatient, which forwards it to the gateway.
-            // Without this the gateway only stored the patient's name — Facility B
-            // could never retrieve county, subCounty, ward, or village.
             'address': {
               'county':    _countyController.text.trim(),
               'subCounty': _subCountyController.text.trim(),

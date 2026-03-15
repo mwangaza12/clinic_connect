@@ -155,66 +155,46 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
       }
       // ──────────────────────────────────────────────────────────────────
 
-      // Try to fetch full FHIR demographics (with retry/backoff built in)
-      await Future.delayed(const Duration(seconds: 2));
+      // Demographics come directly from the verify response (stored on chain).
+      // No FHIR proxy needed — works even when the registering facility is offline.
+      // The verify endpoint now returns dob, gender, phoneNumber, county etc.
+      debugPrint('✅ Demographics from chain: ${demographics['name']}, '
+          'DOB: ${demographics['dateOfBirth']}, Phone: ${demographics['phoneNumber']}');
 
-      debugPrint(
-          '📋 Attempting to fetch full demographics from facility: $registeredFacilityId');
-      final patientResult = await HieApiService.instance.fetchDemographics(
-        nupi: nupi,
-        accessToken: token,
-        facilityId: registeredFacilityId,
-      );
-
-      if (patientResult.success && patientResult.data != null) {
-        // FHIR succeeded — use full demographics but preserve DOB fallback
-        demographics = patientResult.data!;
-        if ((demographics['dateOfBirth'] as String? ?? '').isEmpty) {
-          demographics['dateOfBirth'] = _formatDob(_selectedDob!);
+      // Fetch encounter index from chain (not FHIR proxy)
+      List<Map<String, dynamic>> chainEncounters = [];
+      try {
+        final encResult = await HieApiService.instance
+            .fetchPatientEncounterIndex(nupi: nupi);
+        if (encResult.success && encResult.data != null) {
+          final list = encResult.data!['encounters'] as List? ?? [];
+          chainEncounters = list.map((e) {
+            final enc = e as Map<String, dynamic>;
+            // Normalise to the shape the lookup page expects
+            return <String, dynamic>{
+              'id':     enc['encounterId'],
+              'class':  {'display': enc['encounterType'] ?? 'Visit'},
+              'type':   [{'text': enc['encounterType'] ?? 'Visit'}],
+              'period': {'start': enc['encounterDate']},
+              'meta': {
+                'source':     enc['facilityId'],
+                'sourceName': enc['facilityName'] ?? enc['facilityId'],
+              },
+              'resourceType': 'Encounter',
+              'status': 'finished',
+            };
+          }).toList();
+          debugPrint('✅ Got ${chainEncounters.length} encounters from chain index');
         }
-        debugPrint('✅ Got full patient demographics: ${demographics['name']}');
-        debugPrint(
-            '   DOB: ${demographics['dateOfBirth']}, Phone: ${demographics['phoneNumber']}');
-      } else {
-        debugPrint(
-            '⚠️ Using verification data for demographics (${patientResult.error ?? 'unknown error'})');
+      } catch (e) {
+        debugPrint('⚠️ Encounter index fetch failed: $e');
       }
 
-      // Fetch additional encounters only if verification data had none
-      List<Map<String, dynamic>> additionalEncounters = [];
-      if (allEncounters.isEmpty) {
-        await Future.delayed(const Duration(seconds: 1));
-        debugPrint(
-            '📋 Fetching encounters from facility: $registeredFacilityId');
-        try {
-          final encResult = await HieApiService.instance.fetchEncounters(
-            nupi: nupi,
-            accessToken: token,
-            facilityId: registeredFacilityId,
-          );
-
-          if (encResult.success && encResult.data != null) {
-            final bundle = encResult.data!;
-            final entries = bundle['entry'] as List? ?? [];
-            for (var entry in entries) {
-              final resource =
-                  entry['resource'] as Map<String, dynamic>?;
-              if (resource != null &&
-                  resource['resourceType'] == 'Encounter') {
-                additionalEncounters.add(resource);
-              }
-            }
-            debugPrint(
-                '✅ Found ${additionalEncounters.length} additional encounters');
-          }
-        } catch (e) {
-          debugPrint('⚠️ Error fetching encounters: $e');
-        }
-      }
-
+      // Merge chain index with any encounters already in verifyData
       final allEncountersCombined = [
         ...allEncounters,
-        ...additionalEncounters
+        ...chainEncounters.where((ce) => !allEncounters
+            .any((ae) => ae['id'] == ce['id'])),
       ];
 
       final patientData = <String, dynamic>{
@@ -294,6 +274,7 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
           patient: Patient.fromHieData(
               data: data, facilityId: authState.user.facilityId),
           nupiPatient: data,
+          accessToken: data['_accessToken'] as String? ?? '',
         ),
       ),
     );

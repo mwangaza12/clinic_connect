@@ -34,7 +34,6 @@ class _EditPatientViewState extends State<_EditPatientView> {
   int _currentStep = 0;
 
   static const Color primaryDark  = Color(0xFF1B4332);
-  static const Color accentGreen  = Color(0xFF2D6A4F);
 
   // ── Demographics ──────────────────────────────────────────────
   late final TextEditingController _firstNameController;

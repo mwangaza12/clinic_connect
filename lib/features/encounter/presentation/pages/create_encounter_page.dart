@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
 import '../../../../injection_container.dart';
-import '../../../../core/services/hie_api_service.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../../patient/domain/entities/patient.dart';
@@ -210,41 +209,9 @@ class _CreateEncounterViewState extends State<_CreateEncounterView> {
       context.read<EncounterBloc>().add(CreateEncounterEvent(encounter));
     }
 
-    // ── Sync to HIE chain ─────────────────────────────────────────
-    _syncToChain(encounter, authState.user.facilityId);
-  }
-
-  Future<void> _syncToChain(Encounter encounter, String facilityId) async {
-    setState(() { _chainSyncing = true; _chainStatus = null; });
-    try {
-      final result = await HieApiService.instance.recordEncounter(
-        nupi:             encounter.patientNupi,
-        // Token is stored in nupiPatient map by verifySecurityAnswer();
-        // falls back to empty string for encounters from PatientDetailPage
-        // (local patients don't need a token for chain sync).
-        accessToken:      widget.nupiPatient?['token']?.toString() ?? '',
-        encounterId:      encounter.id,
-        encounterType:    encounter.type.name,
-        encounterDate:    encounter.encounterDate.toIso8601String(),
-        // chiefComplaint is String? on Encounter — gateway requires String
-        chiefComplaint:   encounter.chiefComplaint ?? '',
-        practitionerName: encounter.clinicianName,
-      );
-      if (mounted) {
-        setState(() {
-          _chainStatus = result.success
-              ? '⛓ Block #${result.blockIndex} minted on AfyaChain'
-              : 'Saved locally. Chain sync pending: ${result.error}';
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _chainStatus =
-            'Saved locally. Chain sync pending: ${e.toString().split('\n').first}');
-      }
-    } finally {
-      if (mounted) setState(() => _chainSyncing = false);
-    }
+    // HIE chain sync is handled by EncounterRepositoryImpl._queueHieEncounter()
+    // which was called above via CreateEncounterEvent. Removing the direct
+    // _syncToChain call that caused every encounter to hit the gateway twice.
   }
 
   void _showSnack(String msg, Color color) {
