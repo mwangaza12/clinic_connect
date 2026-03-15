@@ -210,13 +210,25 @@ class HieApiService {
     try {
       await _wakeUp();
 
+      // FIX: send full demographics so the gateway can store them centrally.
+      // Previously only nationalId, dob, name, securityQuestion, securityAnswer, pin
+      // were sent — the gateway discarded everything else, so Facility B could
+      // never retrieve phone, gender, address, etc. via verify/answer or verify/pin.
       return await _requestWithRetry(() => _dio.post('/api/patients/register', data: {
-        'nationalId': nationalId,
-        'dob': dateOfBirth,
-        'name': '$firstName $lastName'.trim(),
+        'nationalId':      nationalId,
+        'dob':             dateOfBirth,
+        'name':            [firstName, if (middleName != null && middleName.isNotEmpty) middleName, lastName].join(' ').trim(),
         'securityQuestion': securityQuestion,
-        'securityAnswer': securityAnswer,
-        'pin': pin,
+        'securityAnswer':   securityAnswer,
+        'pin':              pin,
+        // demographics — stored on chain, returned by verify endpoints
+        'gender':      gender,
+        'phoneNumber': phoneNumber ?? '',
+        'email':       email ?? '',
+        'county':      address?['county']    ?? '',
+        'subCounty':   address?['subCounty'] ?? '',
+        'ward':        address?['ward']      ?? '',
+        'village':     address?['village']   ?? '',
       }));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
@@ -681,32 +693,31 @@ class HieApiService {
   Map<String, dynamic> parsePatientFromVerification(
     Map<String, dynamic> verifyData,
   ) {
-    final patientMeta =
-        (verifyData['patient'] as Map?)?.cast<String, dynamic>() ?? {};
-    final nupi = verifyData['nupi'] as String? ?? '';
+    // FIX: patient demographics now come directly in the patient object
+    // returned by verify/answer and verify/pin, instead of being fetched
+    // via the FHIR proxy (which required the registering facility to be online).
+    final p = (verifyData['patient'] as Map?)?.cast<String, dynamic>() ?? {};
+    final nupi = verifyData['nupi'] as String? ?? p['nupi'] as String? ?? '';
 
     return {
-      'nupi': nupi,
-      'name': patientMeta['name'] ?? 'Unknown',
-      // Map all possible demographic field names the API might return
-      'gender': patientMeta['gender'] ?? patientMeta['sex'] ?? '',
-      'dateOfBirth': patientMeta['dob'] ??
-          patientMeta['dateOfBirth'] ??
-          patientMeta['birthDate'] ??
-          '',
-      'phoneNumber': patientMeta['phone'] ??
-          patientMeta['phoneNumber'] ??
-          patientMeta['msisdn'] ??
-          '',
-      'county': patientMeta['county'] ?? '',
-      'subCounty': patientMeta['subCounty'] ?? patientMeta['sub_county'] ?? '',
-      'village': patientMeta['village'] ?? patientMeta['ward'] ?? '',
-      'bloodGroup': patientMeta['bloodGroup'] ?? patientMeta['blood_group'] ?? '',
-      'nationalId': patientMeta['nationalId'] ?? patientMeta['national_id'] ?? '',
-      'registeredFacility': patientMeta['registeredFacility'] ?? '',
-      'registeredFacilityId': patientMeta['registeredFacilityId'] ?? '',
-      'facilityCounty': patientMeta['facilityCounty'] ?? '',
-      'isCurrentFacility': patientMeta['isCurrentFacility'] ?? false,
+      'nupi':       nupi,
+      'name':       p['name']      ?? 'Unknown',
+      // demographics stored on chain at registration time
+      'gender':     p['gender']     ?? p['sex']         ?? '',
+      'dateOfBirth': p['dob']       ?? p['dateOfBirth']  ?? p['birthDate'] ?? '',
+      'phoneNumber': p['phoneNumber'] ?? p['phone']      ?? p['msisdn']    ?? '',
+      'email':       p['email']     ?? '',
+      'county':      p['county']    ?? '',
+      'subCounty':   p['subCounty'] ?? p['sub_county']  ?? '',
+      'ward':        p['ward']      ?? '',
+      'village':     p['village']   ?? '',
+      'bloodGroup':  p['bloodGroup'] ?? p['blood_group'] ?? '',
+      'nationalId':  p['nationalId'] ?? p['national_id'] ?? '',
+      // facility info
+      'registeredFacility':   p['registeredFacility']   ?? '',
+      'registeredFacilityId': p['registeredFacilityId'] ?? '',
+      'facilityCounty':       p['facilityCounty']       ?? '',
+      'isCurrentFacility':    p['isCurrentFacility']    ?? false,
       'isFederatedRecord': true,
     };
   }

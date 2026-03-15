@@ -377,6 +377,16 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
             'securityQuestion': _selectedSecurityQuestion,
             'securityAnswer':   _securityAnswerController.text.trim(),
             'pin':              _pinController.text.trim(),
+            // FIX: include address so SyncManager._syncHiePatient can pass it
+            // to HieApiService.registerPatient, which forwards it to the gateway.
+            // Without this the gateway only stored the patient's name — Facility B
+            // could never retrieve county, subCounty, ward, or village.
+            'address': {
+              'county':    _countyController.text.trim(),
+              'subCounty': _subCountyController.text.trim(),
+              'ward':      _wardController.text.trim(),
+              'village':   _villageController.text.trim(),
+            },
           },
         );
       } else if (mounted) {
