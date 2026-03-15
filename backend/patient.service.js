@@ -74,13 +74,22 @@ class PatientService {
     }
 
     // Step 3 — register on blockchain via gateway
+    // FIX: send full demographics so they are stored on chain
+    // and any facility can retrieve them via verify/answer or verify/pin
     const chainRes = await gateway.post('/api/patients/register', {
       nationalId:       data.nationalId,
       dob:              data.dateOfBirth,
-      name:             `${data.firstName} ${data.lastName}`,
+      name:             [data.firstName, data.middleName, data.lastName].filter(Boolean).join(' '),
       securityQuestion: data.securityQuestion,
       securityAnswer:   data.securityAnswer,
       pin:              data.pin,
+      gender:           data.gender           || '',
+      phoneNumber:      data.phoneNumber      || '',
+      email:            data.email            || '',
+      county:           data.address?.county    || '',
+      subCounty:        data.address?.subCounty || '',
+      ward:             data.address?.ward      || '',
+      village:          data.address?.village   || '',
     });
     const blockIndex = chainRes.data.blockIndex ?? null;
 
@@ -354,7 +363,7 @@ class PatientService {
       console.log(`⛓  Encounter on chain: Block #${chainRes.data.blockIndex}`);
       return { encounter, blockIndex: chainRes.data.blockIndex };
     } catch (err) {
-      console.error('⚠️  Chain notification failed (saved locally):', err.message);
+      console.error('Chain notification failed (saved locally):', err.message);
       return { encounter, blockIndex: null, chainError: err.message };
     }
   }
@@ -398,15 +407,7 @@ class PatientService {
 export const patientService = new PatientService();
 
 // ── Keep-alive ping ───────────────────────────────────────────────
+// Kept for backward compat — server.js now calls startSelfKeepAlive() instead
 export function startGatewayKeepAlive() {
-  if (process.env.NODE_ENV !== 'production') return;
-  setInterval(async () => {
-    try {
-      await gateway.get('/health');
-      console.log('🏓 Gateway keep-alive OK');
-    } catch {
-      console.warn('⚠️  Gateway keep-alive failed');
-    }
-  }, 10 * 60 * 1000);
-  console.log('🏓 Gateway keep-alive started (every 10 min)');
+  // no-op: keep-alive is handled in server.js startSelfKeepAlive()
 }
