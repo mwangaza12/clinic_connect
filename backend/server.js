@@ -33,9 +33,11 @@ app.get('/health', (req, res) => {
 });
 
 // ── Start ──────────────────────────────────────────────────────────
+// FIX: bind the port IMMEDIATELY so Render's port scanner detects it.
+// Async Firebase/startup code must not delay the listen() call.
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`\n   ClinicConnect API  →  http://localhost:${PORT}`);
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\    ClinicConnect API  →  http://0.0.0.0:${PORT}`);
   console.log(`\n   Patient API:`);
   console.log(`     POST /api/patients                 register patient`);
   console.log(`     GET  /api/patients/verify/question  get security question`);
