@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'core/config/firebase_config.dart';
 import 'core/constants/storage_keys.dart';
 import 'core/services/hie_api_service.dart';
+import 'core/services/backend_api_service.dart';
 import 'core/sync/sync_manager.dart';
 import 'features/auth/presentation/bloc/auth_bloc.dart';
 import 'features/auth/presentation/bloc/auth_state.dart';
@@ -21,38 +22,50 @@ late final bool appNeedsSetup;
 Future<void> _initApp() async {
   const storage = FlutterSecureStorage();
 
-  // Read HIE credentials and check if Firebase creds are saved
+  // Read all credentials and URLs saved during setup
   final results = await Future.wait([
     storage.read(key: StorageKeys.hieGatewayUrl),
     storage.read(key: StorageKeys.facilityApiKey),
     storage.read(key: StorageKeys.facilityId),
+    storage.read(key: StorageKeys.facilityBackendUrl),  // ← NEW
   ]);
 
-  final savedUrl   = results[0];
-  final apiKey     = results[1];
-  final facilityId = results[2];
+  final savedGatewayUrl  = results[0];
+  final apiKey           = results[1];
+  final facilityId       = results[2];
+  final savedBackendUrl  = results[3];  // ← NEW
 
-  // Init HIE service — needed before anything else including setup wizard
+  // HieApiService is used ONLY for the setup wizard (getFacilityFirebaseConfig)
+  // and the two pure parse helpers. It always points at the HIE gateway.
   HieApiService.init(
-    savedUrl?.isNotEmpty == true
-        ? savedUrl!
+    savedGatewayUrl?.isNotEmpty == true
+        ? savedGatewayUrl!
         : const String.fromEnvironment(
-            'HIE_BACKEND_URL',
+            'HIE_GATEWAY_URL',                          // ← renamed from HIE_BACKEND_URL
             defaultValue: 'https://hie-gateway.onrender.com',
           ),
   );
+
+  // BackendApiService handles ALL patient/encounter/referral/facility calls.
+  // It points at THIS facility's own backend (e.g. clinic-connect-sxct.onrender.com).
+  // Restored from secure storage on cold start — set during setup wizard.
+  if (savedBackendUrl != null && savedBackendUrl.isNotEmpty) {
+    BackendApiService.init(savedBackendUrl);
+  }
+  // If savedBackendUrl is null the setup wizard hasn't run yet — that's fine,
+  // BackendApiService.instanceAsync will throw a clear StateError if anything
+  // tries to use it before setup, which won't happen because appNeedsSetup
+  // gates the rest of the app behind the setup wizard.
 
   // Try to restore Firebase from previously saved credentials
   final firebaseReady = await FirebaseConfig.restoreFromStorage();
 
   appNeedsSetup = !firebaseReady ||
-      apiKey     == null || apiKey.isEmpty     ||
-      facilityId == null || facilityId.isEmpty;
+      apiKey          == null || apiKey.isEmpty     ||
+      facilityId      == null || facilityId.isEmpty ||
+      savedBackendUrl == null || savedBackendUrl.isEmpty;  // ← also require backend URL
 
   // Always init DI — BlocProvider in ClinicConnectApp needs it at build time.
-  // If setup is needed, DI will init with a dummy/unconnected Firebase state
-  // but that's fine — no Firestore calls happen until after login which only
-  // appears after setup is complete.
   await di.init();
   await SyncManager().init();
 }

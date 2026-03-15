@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../../core/config/firebase_config.dart';
 import '../../../../core/constants/storage_keys.dart';
 import '../../../../core/services/hie_api_service.dart';
+import '../../../../core/services/backend_api_service.dart';
 
 class SetupWizardPage extends StatefulWidget {
   final Future<void> Function()? onComplete;
@@ -125,11 +126,23 @@ class _SetupWizardPageState extends State<SetupWizardPage> {
         return;
       }
 
-      // Save HIE Gateway credentials too
+      // Save HIE Gateway credentials + facility backend URL
       await Future.wait([
-        _storage.write(key: StorageKeys.hieGatewayUrl,  value: gateway),
-        _storage.write(key: StorageKeys.facilityApiKey, value: apiKey),
+        _storage.write(key: StorageKeys.hieGatewayUrl,     value: gateway),
+        _storage.write(key: StorageKeys.facilityApiKey,    value: apiKey),
+        // apiUrl is the facility's own backend — Flutter calls this, not the gateway.
+        if ((data['apiUrl'] as String?)?.isNotEmpty == true)
+          _storage.write(
+            key:   StorageKeys.facilityBackendUrl,
+            value: (data['apiUrl'] as String).trim(),
+          ),
       ]);
+
+      // Init BackendApiService so it's ready immediately after setup.
+      final backendUrl = data['apiUrl'] as String? ?? '';
+      if (backendUrl.isNotEmpty) {
+        BackendApiService.init(backendUrl);
+      }
 
       setState(() {
         _statusOk     = true;

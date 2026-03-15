@@ -6,7 +6,8 @@ import 'dotenv/config';
 
 import patientRoutes    from './patient.routes.js';
 import facilityRoutes   from './facility.routes.js';
-import fhirRoutes                 from './fhir.routes.js';
+import fhirRoutes       from './fhir.routes.js';
+import referralRoutes   from './referral.routes.js';   // ← NEW
 import { startGatewayKeepAlive } from './patient.service.js';
 
 const app = express();
@@ -18,7 +19,8 @@ app.use(express.json({ limit: '10mb' }));
 // ── Routes ─────────────────────────────────────────────────────────
 app.use('/api/patients',  patientRoutes);
 app.use('/api/facilities', facilityRoutes);
-app.use('/fhir',         fhirRoutes);   // ← FHIR R4 endpoints for HIE Gateway
+app.use('/api/referrals', referralRoutes);  // ← NEW
+app.use('/fhir',         fhirRoutes);
 
 // ── Health check ───────────────────────────────────────────────────
 app.get('/health', (req, res) => {
@@ -33,31 +35,32 @@ app.get('/health', (req, res) => {
 });
 
 // ── Start ──────────────────────────────────────────────────────────
-// FIX: bind the port IMMEDIATELY so Render's port scanner detects it.
-// Async Firebase/startup code must not delay the listen() call.
 const PORT = process.env.PORT || 4000;
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\    ClinicConnect API  →  http://0.0.0.0:${PORT}`);
-  console.log(`\n   Patient API:`);
-  console.log(`     POST /api/patients                 register patient`);
-  console.log(`     GET  /api/patients/verify/question  get security question`);
-  console.log(`     POST /api/patients/verify/answer    verify + get token`);
-  console.log(`     GET  /api/patients/:nupi/federated  full chart`);
-  console.log(`     POST /api/patients/:nupi/visit      record encounter`);
-  console.log(`\n   FHIR R4 (HIE Gateway only):`);
-  console.log(`     GET  /fhir/Patient/:nupi`);
-  console.log(`     GET  /fhir/Patient/:nupi/\\$everything`);
-  console.log(`     GET  /fhir/Patient/:nupi/Encounter`);
-  console.log(`     GET  /fhir/Encounter?patient=:nupi\n`);
+  console.log(`\n  ClinicConnect API  →  http://0.0.0.0:${PORT}`);
+  console.log(`\n  Patient API:`);
+  console.log(`    POST /api/patients                 register patient`);
+  console.log(`    GET  /api/patients/verify/question  get security question`);
+  console.log(`    POST /api/patients/verify/answer    verify + get token`);
+  console.log(`    GET  /api/patients/:nupi/federated  full chart`);
+  console.log(`    POST /api/patients/:nupi/visit      record encounter`);
+  console.log(`\n  Referral API:`);
+  console.log(`    POST /api/referrals                      create referral`);
+  console.log(`    GET  /api/referrals/incoming/:facilityId incoming referrals`);
+  console.log(`    GET  /api/referrals/outgoing/:facilityId outgoing referrals`);
+  console.log(`    GET  /api/referrals/:referralId          get referral`);
+  console.log(`    PATCH /api/referrals/:referralId/status  update status`);
+  console.log(`\n  FHIR R4 (HIE Gateway only):`);
+  console.log(`    GET  /fhir/Patient/:nupi`);
+  console.log(`    GET  /fhir/Patient/:nupi/\\$everything`);
+  console.log(`    GET  /fhir/Patient/:nupi/Encounter`);
+  console.log(`    GET  /fhir/Encounter?patient=:nupi\n`);
 
   startGatewayKeepAlive();
   startSelfKeepAlive(PORT);
 });
 
 // ── Self keep-alive ────────────────────────────────────────────────
-// Render free tier spins down after 15 min of inactivity.
-// Ping our own /health every 10 min to stay awake.
-// Also pings the HIE gateway so the whole system stays live.
 function startSelfKeepAlive(port) {
   if (process.env.NODE_ENV !== 'production') return;
 
@@ -85,7 +88,7 @@ function startSelfKeepAlive(port) {
         console.warn(`Gateway keep-alive failed: ${e.message}`);
       }
     }
-  }, 10 * 60 * 1000); // every 10 minutes
+  }, 10 * 60 * 1000);
 
   console.log(`Self keep-alive active → ${selfUrl}`);
 }

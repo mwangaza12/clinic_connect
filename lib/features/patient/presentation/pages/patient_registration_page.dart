@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../core/sync/sync_manager.dart';
 import '../../../../core/sync/sync_queue_item.dart';
-import '../../../../core/services/hie_api_service.dart';
+import '../../../../core/services/backend_api_service.dart';
 import '../../../../injection_container.dart';
 import '../../data/datasources/patient_local_datasource.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
@@ -186,7 +186,8 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
     try {
       final facilityId = authState.user.facilityId;
 
-      final hieResult = await HieApiService.instance.registerPatient(
+      final backend = await BackendApiService.instanceAsync;
+      final hieResult = await backend.registerPatient(
         nationalId:       _nationalIdController.text.trim(),
         firstName:        _firstNameController.text.trim(),
         lastName:         _lastNameController.text.trim(),
@@ -238,9 +239,9 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
             color: const Color(0xFF1B4332),
           );
         }
-      } else if (hieResult.success && hieResult.blockIndex != null && mounted) {
+      } else if (hieResult.success && hieResult.data?['blockIndex'] != null && mounted) {
         _showSnack(
-          '⛓ Block #${hieResult.blockIndex} minted — patient on AfyaChain',
+          '⛓ Block #${hieResult.data?['blockIndex']} minted — patient on AfyaChain',
           color: const Color(0xFF1B4332),
         );
       } else if (!hieResult.success && mounted) {
@@ -388,7 +389,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         // Enqueue HIE registration for when connectivity returns.
         // We store the full credentials now while they are still in memory —
         // they are never written to SQLite for security.
-        // SyncManager._syncHiePatient() will call HieApiService.registerPatient()
+        // SyncManager._syncHiePatient() will call BackendApiService.registerPatient()
         // on reconnect and replace the PENDING- NUPI with the real one.
         await SyncManager().enqueue(
           entityType: SyncEntityType.hiePatient,

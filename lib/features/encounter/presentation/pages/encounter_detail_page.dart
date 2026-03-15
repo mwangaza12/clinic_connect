@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../domain/entities/encounter.dart';
-import '../../../../core/services/hie_api_service.dart';
+import '../../../../core/services/backend_api_service.dart';
 import 'edit_encounter_page.dart';
 
 extension MapExtension on Map<String, dynamic> {
@@ -79,9 +79,9 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
     try {
       debugPrint('📋 Fetching full encounter: $encounterId from $facilityId');
 
-      final result = await HieApiService.instance.getFhirEncounter(
+      final backend = await BackendApiService.instanceAsync;
+      final result = await backend.getFhirEncounter(
         encounterId: encounterId,
-        accessToken: accessToken,
         facilityId: facilityId,
       );
 

@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'dart:async';
+import '../../../../core/services/hie_api_service.dart';
+import '../../../../core/constants/storage_keys.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../../core/database/database_helper.dart';
 import '../../../../core/sync/sync_manager.dart';
 import '../../../../injection_container.dart';
@@ -18,7 +22,17 @@ class _SettingsPageState extends State<SettingsPage> {
   final Color primary = const Color(0xFF1B4332);
 
   // ── Settings State ──────────────────────
-  bool _offlineModeEnabled = true;
+  // ── HIE Connectivity Test State ────────
+  bool   _hieChecking   = false;
+  String? _hieStatus;
+  bool   _hieOk         = false;
+  String? _hieLatency;
+  String? _hieGatewayUrl;
+  String? _hieFacilityId;
+  int?   _hieBlocks;
+  int?   _hiePatients;
+
+  bool   _offlineModeEnabled = true;
   bool _referralNotifications = true;
   bool _syncOnWifiOnly = false;
   String _selectedLanguage = 'English';
@@ -63,6 +77,53 @@ class _SettingsPageState extends State<SettingsPage> {
       if (mounted) {
         setState(() => _storageUsed = 'Unable to calculate');
       }
+    }
+  }
+
+  Future<void> _testHieConnection() async {
+    setState(() { _hieChecking = true; _hieStatus = null; });
+
+    // Load saved URL and facility for display
+    const storage = FlutterSecureStorage();
+    final url = await storage.read(key: StorageKeys.hieGatewayUrl);
+    final fid = await storage.read(key: StorageKeys.facilityId);
+    setState(() {
+      _hieGatewayUrl = url ?? 'Not configured';
+      _hieFacilityId = fid ?? 'Not configured';
+    });
+
+    try {
+      final sw = Stopwatch()..start();
+      final result = await HieApiService.instance
+          .getReferrals(direction: 'outgoing', facilityId: fid ?? '')
+          .timeout(const Duration(seconds: 15))
+          .catchError((_) async {
+            // fallback: just ping health via getFacilities
+            return HieApiService.instance.getFacilities();
+          });
+      sw.stop();
+
+      // Try health endpoint for blockchain stats
+      HieResult? health;
+      try {
+        health = await HieApiService.instance.getFacilities();
+      } catch (_) {}
+
+      setState(() {
+        _hieLatency = '\${sw.elapsedMilliseconds} ms';
+        _hieOk      = true;
+        _hieStatus  = '✅ Connected';
+        _hieBlocks  = null;
+        _hiePatients = null;
+      });
+    } catch (e) {
+      setState(() {
+        _hieOk     = false;
+        _hieStatus = '❌ ${e.toString().split("\n").first}';
+        _hieLatency = null;
+      });
+    } finally {
+      setState(() => _hieChecking = false);
     }
   }
 
@@ -210,6 +271,43 @@ class _SettingsPageState extends State<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
+          // ── 0. HIE Connectivity Test ──────────
+          _sectionTitle('HIE GATEWAY'),
+          _settingsCard([
+            _actionRow(
+              Icons.wifi_tethering_rounded,
+              'Test HIE Connection',
+              _hieChecking
+                  ? 'Testing...'
+                  : (_hieStatus ?? 'Tap to test gateway connectivity'),
+              _hieChecking ? null : _testHieConnection,
+              color: _hieOk ? const Color(0xFF2D6A4F) : primary,
+              trailing: _hieChecking
+                  ? const SizedBox(
+                      width: 16, height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : _hieStatus != null
+                      ? Icon(
+                          _hieOk ? Icons.check_circle_rounded : Icons.error_rounded,
+                          color: _hieOk ? const Color(0xFF2D6A4F) : Colors.red,
+                          size: 20)
+                      : null,
+            ),
+            if (_hieGatewayUrl != null) ...[
+              _divider(),
+              _infoRow(Icons.link_rounded, 'Gateway URL', _hieGatewayUrl!),
+            ],
+            if (_hieFacilityId != null) ...[
+              _divider(),
+              _infoRow(Icons.domain_rounded, 'Facility ID', _hieFacilityId!),
+            ],
+            if (_hieLatency != null) ...[
+              _divider(),
+              _infoRow(Icons.speed_rounded, 'Response Time', _hieLatency!),
+            ],
+          ]),
+          const SizedBox(height: 20),
+
           // ── 1. Offline & Sync ─────────────
           _sectionTitle('OFFLINE & SYNC'),
           _settingsCard([

@@ -6,9 +6,9 @@
 //     → written to FirebaseConfig.facilityDb
 //
 //   HIE Gateway  (hiePatient, hieEncounter, hieReferral)
-//     → POSTed to the Node.js backend via HieApiService
-//       so AfyaChain blocks are minted even if the device was
-//       offline at the time of creation.
+//     → POSTed via BackendApiService to the facility backend,
+//       which proxies to the HIE gateway so AfyaChain blocks are
+//       minted even if the device was offline at the time of creation.
 //
 // A patient created offline therefore gets:
 //   1. SQLite record — immediately, always
@@ -20,7 +20,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../config/firebase_config.dart';
-import '../services/hie_api_service.dart';
+import '../services/backend_api_service.dart';
 import 'connectivity_manager.dart';
 import 'sync_queue_item.dart';
 import '../database/database_helper.dart';
@@ -217,8 +217,9 @@ class SyncManager {
   /// all matching rows in SQLite are updated.
   Future<bool> _syncHiePatient(SyncQueueItem item) async {
     try {
-      final p = item.payload;
-      final result = await HieApiService.instance.registerPatient(
+      final p       = item.payload;
+      final backend = await BackendApiService.instanceAsync;
+      final result  = await backend.registerPatient(
         nationalId:       p['nationalId']       as String,
         firstName:        p['firstName']        as String,
         lastName:         p['lastName']         as String,
@@ -255,13 +256,13 @@ class SyncManager {
 
   Future<bool> _syncHieEncounter(SyncQueueItem item) async {
     try {
-      final p      = item.payload;
-      final result = await HieApiService.instance.recordEncounter(
+      final p       = item.payload;
+      final backend = await BackendApiService.instanceAsync;
+      final result  = await backend.recordEncounter(
         nupi:             p['nupi']             as String,
-        accessToken:      p['accessToken']      as String? ?? '',
         encounterType:    p['encounterType']    as String,
         chiefComplaint:   p['chiefComplaint']   as String? ?? '',
-        practitionerName: p['practitionerName'] as String,
+        practitionerName: p['practitionerName'] as String?,
         vitalSigns:       p['vitalSigns'] != null
             ? Map<String, dynamic>.from(p['vitalSigns'] as Map)
             : null,
@@ -275,7 +276,7 @@ class SyncManager {
       );
 
       if (result.success) {
-        debugPrint('[Sync] ⛓ HIE encounter block #${result.blockIndex} minted');
+        debugPrint('[Sync] ⛓ HIE encounter block #${result.data?['blockIndex']} minted');
         return true;
       }
       debugPrint('[Sync] ⚠ HIE encounter failed: ${result.error}');
@@ -288,25 +289,22 @@ class SyncManager {
 
   Future<bool> _syncHieReferral(SyncQueueItem item) async {
     try {
-      final p      = item.payload;
-      final result = await HieApiService.instance.createReferral(
-        referralId:       p['referralId']       as String,
+      final p       = item.payload;
+      final backend = await BackendApiService.instanceAsync;
+      final result  = await backend.createReferral(
         patientNupi:      p['patientNupi']      as String,
-        patientName:      p['patientName']      as String,
-        fromFacilityId:   p['fromFacilityId']   as String,
-        fromFacilityName: p['fromFacilityName'] as String,
         toFacilityId:     p['toFacilityId']     as String,
-        toFacilityName:   p['toFacilityName']   as String,
         reason:           p['reason']           as String,
         priority:         p['priority']         as String,
+        issuedBy:         p['createdByName']    as String?,
+        patientName:      p['patientName']      as String?,
+        fromFacilityName: p['fromFacilityName'] as String?,
+        toFacilityName:   p['toFacilityName']   as String?,
         clinicalNotes:    p['clinicalNotes']    as String?,
-        createdBy:        p['createdBy']        as String,
-        createdByName:    p['createdByName']    as String,
-        accessToken:      p['accessToken']      as String? ?? '',
       );
 
       if (result.success) {
-        debugPrint('[Sync] ⛓ HIE referral block #${result.blockIndex} minted');
+        debugPrint('[Sync] ⛓ HIE referral block #${result.data?['blockIndex']} minted');
         return true;
       }
       debugPrint('[Sync] ⚠ HIE referral failed: ${result.error}');

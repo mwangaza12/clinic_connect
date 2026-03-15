@@ -19,7 +19,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../../../core/config/firebase_config.dart';
 import '../../../../core/database/database_helper.dart';
 import '../../../../core/errors/exceptions.dart';
-import '../../../../core/services/hie_api_service.dart';
+import '../../../../core/services/backend_api_service.dart';
 import '../../../../core/sync/connectivity_manager.dart';
 import '../../../../core/sync/sync_manager.dart';
 import '../../../../core/sync/sync_queue_item.dart';
@@ -87,11 +87,11 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
     if (!online) return _getLocalOutgoing(facilityId);
 
     try {
-      // Query HIE chain — source of truth for outgoing referrals.
+      // Query via facility backend → HIE chain (source of truth for outgoing referrals).
       // Local Firestore only has referrals created on THIS install;
       // the chain has all of them across reinstalls.
-      final result = await HieApiService.instance
-          .getReferrals(direction: 'outgoing', facilityId: facilityId);
+      final backend = await BackendApiService.instanceAsync;
+      final result = await backend.getOutgoingReferrals(facilityId: facilityId);
 
       if (result.success) {
         final list = result.data?['referrals'] as List<dynamic>? ?? [];
@@ -135,12 +135,12 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
     if (!online) return _getLocalIncoming(facilityId);
 
     try {
-      final result = await HieApiService.instance
-          .getReferrals(direction: 'incoming', facilityId: facilityId);
+      final backend = await BackendApiService.instanceAsync;
+      final result = await backend.getIncomingReferrals(facilityId: facilityId);
 
       if (!result.success) {
         debugPrint(
-            '[HIE] incoming referrals failed — using local cache');
+            '[Backend] incoming referrals failed — using local cache');
         return _getLocalIncoming(facilityId);
       }
 
@@ -232,17 +232,18 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
             .set(updateData, SetOptions(merge: true));
       } catch (_) {}
 
-      // Post status update to HIE chain so the SENDING facility
+      // Post status update via backend → HIE chain so the SENDING facility
       // can see it when they next query /api/referrals/outgoing/:id
       try {
-        await HieApiService.instance.updateReferralStatus(
+        final backend = await BackendApiService.instanceAsync;
+        await backend.updateReferralStatus(
           referralId: referralId,
           status:     status.name,
           notes:      feedbackNotes,
         );
-        debugPrint('[Referral] HIE status updated → ${status.name}');
+        debugPrint('[Referral] Backend status updated → ${status.name}');
       } catch (e) {
-        debugPrint('[Referral] HIE status update failed (non-critical): $e');
+        debugPrint('[Referral] Backend status update failed (non-critical): $e');
       }
     }
 
@@ -331,11 +332,11 @@ class ReferralRemoteDatasourceImpl implements ReferralRemoteDatasource {
       }
     } catch (_) {}
 
-    // Incoming count — gateway only, best-effort
+    // Incoming count — via backend, best-effort
     int incomingCount = 0;
     try {
-      final result = await HieApiService.instance
-          .getReferrals(direction: 'incoming', facilityId: facilityId);
+      final backend = await BackendApiService.instanceAsync;
+      final result = await backend.getIncomingReferrals(facilityId: facilityId);
       if (result.success) {
         incomingCount = (result.data?['count'] as int?) ?? 0;
       }

@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../../../../core/errors/exceptions.dart';
-import '../../../../core/services/hie_api_service.dart';
+import '../../../../core/services/backend_api_service.dart';
 import '../../domain/entities/patient_lookup.dart';
 
 abstract class PatientLookupDatasource {
@@ -10,19 +10,20 @@ abstract class PatientLookupDatasource {
       String nupi, String facilityId);
 }
 
-// Previously read from Firestore sharedDb.patient_index.
-// Now calls the HIE Gateway: GET /api/patients/:nupi
-// This is safe because the gateway only returns name, registration facility,
-// and visit summary — no clinical data crosses facility boundaries.
+// Calls the facility backend: GET /api/patients/nupi/:nupi
+// The backend proxies to the HIE Gateway, adding facility credentials
+// from env vars. This is the correct call chain:
+//   Flutter → facility backend → HIE Gateway
 class PatientLookupDatasourceImpl implements PatientLookupDatasource {
   @override
   Future<PatientLookupResult?> lookupByNupi(
       String nupi, String currentFacilityId) async {
     try {
-      final result = await HieApiService.instance.lookupPatient(nupi: nupi);
+      final backend = await BackendApiService.instanceAsync;
+      final result = await backend.lookupPatient(nupi: nupi);
 
       if (!result.success) {
-        debugPrint('[HIE] patient lookup failed: ${result.error}');
+        debugPrint('[Backend] patient lookup failed: ${result.error}');
         return null;
       }
 
@@ -34,9 +35,9 @@ class PatientLookupDatasourceImpl implements PatientLookupDatasource {
 
       return PatientLookupResult(
         nupi: nupi,
-        facilityId:      registeredFacilityId,
-        facilityName:    patient['facilityName']    as String? ?? 'Unknown Facility',
-        facilityCounty:  patient['facilityCounty']  as String? ?? '',
+        facilityId:        registeredFacilityId,
+        facilityName:      patient['facilityName']   as String? ?? 'Unknown Facility',
+        facilityCounty:    patient['facilityCounty'] as String? ?? '',
         isCurrentFacility: registeredFacilityId == currentFacilityId,
       );
     } catch (e) {
@@ -48,7 +49,8 @@ class PatientLookupDatasourceImpl implements PatientLookupDatasource {
   Future<Map<String, dynamic>?> getPatientSummary(
       String nupi, String facilityId) async {
     try {
-      final result = await HieApiService.instance.lookupPatient(nupi: nupi);
+      final backend = await BackendApiService.instanceAsync;
+      final result = await backend.lookupPatient(nupi: nupi);
 
       if (!result.success || result.data == null) return null;
 

@@ -13,6 +13,11 @@ class StorageKeys {
   static const String facilityApiKey    = 'facility_api_key';
   static const String hieGatewayUrl     = 'hie_gateway_url';
 
+  // ── Facility backend URL (saved during setup from firebase-config response)
+  // The Flutter app calls this backend, which proxies to the HIE gateway.
+  // This is the correct call chain: Flutter → facilityBackend → HIE gateway.
+  static const String facilityBackendUrl = 'facility_backend_url';
+
   // ── Firebase credentials (fetched from HIE Gateway at setup, persisted
   //    for cold-start restore — Firebase re-inits without a network call) ────
   static const String firebaseApiKey            = 'fb_api_key';
