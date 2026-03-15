@@ -61,9 +61,12 @@ class PatientService {
 
   async create(data) {
     // Step 1 — derive NUPI
-    const nupiRes = await gateway.post('/api/patients/nupi', {
-      nationalId: data.nationalId,
-      dob:        data.dateOfBirth,
+    // Gateway exposes GET /api/patients/nupi?nationalId=X&dob=Y (not POST)
+    const nupiRes = await gateway.get('/api/patients/nupi', {
+      params: {
+        nationalId: data.nationalId,
+        dob:        data.dateOfBirth,
+      },
     });
     const nupi = nupiRes.data.nupi;
 
