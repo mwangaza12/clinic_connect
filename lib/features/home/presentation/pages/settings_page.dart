@@ -29,8 +29,6 @@ class _SettingsPageState extends State<SettingsPage> {
   String? _hieLatency;
   String? _hieGatewayUrl;
   String? _hieFacilityId;
-  int?   _hieBlocks;
-  int?   _hiePatients;
 
   bool   _offlineModeEnabled = true;
   bool _referralNotifications = true;
@@ -94,7 +92,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
     try {
       final sw = Stopwatch()..start();
-      final result = await HieApiService.instance
+      await HieApiService.instance
           .getReferrals(direction: 'outgoing', facilityId: fid ?? '')
           .timeout(const Duration(seconds: 15))
           .catchError((_) async {
@@ -104,17 +102,13 @@ class _SettingsPageState extends State<SettingsPage> {
       sw.stop();
 
       // Try health endpoint for blockchain stats
-      HieResult? health;
       try {
-        health = await HieApiService.instance.getFacilities();
       } catch (_) {}
 
       setState(() {
         _hieLatency = '\${sw.elapsedMilliseconds} ms';
         _hieOk      = true;
         _hieStatus  = '✅ Connected';
-        _hieBlocks  = null;
-        _hiePatients = null;
       });
     } catch (e) {
       setState(() {
