@@ -45,7 +45,7 @@ class _SetupWizardPageState extends State<SetupWizardPage> {
     final nm  = await _storage.read(key: StorageKeys.facilityName);
     if (!mounted) return;
     setState(() {
-      _gatewayCtrl.text    = gw  ?? 'http://hie-gateway.onrender.com';
+      _gatewayCtrl.text    = gw  ?? 'https://hie-gateway.onrender.com';
       _facilityIdCtrl.text = fid ?? 'FAC-KE-001';
       _apiKeyCtrl.text     = key ?? 'FAC-CF030863557490C9BFBE8D5976BE0221';
       _resolvedName        = nm;
@@ -259,7 +259,7 @@ class _SetupWizardPageState extends State<SetupWizardPage> {
                   label: 'HIE Gateway URL',
                   ctrl:  _gatewayCtrl,
                   icon:  Icons.cloud_outlined,
-                  hint:  'http://hie-gateway.onrender.com',
+                  hint:  'https://hie-gateway.onrender.com',
                   type:  TextInputType.url,
                   validator: (v) {
                     if (v == null || v.trim().isEmpty)

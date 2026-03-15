@@ -35,7 +35,7 @@ const col = {
 // ── Gateway client ────────────────────────────────────────────────
 
 const gateway = axios.create({
-  baseURL: process.env.HIE_GATEWAY_URL || 'http://localhost:5000',
+  baseURL: process.env.HIE_GATEWAY_URL || 'https://hie-gateway.onrender.com',
   timeout: 60000,
   headers: {
     'X-Facility-Id': process.env.FACILITY_ID      || '',

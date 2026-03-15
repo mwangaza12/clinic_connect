@@ -9,6 +9,7 @@ import '../../../../core/sync/sync_queue_item.dart';
 import '../../../../core/services/backend_api_service.dart';
 import '../../../../injection_container.dart';
 import '../../data/datasources/patient_local_datasource.dart';
+import '../../data/models/patient_model.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../domain/entities/patient.dart';
@@ -216,9 +217,11 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
           (hieResult.success ? _generateLocalNupi() : 'PENDING-$_failShort');
       final alreadyExists = hieResult.data?['alreadyExists'] == true;
 
+      // blockIndex is returned at the TOP LEVEL of the backend response,
+      // not nested inside data — BackendResult.data IS the full body map.
+      final blockIndex = hieResult.data?['blockIndex'];
+
       // ── Duplicate guard ───────────────────────────────────────────
-      // Gateway says patient exists on AfyaNet.
-      // Check SQLite (fast, offline) to see if already at THIS facility.
       if (alreadyExists) {
         final localDs  = sl<PatientLocalDatasource>();
         final existing = await localDs.getPatientByNupi(nupi);
@@ -229,26 +232,34 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
             color: Colors.orange,
           );
           Navigator.of(context).pop();
-          return; // ← stops here, no new record created
+          return;
         }
 
-        // On AfyaNet but new to this facility — fall through to save locally
         if (mounted) {
           _showSnack(
             'Patient already on AfyaNet — linked to this facility',
             color: const Color(0xFF1B4332),
           );
         }
-      } else if (hieResult.success && hieResult.data?['blockIndex'] != null && mounted) {
+      } else if (hieResult.success && mounted) {
         _showSnack(
-          '⛓ Block #${hieResult.data?['blockIndex']} minted — patient on AfyaChain',
+          blockIndex != null
+              ? '⛓ Block #$blockIndex minted — patient on AfyaChain'
+              : '✓ Patient registered on AfyaNet',
           color: const Color(0xFF1B4332),
         );
       } else if (!hieResult.success && mounted) {
+        // Show the REAL error from the backend so it's diagnosable,
+        // not a misleading "HIE unreachable" message.
+        debugPrint('[Registration] Backend error: ${hieResult.error}');
         _showSnack(
-          '⚠ HIE unreachable — saved locally, will sync to AfyaChain automatically.',
-          color: Colors.orange,
+          'Registration failed: ${hieResult.error ?? 'Unknown error'}',
+          color: Colors.red,
         );
+        // Don't save locally — this is a real backend error (validation,
+        // credentials, etc.) not an offline situation. Return early so we
+        // don't create a phantom local record with a PENDING- NUPI.
+        return;
       }
 
       // Save locally — using NUPI as dedup key so ConflictAlgorithm.replace
@@ -321,37 +332,26 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
       }
 
     } catch (e) {
-      // BUG FIX: old code showed a red error snackbar and stopped — the patient
-      // was never saved and Navigator.pop was never called.
-      // Correct offline behaviour: if the HIE/network call fails (DioException,
-      // SocketException, etc.), generate a local NUPI, save to SQLite, and let
-      // the BlocConsumer listener handle navigation as normal.
-      debugPrint('[HIE] Registration error (going offline): $e');
+      debugPrint('[Registration] offline catch: $e');
 
-      final isNetworkError = e.toString().toLowerCase().contains('socket') ||
+      final isNetworkError = e.toString().toLowerCase().contains('socket')   ||
           e.toString().toLowerCase().contains('connection') ||
-          e.toString().toLowerCase().contains('dio') ||
-          e.toString().toLowerCase().contains('network') ||
-          e.toString().toLowerCase().contains('host');
+          e.toString().toLowerCase().contains('dio')        ||
+          e.toString().toLowerCase().contains('network')    ||
+          e.toString().toLowerCase().contains('host')       ||
+          e.toString().toLowerCase().contains('stateerror') || // BackendApiService not init
+          e.toString().toLowerCase().contains('timeout');
 
       if (isNetworkError && mounted) {
         final authState = context.read<AuthBloc>().state;
         if (authState is! Authenticated) return;
 
-        // BUG FIX: old code generated KE-YYYY-XXXXXX which looks like a real
-        // NUPI. Only the HIE gateway should issue real NUPIs.
-        // Use PENDING- prefix so it is unambiguous, and SyncManager's
-        // _replaceLocalNupi() will overwrite it with the real NUPI on sync.
         final shortId = const Uuid().v4().substring(0, 8).toUpperCase();
-        final nupi = 'PENDING-$shortId';
-        _showSnack(
-          '📴 Offline — saved locally. NUPI will be assigned when back online.',
-          color: const Color(0xFF1B4332),
-        );
+        final pendingNupi = 'PENDING-$shortId';
 
         final patient = Patient(
           id:           const Uuid().v4(),
-          nupi:         nupi,
+          nupi:         pendingNupi,
           firstName:    _firstNameController.text.trim(),
           middleName:   _middleNameController.text.trim(),
           lastName:     _lastNameController.text.trim(),
@@ -359,8 +359,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
           dateOfBirth:  _dateOfBirth!,
           phoneNumber:  _phoneController.text.trim(),
           email:        _emailController.text.trim().isEmpty
-                            ? null
-                            : _emailController.text.trim(),
+                            ? null : _emailController.text.trim(),
           county:       _countyController.text.trim(),
           subCounty:    _subCountyController.text.trim(),
           ward:         _wardController.text.trim(),
@@ -370,45 +369,40 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
           allergies:    const [],
           chronicConditions: const [],
           nextOfKinName: _nextOfKinNameController.text.trim().isEmpty
-                             ? null
-                             : _nextOfKinNameController.text.trim(),
+                             ? null : _nextOfKinNameController.text.trim(),
           nextOfKinPhone: _nextOfKinPhoneController.text.trim().isEmpty
-                              ? null
-                              : _nextOfKinPhoneController.text.trim(),
+                              ? null : _nextOfKinPhoneController.text.trim(),
           nextOfKinRelationship: _nextOfKinRelationship,
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
         );
 
-        if (mounted) {
-          context.read<PatientBloc>().add(RegisterPatientEvent(patient));
-          // BlocConsumer listener will call Navigator.pop when PatientRegistered
-          // is emitted — no manual navigation needed here.
+        try {
+          // Save directly to SQLite — bypasses PatientBloc so there's no
+          // async listener chain that can fail to navigate.
+          final localDs = sl<PatientLocalDatasource>();
+          await localDs.savePatient(PatientModel.fromEntity(patient));
+        } catch (saveErr) {
+          debugPrint('[Registration] SQLite save error: $saveErr');
         }
 
-        // Enqueue HIE registration for when connectivity returns.
-        // We store the full credentials now while they are still in memory —
-        // they are never written to SQLite for security.
-        // SyncManager._syncHiePatient() will call BackendApiService.registerPatient()
-        // on reconnect and replace the PENDING- NUPI with the real one.
+        // Enqueue HIE sync — runs when connectivity returns
         await SyncManager().enqueue(
           entityType: SyncEntityType.hiePatient,
           entityId:   'hie_${patient.id}',
           operation:  SyncOperation.create,
           payload: {
-            'localNupi':       nupi,
-            'nationalId':      _nationalIdController.text.trim(),
-            'firstName':       _firstNameController.text.trim(),
-            'lastName':        _lastNameController.text.trim(),
-            'middleName':      _middleNameController.text.trim().isEmpty
-                                   ? null
-                                   : _middleNameController.text.trim(),
-            'dateOfBirth':     dob,
-            'gender':          _gender,
-            'phoneNumber':     _phoneController.text.trim(),
-            'email':           _emailController.text.trim().isEmpty
-                                   ? null
-                                   : _emailController.text.trim(),
+            'localNupi':        pendingNupi,
+            'nationalId':       _nationalIdController.text.trim(),
+            'firstName':        _firstNameController.text.trim(),
+            'lastName':         _lastNameController.text.trim(),
+            'middleName':       _middleNameController.text.trim().isEmpty
+                                    ? null : _middleNameController.text.trim(),
+            'dateOfBirth':      dob,
+            'gender':           _gender,
+            'phoneNumber':      _phoneController.text.trim(),
+            'email':            _emailController.text.trim().isEmpty
+                                    ? null : _emailController.text.trim(),
             'securityQuestion': _selectedSecurityQuestion,
             'securityAnswer':   _securityAnswerController.text.trim(),
             'pin':              _pinController.text.trim(),
@@ -420,6 +414,18 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
             },
           },
         );
+
+        // Navigate back immediately — don't wait for PatientBloc listener.
+        // The patient is already in SQLite and will appear in the list.
+        if (mounted) {
+          setState(() => _isSubmitting = false);
+          _showSnack(
+            '📴 Saved offline — NUPI will be assigned when back online.',
+            color: const Color(0xFF1B4332),
+          );
+          Navigator.of(context).pop();
+        }
+        return; // skip the finally setState — already done above
       } else if (mounted) {
         _showSnack(
           'Registration error: ${e.toString().split('\n').first}',
