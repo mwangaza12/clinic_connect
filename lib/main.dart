@@ -47,10 +47,17 @@ Future<void> _initApp() async {
   );
 
   // BackendApiService handles ALL patient/encounter/referral/facility calls.
-  // It points at THIS facility's own backend (e.g. clinic-connect-sxct.onrender.com).
-  // Restored from secure storage on cold start — set during setup wizard.
+  // It points at THIS facility's own backend root (scheme + host only).
+  // Strip any path that may have been saved by an older version of the app
+  // (apiUrl from the gateway may include a path like /fhir or /api/patients).
   if (savedBackendUrl != null && savedBackendUrl.isNotEmpty) {
-    BackendApiService.init(savedBackendUrl);
+    String rootUrl = savedBackendUrl;
+    try {
+      final uri = Uri.parse(savedBackendUrl);
+      rootUrl = '${uri.scheme}://${uri.host}'
+          '${uri.hasPort ? ':${uri.port}' : ''}';
+    } catch (_) {}
+    BackendApiService.init(rootUrl);
   }
   // If savedBackendUrl is null the setup wizard hasn't run yet — that's fine,
   // BackendApiService.instanceAsync will throw a clear StateError if anything

@@ -201,23 +201,26 @@ class BackendApiService {
     required String pin,
   }) async {
     return _requestWithRetry(() => _dio.post('/api/patients', data: {
-          'nationalId': nationalId,
-          'dob': dateOfBirth,
-          'name': [
-            firstName,
-            if (middleName != null && middleName.isNotEmpty) middleName,
-            lastName,
-          ].join(' ').trim(),
+          'nationalId':       nationalId,
+          'firstName':        firstName,
+          'lastName':         lastName,
+          if (middleName != null && middleName.isNotEmpty)
+            'middleName':     middleName,
+          'dateOfBirth':      dateOfBirth,
+          'gender':           gender,
           'securityQuestion': securityQuestion,
-          'securityAnswer': securityAnswer,
-          'pin': pin,
-          'gender': gender,
-          'phoneNumber': phoneNumber ?? '',
-          'email': email ?? '',
-          'county': address?['county'] ?? '',
-          'subCounty': address?['subCounty'] ?? '',
-          'ward': address?['ward'] ?? '',
-          'village': address?['village'] ?? '',
+          'securityAnswer':   securityAnswer,
+          'pin':              pin,
+          if (phoneNumber != null && phoneNumber.isNotEmpty)
+            'phoneNumber':    phoneNumber,
+          if (email != null && email.isNotEmpty)
+            'email':          email,
+          'address': {
+            'county':    address?['county']    ?? '',
+            'subCounty': address?['subCounty'] ?? '',
+            'ward':      address?['ward']      ?? '',
+            'village':   address?['village']   ?? '',
+          },
         }));
   }
 

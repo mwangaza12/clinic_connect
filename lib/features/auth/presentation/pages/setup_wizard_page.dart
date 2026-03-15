@@ -126,22 +126,39 @@ class _SetupWizardPageState extends State<SetupWizardPage> {
         return;
       }
 
-      // Save HIE Gateway credentials + facility backend URL
+      // apiUrl is the facility's own backend URL as registered with MoH.
+      // It may include a path (e.g. https://clinic-connect-sxct.onrender.com/fhir)
+      // — we only want the root origin (scheme + host) as the BackendApiService base,
+      // so all our /api/* routes resolve correctly.
+      final rawApiUrl = (data['apiUrl'] as String?)?.trim() ?? '';
+      String backendRootUrl = '';
+      if (rawApiUrl.isNotEmpty) {
+        try {
+          final uri = Uri.parse(rawApiUrl);
+          // origin = scheme://host[:port]  — no path, no trailing slash
+          backendRootUrl = '${uri.scheme}://${uri.host}'
+              '${uri.hasPort ? ':${uri.port}' : ''}';
+        } catch (_) {
+          backendRootUrl = rawApiUrl; // fallback — use as-is
+        }
+      }
+
+      if (backendRootUrl.isNotEmpty) {
+        await _storage.write(
+          key:   StorageKeys.facilityBackendUrl,
+          value: backendRootUrl,
+        );
+      }
+
+      // Save HIE Gateway credentials
       await Future.wait([
-        _storage.write(key: StorageKeys.hieGatewayUrl,     value: gateway),
-        _storage.write(key: StorageKeys.facilityApiKey,    value: apiKey),
-        // apiUrl is the facility's own backend — Flutter calls this, not the gateway.
-        if ((data['apiUrl'] as String?)?.isNotEmpty == true)
-          _storage.write(
-            key:   StorageKeys.facilityBackendUrl,
-            value: (data['apiUrl'] as String).trim(),
-          ),
+        _storage.write(key: StorageKeys.hieGatewayUrl,  value: gateway),
+        _storage.write(key: StorageKeys.facilityApiKey, value: apiKey),
       ]);
 
-      // Init BackendApiService so it's ready immediately after setup.
-      final backendUrl = data['apiUrl'] as String? ?? '';
-      if (backendUrl.isNotEmpty) {
-        BackendApiService.init(backendUrl);
+      // Init BackendApiService immediately so it's ready after setup
+      if (backendRootUrl.isNotEmpty) {
+        BackendApiService.init(backendRootUrl);
       }
 
       setState(() {
