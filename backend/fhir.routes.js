@@ -95,6 +95,30 @@ function buildEncounter(doc, nupi) {
   const classCode = type === 'inpatient' ? 'IMP'
                   : type === 'emergency' ? 'EMER'
                   : 'AMB';
+
+  // ── Vitals → FHIR Observation-style map ──────────────────────
+  const vitalsRaw = e.vitals || e.vital_signs || null;
+  const vitals = vitalsRaw ? {
+    systolicBP:       vitalsRaw.systolic_bp       ?? vitalsRaw.systolicBP       ?? null,
+    diastolicBP:      vitalsRaw.diastolic_bp      ?? vitalsRaw.diastolicBP      ?? null,
+    temperature:      vitalsRaw.temperature                                      ?? null,
+    weight:           vitalsRaw.weight                                            ?? null,
+    height:           vitalsRaw.height                                            ?? null,
+    oxygenSaturation: vitalsRaw.oxygen_saturation ?? vitalsRaw.oxygenSaturation  ?? null,
+    pulseRate:        vitalsRaw.pulse_rate         ?? vitalsRaw.pulseRate         ?? null,
+    respiratoryRate:  vitalsRaw.respiratory_rate  ?? vitalsRaw.respiratoryRate   ?? null,
+    bloodGlucose:     vitalsRaw.blood_glucose      ?? vitalsRaw.bloodGlucose      ?? null,
+    muac:             vitalsRaw.muac                                               ?? null,
+  } : null;
+
+  // ── Diagnoses ─────────────────────────────────────────────────
+  const diagnosesRaw = e.diagnoses || [];
+  const diagnoses = diagnosesRaw.map(d => ({
+    code:        d.code        || '',
+    description: d.description || '',
+    isPrimary:   d.is_primary  ?? d.isPrimary ?? false,
+  }));
+
   return {
     resourceType: 'Encounter',
     id:     e.id,
@@ -115,12 +139,69 @@ function buildEncounter(doc, nupi) {
     period: {
       start: e.encounterDate || e.encounter_date || e.createdAt || e.created_at,
     },
-    reasonCode: (e.chiefComplaint || e.chief_complaint)
-      ? [{ text: e.chiefComplaint || e.chief_complaint }]
-      : [],
     serviceProvider: {
       reference: `Organization/${FACILITY_ID()}`,
       display:   FACILITY_NAME(),
+    },
+
+    // ── Clinical data ── all fields the Flutter app needs ────────
+    reasonCode: (e.chiefComplaint || e.chief_complaint)
+      ? [{ text: e.chiefComplaint || e.chief_complaint }]
+      : [],
+
+    // Vitals as extension so it passes through the FHIR bundle cleanly
+    extension: [
+      ...(vitals ? [{
+        url:         'https://afyalink.co.ke/fhir/StructureDefinition/vitals',
+        valueString: JSON.stringify(vitals),
+      }] : []),
+      ...(e.historyOfPresentingIllness || e.history ? [{
+        url:         'https://afyalink.co.ke/fhir/StructureDefinition/history',
+        valueString: e.historyOfPresentingIllness || e.history,
+      }] : []),
+      ...(e.examinationFindings || e.examination ? [{
+        url:         'https://afyalink.co.ke/fhir/StructureDefinition/examination',
+        valueString: e.examinationFindings || e.examination,
+      }] : []),
+      ...(e.treatmentPlan || e.treatment_plan ? [{
+        url:         'https://afyalink.co.ke/fhir/StructureDefinition/treatment-plan',
+        valueString: e.treatmentPlan || e.treatment_plan,
+      }] : []),
+      ...(e.disposition ? [{
+        url:         'https://afyalink.co.ke/fhir/StructureDefinition/disposition',
+        valueString: e.disposition,
+      }] : []),
+    ],
+
+    // Diagnoses as FHIR diagnosis backbone
+    diagnosis: diagnoses.map((d, i) => ({
+      condition: { display: `${d.code ? d.code + ' — ' : ''}${d.description}` },
+      use: {
+        coding: [{
+          system:  'http://terminology.hl7.org/CodeSystem/diagnosis-role',
+          code:    d.isPrimary ? 'AD' : 'DD',
+          display: d.isPrimary ? 'Admission diagnosis' : 'Discharge diagnosis',
+        }],
+      },
+      rank: i + 1,
+    })),
+
+    // Clinical notes as FHIR note
+    note: (e.clinicalNotes || e.clinical_notes)
+      ? [{ text: e.clinicalNotes || e.clinical_notes }]
+      : [],
+
+    // Raw clinical fields also included for easy Flutter parsing
+    // (avoids having to parse FHIR extension strings on the client)
+    _clinicalData: {
+      chiefComplaint:   e.chiefComplaint  || e.chief_complaint              || null,
+      history:          e.historyOfPresentingIllness || e.history            || null,
+      examination:      e.examinationFindings        || e.examination        || null,
+      treatmentPlan:    e.treatmentPlan   || e.treatment_plan                || null,
+      clinicalNotes:    e.clinicalNotes   || e.clinical_notes                || null,
+      disposition:      e.disposition                                        || null,
+      vitals,
+      diagnoses: [...diagnoses],
     },
   };
 }

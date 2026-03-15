@@ -58,43 +58,43 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
     _localEncounter = _isFhirMap ? null : widget.encounter as Encounter;
     if (_isFhirMap) {
       _fullEncounter = widget.encounter as Map<String, dynamic>;
-      _fetchFullEncounter();
+      // Federated (cross-facility) encounters: the map passed from the
+      // patient lookup page is already fully populated from the $everything
+      // bundle — no extra network call needed or possible (the backend has
+      // no single-encounter-by-ID route for other facilities' data).
+      // Only attempt enrichment for non-federated FHIR maps.
+      if (!widget.isFederated) {
+        _fetchFullEncounter();
+      }
     }
   }
 
   Future<void> _fetchFullEncounter() async {
     final enc = widget.encounter as Map<String, dynamic>;
     final encounterId = enc['id']?.toString();
-    final accessToken = widget.accessToken;
-    final facilityId = enc['meta']?['source']?.toString();
+    final facilityId  = enc['meta']?['source']?.toString();
 
     if (encounterId == null || encounterId.isEmpty) return;
-    if (accessToken == null || accessToken.isEmpty) return;
 
-    setState(() {
-      _fetching = true;
-      _fetchError = null;
-    });
+    setState(() { _fetching = true; _fetchError = null; });
 
     try {
       debugPrint('📋 Fetching full encounter: $encounterId from $facilityId');
 
       final backend = await BackendApiService.instanceAsync;
-      final result = await backend.getFhirEncounter(
+      final result  = await backend.getFhirEncounter(
         encounterId: encounterId,
-        facilityId: facilityId,
+        facilityId:  facilityId,
       );
 
       if (!mounted) return;
 
       if (result.success && result.data != null) {
         final body = result.data!;
-        // Unwrap if it came back wrapped in a Bundle
         if (body['resourceType'] == 'Bundle') {
           final entries = body['entry'] as List? ?? [];
           if (entries.isNotEmpty) {
-            final resource =
-                entries.first['resource'] as Map<String, dynamic>?;
+            final resource = entries.first['resource'] as Map<String, dynamic>?;
             if (resource != null) {
               setState(() => _fullEncounter = resource);
               debugPrint('✅ Got full encounter from bundle');
@@ -108,11 +108,10 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
         }
       } else {
         debugPrint('⚠️ Could not fetch full encounter: ${result.error}');
-        setState(() => _fetchError = result.error);
+        // Non-fatal — the original map already has enough to display
       }
     } catch (e) {
-      debugPrint('❌ Error fetching full encounter: $e');
-      if (mounted) setState(() => _fetchError = e.toString());
+      debugPrint('⚠️ Encounter fetch failed (using passed map): $e');
     } finally {
       if (mounted) setState(() => _fetching = false);
     }
@@ -570,15 +569,40 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
   // ── FHIR content ─────────────────────────────────────────────────────────
 
   Widget _buildFhirContent(Map<String, dynamic> enc) {
-    final reasonCode = enc['reasonCode'] as List? ?? [];
-    final diagnosis = enc['diagnosis'] as List? ?? [];
-    final location = enc['location'] as List? ?? [];
+    final reasonCode     = enc['reasonCode']   as List? ?? [];
+    final diagnosis      = enc['diagnosis']    as List? ?? [];
+    final location       = enc['location']     as List? ?? [];
     final hospitalization = enc['hospitalization'] as Map?;
-    final period = enc['period'] as Map?;
-    final participants = enc['participant'] as List? ?? [];
-    final serviceType = enc['serviceType'];
-    final priority = enc['priority'];
-    final contained = enc['contained'] as List? ?? [];
+    final period         = enc['period']       as Map?;
+    final participants   = enc['participant']  as List? ?? [];
+    final serviceType    = enc['serviceType'];
+    final priority       = enc['priority'];
+    final contained      = enc['contained']    as List? ?? [];
+    final notes          = enc['note']         as List? ?? [];
+
+    // _clinicalData is a non-FHIR convenience field added by the backend
+    // so the Flutter app doesn't have to parse FHIR extensions.
+    final cd = enc['_clinicalData'] as Map<String, dynamic>?;
+
+    // Extract vitals — either from _clinicalData or FHIR extensions
+    Map<String, dynamic>? vitals;
+    if (cd?['vitals'] is Map) {
+      vitals = Map<String, dynamic>.from(cd!['vitals'] as Map);
+    }
+
+    // Extract diagnoses from _clinicalData (richer than FHIR diagnosis backbone)
+    final cdDiagnoses = (cd?['diagnoses'] as List? ?? [])
+        .map((d) => Map<String, dynamic>.from(d as Map))
+        .toList();
+
+    final chiefComplaint = cd?['chiefComplaint'] as String?
+        ?? (reasonCode.isNotEmpty ? reasonCode[0]['text']?.toString() : null);
+    final history     = cd?['history']      as String?;
+    final examination = cd?['examination']  as String?;
+    final treatment   = cd?['treatmentPlan'] as String?;
+    final clinNotes   = cd?['clinicalNotes'] as String?
+        ?? (notes.isNotEmpty ? notes[0]['text']?.toString() : null);
+    final disposition = cd?['disposition'] as String?;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -588,18 +612,63 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
         _buildDateCard(period),
         const SizedBox(height: 12),
 
-        if (reasonCode.isNotEmpty) ...[
-          _infoCard(
-            'Chief Complaint',
-            Icons.chat_bubble_outline,
-            reasonCode
-                .map((r) => r['text']?.toString() ?? '')
-                .where((s) => s.isNotEmpty)
-                .join('\n'),
-          ),
+        // ── Chief Complaint ─────────────────────────────────────
+        if (chiefComplaint != null && chiefComplaint.isNotEmpty) ...[
+          _infoCard('Chief Complaint', Icons.chat_bubble_outline,
+              chiefComplaint),
           const SizedBox(height: 12),
         ],
 
+        // ── Vitals ──────────────────────────────────────────────
+        if (vitals != null && vitals.values.any((v) => v != null)) ...[
+          _buildFhirVitalsCard(vitals),
+          const SizedBox(height: 12),
+        ],
+
+        // ── History of Presenting Illness ───────────────────────
+        if (history != null && history.isNotEmpty) ...[
+          _infoCard('History of Presenting Illness',
+              Icons.history_edu_outlined, history),
+          const SizedBox(height: 12),
+        ],
+
+        // ── Examination Findings ────────────────────────────────
+        if (examination != null && examination.isNotEmpty) ...[
+          _infoCard('Examination Findings', Icons.search_outlined,
+              examination),
+          const SizedBox(height: 12),
+        ],
+
+        // ── Diagnoses ───────────────────────────────────────────
+        if (cdDiagnoses.isNotEmpty) ...[
+          _buildCdDiagnosesCard(cdDiagnoses),
+          const SizedBox(height: 12),
+        ] else if (diagnosis.isNotEmpty) ...[
+          _buildFhirDiagnosesCard(diagnosis),
+          const SizedBox(height: 12),
+        ],
+
+        // ── Treatment Plan ──────────────────────────────────────
+        if (treatment != null && treatment.isNotEmpty) ...[
+          _infoCard('Treatment Plan',
+              Icons.medical_information_outlined, treatment),
+          const SizedBox(height: 12),
+        ],
+
+        // ── Clinical Notes ──────────────────────────────────────
+        if (clinNotes != null && clinNotes.isNotEmpty) ...[
+          _infoCard('Clinical Notes', Icons.notes_outlined, clinNotes),
+          const SizedBox(height: 12),
+        ],
+
+        // ── Disposition ─────────────────────────────────────────
+        if (disposition != null && disposition.isNotEmpty) ...[
+          _infoCard('Disposition', Icons.exit_to_app_outlined,
+              disposition[0].toUpperCase() + disposition.substring(1)),
+          const SizedBox(height: 12),
+        ],
+
+        // ── Clinician ───────────────────────────────────────────
         if (participants.isNotEmpty) ...[
           _buildParticipantsCard(participants),
           const SizedBox(height: 12),
@@ -607,28 +676,10 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
 
         if (serviceType != null) ...[
           _infoCard(
-            'Service Type',
-            Icons.medical_services_outlined,
+            'Service Type', Icons.medical_services_outlined,
             serviceType['text']?.toString() ??
-                serviceType['coding']?[0]?['display']?.toString() ??
-                '',
+                serviceType['coding']?[0]?['display']?.toString() ?? '',
           ),
-          const SizedBox(height: 12),
-        ],
-
-        if (priority != null) ...[
-          _infoCard(
-            'Priority',
-            Icons.flag_outlined,
-            priority['text']?.toString() ??
-                priority['coding']?[0]?['display']?.toString() ??
-                '',
-          ),
-          const SizedBox(height: 12),
-        ],
-
-        if (diagnosis.isNotEmpty) ...[
-          _buildFhirDiagnosesCard(diagnosis),
           const SizedBox(height: 12),
         ],
 
@@ -651,6 +702,109 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
       ],
     );
   }
+
+  /// Vitals card for FHIR encounters (keys use camelCase from _clinicalData)
+  Widget _buildFhirVitalsCard(Map<String, dynamic> v) {
+    Widget row(String label, String value) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(children: [
+        Expanded(child: Text(label,
+            style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)))),
+        Text(value,
+            style: const TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A))),
+      ]),
+    );
+
+    return _card(child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _cardHeader('Vital Signs', Icons.monitor_heart_outlined),
+        const SizedBox(height: 12),
+        if (v['temperature']      != null) row('Temperature',    '${v['temperature']} °C'),
+        if (v['pulseRate']        != null) row('Pulse Rate',     '${v['pulseRate']} bpm'),
+        if (v['systolicBP']       != null && v['diastolicBP'] != null)
+          row('Blood Pressure', '${v['systolicBP']}/${v['diastolicBP']} mmHg'),
+        if (v['oxygenSaturation'] != null) row('SpO₂',           '${v['oxygenSaturation']}%'),
+        if (v['respiratoryRate']  != null) row('Resp. Rate',     '${v['respiratoryRate']} /min'),
+        if (v['weight']           != null) row('Weight',         '${v['weight']} kg'),
+        if (v['height']           != null) row('Height',         '${v['height']} cm'),
+        if (v['bloodGlucose']     != null) row('Blood Glucose',  '${v['bloodGlucose']} mmol/L'),
+        if (v['muac']             != null) row('MUAC',           '${v['muac']} cm'),
+      ],
+    ));
+  }
+
+  /// Diagnoses card built from _clinicalData.diagnoses list
+  Widget _buildCdDiagnosesCard(List<Map<String, dynamic>> diagnoses) {
+    return _card(child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _cardHeader('Diagnoses', Icons.biotech_outlined),
+        const SizedBox(height: 12),
+        ...diagnoses.map((d) {
+          final isPrimary = d['isPrimary'] == true;
+          final code      = d['code'] as String? ?? '';
+          final desc      = d['description'] as String? ?? '';
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(
+                margin: const EdgeInsets.only(top: 3, right: 10),
+                width: 8, height: 8,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isPrimary
+                      ? const Color(0xFF1B4332)
+                      : const Color(0xFF94A3B8),
+                ),
+              ),
+              Expanded(child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (code.isNotEmpty)
+                    Text(code,
+                        style: const TextStyle(
+                            fontSize: 11, color: Color(0xFF64748B))),
+                  Text(desc,
+                      style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF0F172A))),
+                  if (isPrimary)
+                    Container(
+                      margin: const EdgeInsets.only(top: 2),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1B4332).withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text('Primary',
+                          style: TextStyle(
+                              fontSize: 10,
+                              color: Color(0xFF1B4332),
+                              fontWeight: FontWeight.w700)),
+                    ),
+                ],
+              )),
+            ]),
+          );
+        }),
+      ],
+    ));
+  }
+
+  Widget _cardHeader(String title, IconData icon) => Row(children: [
+    Icon(icon, size: 18, color: const Color(0xFF2D6A4F)),
+    const SizedBox(width: 8),
+    Text(title,
+        style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF1B4332))),
+  ]);
 
   // ── Local content ────────────────────────────────────────────────────────
 

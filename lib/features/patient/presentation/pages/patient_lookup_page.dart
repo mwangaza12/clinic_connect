@@ -677,9 +677,21 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
                     final facName =
                         enc['meta']?['sourceName']?.toString() ??
                             facilityName;
+                    // isFederated = the encounter belongs to a DIFFERENT
+                    // facility than the one currently logged in.
+                    // Must compare against MY facility (authState.user.facilityId),
+                    // NOT the patient's registered facility — a patient registered
+                    // at FAC-KE-001 viewed from FAC-KE-002 would otherwise never
+                    // mark any encounter as federated.
+                    final myFacilityId = (context.read<AuthBloc>().state
+                            is Authenticated)
+                        ? (context.read<AuthBloc>().state as Authenticated)
+                            .user
+                            .facilityId
+                        : '';
                     final isFederated =
                         enc['meta']?['source'] != null &&
-                            enc['meta']['source'] != registeredFacilityId;
+                            enc['meta']['source'] != myFacilityId;
 
                     return GestureDetector(
                       onTap: () => Navigator.push(
@@ -1110,9 +1122,15 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
                   final facName =
                       enc['meta']?['sourceName']?.toString() ??
                           'Unknown';
+                  final myFacilityId2 = (context.read<AuthBloc>().state
+                          is Authenticated)
+                      ? (context.read<AuthBloc>().state as Authenticated)
+                          .user
+                          .facilityId
+                      : '';
                   final isFederated =
                       enc['meta']?['source'] != null &&
-                          enc['meta']['source'] != registeredFacilityId;
+                          enc['meta']['source'] != myFacilityId2;
 
                   return GestureDetector(
                     onTap: () {
