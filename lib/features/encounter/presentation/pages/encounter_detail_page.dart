@@ -576,7 +576,6 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
     final period         = enc['period']       as Map?;
     final participants   = enc['participant']  as List? ?? [];
     final serviceType    = enc['serviceType'];
-    final priority       = enc['priority'];
     final contained      = enc['contained']    as List? ?? [];
     final notes          = enc['note']         as List? ?? [];
 

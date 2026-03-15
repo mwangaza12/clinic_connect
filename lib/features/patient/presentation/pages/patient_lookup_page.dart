@@ -161,41 +161,69 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
       debugPrint('✅ Demographics from chain: ${demographics['name']}, '
           'DOB: ${demographics['dateOfBirth']}, Phone: ${demographics['phoneNumber']}');
 
-      // Fetch encounter index from chain (not FHIR proxy)
+      // Fetch full encounter data via HIE gateway FHIR proxy.
+      // GET /api/fhir/Patient/:nupi/$everything calls back to the
+      // registering facility's backend which returns complete clinical data.
+      // Fall back to the chain index if the FHIR call fails.
       List<Map<String, dynamic>> chainEncounters = [];
+      bool gotFullData = false;
       try {
-        final encResult = await HieApiService.instance
-            .fetchPatientEncounterIndex(nupi: nupi);
-        if (encResult.success && encResult.data != null) {
-          final list = encResult.data!['encounters'] as List? ?? [];
-          chainEncounters = list.map((e) {
-            final enc = e as Map<String, dynamic>;
-            // Normalise to the shape the lookup page expects
-            return <String, dynamic>{
-              'id':     enc['encounterId'],
-              'class':  {'display': enc['encounterType'] ?? 'Visit'},
-              'type':   [{'text': enc['encounterType'] ?? 'Visit'}],
-              'period': {'start': enc['encounterDate']},
-              'meta': {
-                'source':     enc['facilityId'],
-                'sourceName': enc['facilityName'] ?? enc['facilityId'],
-              },
-              'resourceType': 'Encounter',
-              'status': 'finished',
-            };
-          }).toList();
-          debugPrint('✅ Got ${chainEncounters.length} encounters from chain index');
+        final everythingResult = await HieApiService.instance.fetchEverything(
+          nupi:                 nupi,
+          accessToken:          token,
+          registeredFacilityId: registeredFacilityId,
+        );
+
+        if (everythingResult.success && everythingResult.data != null) {
+          final bundle  = everythingResult.data!;
+          final entries = bundle['entry'] as List? ?? [];
+          chainEncounters = entries
+              .map((e) => (e['resource'] as Map?)?.cast<String, dynamic>())
+              .where((r) => r != null && r['resourceType'] == 'Encounter')
+              .map((r) => r!)
+              .toList();
+          gotFullData = true; // ← flag set here, only here
+          debugPrint('✅ Got ${chainEncounters.length} full encounters from \$everything');
+        } else {
+          // $everything failed — fall back to thin chain index
+          debugPrint('⚠️ \$everything failed (${everythingResult.error}), using chain index');
+          final encResult = await HieApiService.instance
+              .fetchPatientEncounterIndex(nupi: nupi);
+          if (encResult.success && encResult.data != null) {
+            final list = encResult.data!['encounters'] as List? ?? [];
+            chainEncounters = list.map((e) {
+              final enc = e as Map<String, dynamic>;
+              return <String, dynamic>{
+                'id':     enc['encounterId'],
+                'class':  {'display': enc['encounterType'] ?? 'Visit'},
+                'type':   [{'text': enc['encounterType'] ?? 'Visit'}],
+                'period': {'start': enc['encounterDate']},
+                'meta': {
+                  'source':     enc['facilityId'],
+                  'sourceName': enc['facilityName'] ?? enc['facilityId'],
+                },
+                'resourceType': 'Encounter',
+                'status': 'finished',
+              };
+            }).toList();
+            debugPrint('✅ Got ${chainEncounters.length} encounters from chain index (fallback)');
+          }
         }
       } catch (e) {
-        debugPrint('⚠️ Encounter index fetch failed: $e');
+        debugPrint('⚠️ Encounter fetch failed: $e');
       }
 
-      // Merge chain index with any encounters already in verifyData
-      final allEncountersCombined = [
-        ...allEncounters,
-        ...chainEncounters.where((ce) => !allEncounters
-            .any((ae) => ae['id'] == ce['id'])),
-      ];
+      // If $everything succeeded, use ONLY those encounters — they are complete
+      // and already include everything from the chain index. Merging with
+      // allEncounters (thin verifyData list) would cause duplicates.
+      // Only merge when we fell back to the chain index.
+      final allEncountersCombined = gotFullData
+          ? chainEncounters
+          : [
+              ...allEncounters,
+              ...chainEncounters.where((ce) =>
+                  !allEncounters.any((ae) => ae['id'] == ce['id'])),
+            ];
 
       final patientData = <String, dynamic>{
         ...demographics,
@@ -668,10 +696,13 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
                       'Encounter History (${encounters.length})'),
                   const SizedBox(height: 12),
                   ...encounters.take(5).map((enc) {
-                    final encType =
+                    final rawType =
                         enc['class']?['display']?.toString() ??
                             enc['type']?[0]?['text']?.toString() ??
                             'Visit';
+                    final encType = rawType.isNotEmpty
+                        ? rawType[0].toUpperCase() + rawType.substring(1)
+                        : 'Visit';
                     final encDate =
                         enc['period']?['start']?.toString() ?? '';
                     final facName =
@@ -1047,14 +1078,23 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
 
   String _formatEncounterDate(String dateStr) {
     try {
-      final date = DateTime.parse(dateStr);
-      final now = DateTime.now();
-      final difference = now.difference(date);
-      if (difference.inDays == 0) return 'Today';
-      if (difference.inDays == 1) return 'Yesterday';
-      if (difference.inDays < 7) return '${difference.inDays} days ago';
-      return DateFormat('MMM d, yyyy').format(date);
-    } catch (e) {
+      final date = DateTime.parse(dateStr).toLocal();
+      final now  = DateTime.now();
+      final today     = DateTime(now.year, now.month, now.day);
+      final yesterday = today.subtract(const Duration(days: 1));
+      final dateOnly  = DateTime(date.year, date.month, date.day);
+      final timeStr   = DateFormat('h:mm a').format(date);
+
+      if (dateOnly == today)     return 'Today at $timeStr';
+      if (dateOnly == yesterday) return 'Yesterday at $timeStr';
+      if (now.difference(date).inDays < 7) {
+        return '${DateFormat('EEEE').format(date)} at $timeStr';
+      }
+      if (date.year == now.year) {
+        return DateFormat('MMM d').format(date) + ' at $timeStr';
+      }
+      return DateFormat('MMM d, yyyy').format(date) + ' at $timeStr';
+    } catch (_) {
       return dateStr;
     }
   }
@@ -1113,10 +1153,13 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
                 itemCount: encounters.length,
                 itemBuilder: (context, index) {
                   final enc = encounters[index];
-                  final encType =
+                  final rawType2 =
                       enc['class']?['display']?.toString() ??
                           enc['type']?[0]?['text']?.toString() ??
                           'Visit';
+                  final encType = rawType2.isNotEmpty
+                      ? rawType2[0].toUpperCase() + rawType2.substring(1)
+                      : 'Visit';
                   final encDate =
                       enc['period']?['start']?.toString() ?? '';
                   final facName =
@@ -1212,8 +1255,7 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
                                     color: Color(0xFF64748B))),
                             if (encDate.isNotEmpty)
                               Text(
-                                DateFormat('MMM d, yyyy').format(
-                                    DateTime.parse(encDate)),
+                                _formatEncounterDate(encDate),
                                 style: const TextStyle(
                                     fontSize: 11,
                                     color: Color(0xFF94A3B8)),
