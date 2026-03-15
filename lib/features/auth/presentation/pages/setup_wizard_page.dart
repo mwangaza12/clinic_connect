@@ -44,9 +44,9 @@ class _SetupWizardPageState extends State<SetupWizardPage> {
     final nm  = await _storage.read(key: StorageKeys.facilityName);
     if (!mounted) return;
     setState(() {
-      _gatewayCtrl.text    = gw  ?? 'https://afyalink-hie.onrender.com';
-      _facilityIdCtrl.text = fid ?? '';
-      _apiKeyCtrl.text     = key ?? '';
+      _gatewayCtrl.text    = gw  ?? 'http://hie-gateway.onrender.com';
+      _facilityIdCtrl.text = fid ?? 'FAC-KE-001';
+      _apiKeyCtrl.text     = key ?? 'FAC-CF030863557490C9BFBE8D5976BE0221';
       _resolvedName        = nm;
     });
   }
@@ -229,7 +229,7 @@ class _SetupWizardPageState extends State<SetupWizardPage> {
                   label: 'HIE Gateway URL',
                   ctrl:  _gatewayCtrl,
                   icon:  Icons.cloud_outlined,
-                  hint:  'https://afyalink-hie.onrender.com',
+                  hint:  'http://hie-gateway.onrender.com',
                   type:  TextInputType.url,
                   validator: (v) {
                     if (v == null || v.trim().isEmpty)
@@ -246,7 +246,7 @@ class _SetupWizardPageState extends State<SetupWizardPage> {
                   label: 'Facility ID',
                   ctrl:  _facilityIdCtrl,
                   icon:  Icons.domain_outlined,
-                  hint:  'e.g. FAC-KE-001',
+                  hint:  'FAC-KE-001',
                   caps:  TextCapitalization.characters,
                   validator: (v) => (v == null || v.trim().isEmpty)
                       ? 'Facility ID is required' : null,
@@ -258,7 +258,7 @@ class _SetupWizardPageState extends State<SetupWizardPage> {
                   label:   'Facility API Key',
                   ctrl:    _apiKeyCtrl,
                   icon:    Icons.key_outlined,
-                  hint:    'FAC-XXXXXXXX (issued by MoH)',
+                  hint:    'FAC-CF030863557490C9BFBE8D5976BE0221',
                   obscure: !_showKey,
                   suffix:  IconButton(
                     icon: Icon(
