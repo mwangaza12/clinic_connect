@@ -21,9 +21,10 @@ import '../../../disease_program/presentation/bloc/program_bloc.dart';
 import '../../../disease_program/presentation/pages/program_dashboard_page.dart';
 import '../../../patient/presentation/bloc/patient_bloc.dart';
 import '../../../patient/presentation/bloc/patient_event.dart';
-import '../../../patient/presentation/pages/nupi_lookup_page.dart';
 import '../../../patient/presentation/pages/patient_list_page.dart';
+import '../../../patient/presentation/pages/patient_lookup_page.dart';
 import '../../../patient/presentation/pages/patient_registration_page.dart';
+import '../../../referral/presentation/pages/create_referral_page.dart';
 import '../../../referral/presentation/pages/referrals_page.dart';
 import '../../../encounter/presentation/pages/encounter_detail_page.dart';
 import '../bloc/dashboard_bloc.dart';
@@ -216,16 +217,31 @@ class DoctorDashboardTab extends StatelessWidget {
               title: 'New Encounter', subtitle: 'Document a clinical visit',
               onTap: () => onNavigate(1),
             ),
+            // In DoctorDashboardTab, fix the Create Referral ActionRow
             ActionRow(
               icon: Icons.send_rounded, color: Colors.orange,
               title: 'Create Referral', subtitle: 'Transfer to another facility',
-              onTap: () => onNavigate(3),
+              onTap: () {
+                // Get auth state directly inside onTap
+                final authState = context.read<AuthBloc>().state;
+                if (authState is Authenticated) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CreateReferralPage(user: authState.user),
+                    ),
+                  ).then((_) {
+                    // Navigate to Referrals tab after creation
+                    onNavigate(3);
+                  });
+                }
+              },
             ),
             ActionRow(
               icon: Icons.travel_explore_rounded, color: Colors.indigo,
               title: 'Cross-Facility Lookup', subtitle: 'Search AfyaNet patient index',
               onTap: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const NupiLookupPage())),
+                  MaterialPageRoute(builder: (_) => const PatientLookupPage())),
             ),
             ActionRow(
               icon: Icons.manage_search_rounded, color: kPrimaryGreen,
