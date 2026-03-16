@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/config/facility_info.dart';
+import '../../../../core/config/firebase_config.dart';          // ← ADDED
 import '../../../../core/sync/widgets/sync_status_widget.dart';
 import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
@@ -106,7 +107,7 @@ class _AdminShellPageState extends State<AdminShellPage> {
   }
 
   PreferredSizeWidget _buildAppBar(String facilityName) {
-    final authState = context.read<AuthBloc>().state;
+    final authState  = context.read<AuthBloc>().state;
     final facilityId = authState is Authenticated ? authState.user.facilityId : '';
 
     return AppBar(
@@ -142,7 +143,7 @@ class _AdminShellPageState extends State<AdminShellPage> {
 // ─── Admin Dashboard tab ──────────────────────────────────────────────────────
 
 class AdminDashboardTab extends StatelessWidget {
-  final dynamic user;
+  final dynamic         user;
   final void Function(int) onNavigate;
 
   const AdminDashboardTab({
@@ -175,12 +176,12 @@ class AdminDashboardTab extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
-            // Quick Stats - Minimal, just today's snapshot
+            // Quick Stats
             BlocBuilder<DashboardBloc, DashboardState>(
               builder: (_, s) {
-                final todayVisits = s is DashboardLoaded ? s.stats.todayVisits : 0;
+                final todayVisits      = s is DashboardLoaded ? s.stats.todayVisits      : 0;
                 final pendingReferrals = s is DashboardLoaded ? s.stats.pendingReferrals : 0;
-                
+
                 return Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -212,30 +213,26 @@ class AdminDashboardTab extends StatelessWidget {
 
             const SectionLabel('Quick Actions'),
             const SizedBox(height: 12),
-            
-            // Analytics - Go to detailed analytics
+
             ActionRow(
-              icon: Icons.bar_chart_rounded, 
+              icon: Icons.bar_chart_rounded,
               color: Colors.blue,
-              title: 'Analytics & Reports', 
+              title: 'Analytics & Reports',
               subtitle: 'View detailed facility statistics',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const AnalyticsPage()),
-                );
-              },
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AnalyticsPage()),
+              ),
             ),
-            
-            // Staff Management
+
             ActionRow(
-              icon: Icons.person_add_rounded, 
+              icon: Icons.person_add_rounded,
               color: const Color(0xFF7C3AED),
-              title: 'Manage Staff', 
+              title: 'Manage Staff',
               subtitle: 'Add or update doctor/nurse accounts',
               onTap: () => onNavigate(2),
             ),
-            
+
             const SizedBox(height: 24),
           ],
         ),
@@ -244,12 +241,11 @@ class AdminDashboardTab extends StatelessWidget {
   }
 }
 
-// Quick stat item for dashboard
 class _QuickStatItem extends StatelessWidget {
-  final String label;
-  final String value;
+  final String  label;
+  final String  value;
   final IconData icon;
-  final Color color;
+  final Color   color;
 
   const _QuickStatItem({
     required this.label,
@@ -271,14 +267,10 @@ class _QuickStatItem extends StatelessWidget {
           child: Icon(icon, color: color, size: 20),
         ),
         const SizedBox(height: 8),
-        Text(
-          value,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-        ),
-        Text(
-          label,
-          style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-        ),
+        Text(value,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+        Text(label,
+            style: TextStyle(fontSize: 10, color: Colors.grey[600])),
       ],
     );
   }
@@ -295,14 +287,23 @@ class AdminStaffTab extends StatefulWidget {
 
 class _AdminStaffTabState extends State<AdminStaffTab> {
   String _filter = 'all';
+  Stream<QuerySnapshot>? _stream;   // nullable — built lazily on first build
 
-  Stream<QuerySnapshot> get _stream {
+  Stream<QuerySnapshot> _buildStream() {
     final fid = FacilityInfo().facilityId;
-    var q = FirebaseFirestore.instance
+    var q = FirebaseConfig.facilityDb
         .collection('users')
         .where('facility_id', isEqualTo: fid);
     if (_filter != 'all') q = q.where('role', isEqualTo: _filter);
     return q.orderBy('name').snapshots();
+  }
+
+  void _setFilter(String f) {
+    if (_filter == f) return;           // no-op if same filter
+    setState(() {
+      _filter = f;
+      _stream  = _buildStream();        // only rebuild when filter actually changes
+    });
   }
 
   @override
@@ -317,7 +318,7 @@ class _AdminStaffTabState extends State<AdminStaffTab> {
             children: ['all', 'doctor', 'nurse', 'admin'].map((r) {
               final selected = _filter == r;
               return GestureDetector(
-                onTap: () => setState(() => _filter = r),
+                onTap: () => _setFilter(r),
                 child: Container(
                   margin: const EdgeInsets.only(right: 8),
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -341,7 +342,7 @@ class _AdminStaffTabState extends State<AdminStaffTab> {
 
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
-            stream: _stream,
+            stream: _stream ??= _buildStream(),  // built once, reused on every rebuild
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator.adaptive());
@@ -400,8 +401,8 @@ class StaffCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final role   = data['role'] as String? ?? 'staff';
-    final active = data['is_active'] as bool? ?? true;
+    final role   = data['role']      as String? ?? 'staff';
+    final active = data['is_active'] as bool?   ?? true;
     final color  = _roleColor(role);
 
     return Container(
@@ -425,7 +426,7 @@ class StaffCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(data['name'] as String? ?? '—',
+                Text(data['name']  as String? ?? '—',
                     style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
                 Text(data['email'] as String? ?? '—',
                     style: TextStyle(color: Colors.grey[500], fontSize: 12)),
@@ -491,7 +492,10 @@ class _AddStaffSheetState extends State<AddStaffSheet> {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _busy = true; _error = null; });
     try {
-      await FirebaseFirestore.instance.collection('users').add({
+      // ↓ FirebaseConfig.facilityDb — NOT FirebaseFirestore.instance
+      await FirebaseConfig.facilityDb
+          .collection('users')
+          .add({
         'name':          _name.text.trim(),
         'email':         _email.text.trim().toLowerCase(),
         'role':          _role,
@@ -515,14 +519,14 @@ class _AddStaffSheetState extends State<AddStaffSheet> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       padding: EdgeInsets.only(
-        left: 24, 
-        right: 24, 
+        left: 24,
+        right: 24,
         top: 24,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
       child: Form(
         key: _formKey,
-        child: SingleChildScrollView( // Make it scrollable
+        child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -530,12 +534,12 @@ class _AddStaffSheetState extends State<AddStaffSheet> {
               const Text('Add Staff Member',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
               const SizedBox(height: 20),
-              _field(_name, 'Full Name', Icons.person_outline),
+              _field(_name,     'Full Name',          Icons.person_outline),
               const SizedBox(height: 12),
-              _field(_email, 'Email', Icons.email_outlined,
+              _field(_email,    'Email',               Icons.email_outlined,
                   type: TextInputType.emailAddress),
               const SizedBox(height: 12),
-              _field(_password, 'Temporary Password', Icons.lock_outline,
+              _field(_password, 'Temporary Password',  Icons.lock_outline,
                   obscure: true),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
@@ -589,7 +593,7 @@ class _AddStaffSheetState extends State<AddStaffSheet> {
     bool obscure = false,
   }) {
     return TextFormField(
-      controller: c,
+      controller:  c,
       obscureText: obscure,
       keyboardType: type,
       decoration: _deco(label, icon),

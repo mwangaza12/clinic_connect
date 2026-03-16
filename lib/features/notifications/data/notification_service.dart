@@ -20,6 +20,7 @@
 //   system              — general system message
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../core/config/firebase_config.dart';
 
 enum NotificationType {
   referralReceived,
@@ -119,7 +120,11 @@ class NotificationService {
       _instance ??= NotificationService._();
   NotificationService._();
 
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  // Always use FirebaseConfig.facilityDb — never FirebaseFirestore.instance.
+  // The app uses a NAMED Firebase app ('clinicconnect_facility') initialised
+  // during setup with facility-specific credentials. FirebaseFirestore.instance
+  // returns the DEFAULT app which has no data and locked rules.
+  FirebaseFirestore get _db => FirebaseConfig.facilityDb;
 
   // Each facility has its own notification inbox
   CollectionReference _inbox(String facilityId) => _db

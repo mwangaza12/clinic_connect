@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
+import '../../../../core/config/firebase_config.dart';
 import '../../../../core/sync/widgets/sync_status_widget.dart';
 import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
@@ -21,10 +22,9 @@ import '../../../disease_program/presentation/bloc/program_bloc.dart';
 import '../../../disease_program/presentation/pages/program_dashboard_page.dart';
 import '../../../patient/presentation/bloc/patient_bloc.dart';
 import '../../../patient/presentation/bloc/patient_event.dart';
+import '../../../patient/presentation/pages/nupi_lookup_page.dart';
 import '../../../patient/presentation/pages/patient_list_page.dart';
-import '../../../patient/presentation/pages/patient_lookup_page.dart';
 import '../../../patient/presentation/pages/patient_registration_page.dart';
-import '../../../referral/presentation/pages/create_referral_page.dart';
 import '../../../referral/presentation/pages/referrals_page.dart';
 import '../../../encounter/presentation/pages/encounter_detail_page.dart';
 import '../bloc/dashboard_bloc.dart';
@@ -217,31 +217,16 @@ class DoctorDashboardTab extends StatelessWidget {
               title: 'New Encounter', subtitle: 'Document a clinical visit',
               onTap: () => onNavigate(1),
             ),
-            // In DoctorDashboardTab, fix the Create Referral ActionRow
             ActionRow(
               icon: Icons.send_rounded, color: Colors.orange,
               title: 'Create Referral', subtitle: 'Transfer to another facility',
-              onTap: () {
-                // Get auth state directly inside onTap
-                final authState = context.read<AuthBloc>().state;
-                if (authState is Authenticated) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => CreateReferralPage(user: authState.user),
-                    ),
-                  ).then((_) {
-                    // Navigate to Referrals tab after creation
-                    onNavigate(3);
-                  });
-                }
-              },
+              onTap: () => onNavigate(3),
             ),
             ActionRow(
               icon: Icons.travel_explore_rounded, color: Colors.indigo,
               title: 'Cross-Facility Lookup', subtitle: 'Search AfyaNet patient index',
               onTap: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const PatientLookupPage())),
+                  MaterialPageRoute(builder: (_) => const NupiLookupPage())),
             ),
             ActionRow(
               icon: Icons.manage_search_rounded, color: kPrimaryGreen,
@@ -373,16 +358,30 @@ class _EncounterMiniCard extends StatelessWidget {
 
 // ─── Encounters tab ───────────────────────────────────────────────────────────
 
-class DoctorEncountersTab extends StatelessWidget {
+class DoctorEncountersTab extends StatefulWidget {
   final String facilityId;
   const DoctorEncountersTab({super.key, required this.facilityId});
 
-  Stream<QuerySnapshot> get _stream => FirebaseFirestore.instance
-      .collection('encounters')
-      .where('facility_id', isEqualTo: facilityId)
-      .orderBy('encounter_date', descending: true)
-      .limit(50)
-      .snapshots();
+  @override
+  State<DoctorEncountersTab> createState() => _DoctorEncountersTabState();
+}
+
+class _DoctorEncountersTabState extends State<DoctorEncountersTab> {
+  // Store the stream once — never recreate it on rebuild.
+  // A getter would create a new stream every build(), cancelling
+  // the previous one and causing the data to flash then disappear.
+  late final Stream<QuerySnapshot> _stream;
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = FirebaseConfig.facilityDb
+        .collection('encounters')
+        .where('facility_id', isEqualTo: widget.facilityId)
+        .orderBy('encounter_date', descending: true)
+        .limit(50)
+        .snapshots();
+  }
 
   @override
   Widget build(BuildContext context) {

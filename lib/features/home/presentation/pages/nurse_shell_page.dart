@@ -7,6 +7,7 @@
 //   2 Profile   → ProfilePage (existing)
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../../core/config/firebase_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
@@ -146,13 +147,14 @@ class NurseTriageTab extends StatefulWidget {
 
 class _NurseTriageTabState extends State<NurseTriageTab> {
   String _statusFilter = 'all';
+  Stream<QuerySnapshot>? _queueStream;   // nullable — built lazily, never recreated on rebuild
 
-  Stream<QuerySnapshot> get _queueStream {
+  Stream<QuerySnapshot> _buildQueueStream() {
     final today = DateTime.now();
     final start = DateTime(today.year, today.month, today.day);
     final end   = start.add(const Duration(days: 1));
 
-    var q = FirebaseFirestore.instance
+    var q = FirebaseConfig.facilityDb
         .collection('triage_queue')
         .where('facility_id', isEqualTo: widget.user.facilityId as String)
         .where('created_at', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
@@ -249,7 +251,11 @@ class _NurseTriageTabState extends State<NurseTriageTab> {
             children: _filters.map((f) {
               final selected = _statusFilter == f.value;
               return GestureDetector(
-                onTap: () => setState(() => _statusFilter = f.value),
+                onTap: () => setState(() {
+                  if (_statusFilter == f.value) return;
+                  _statusFilter = f.value;
+                  _queueStream  = _buildQueueStream(); // rebuild on filter change only
+                }),
                 child: Container(
                   margin: const EdgeInsets.only(right: 8),
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -278,7 +284,7 @@ class _NurseTriageTabState extends State<NurseTriageTab> {
         // Queue list
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
-            stream: _queueStream,
+            stream: _queueStream ??= _buildQueueStream(),
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator.adaptive());
@@ -350,7 +356,7 @@ class TriageQueueCard extends StatelessWidget {
   }
 
   Future<void> _updateStatus(String newStatus) async {
-    await FirebaseFirestore.instance
+    await FirebaseConfig.facilityDb
         .collection('triage_queue')
         .doc(id)
         .update({
