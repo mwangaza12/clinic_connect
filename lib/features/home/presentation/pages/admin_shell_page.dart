@@ -1,11 +1,4 @@
 // lib/features/home/presentation/pages/admin_shell_page.dart
-//
-// Admin shell — 5 tabs:
-//   0 Dashboard   → analytics + quick actions
-//   1 Patients    → PatientListView (existing)
-//   2 Staff       → Firestore-backed staff list + add sheet
-//   3 Referrals   → ReferralsPage (existing)
-//   4 Profile     → ProfilePage (existing)
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -16,18 +9,15 @@ import '../../../../core/sync/widgets/sync_status_widget.dart';
 import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
-import '../../../disease_program/presentation/bloc/program_bloc.dart';
-import '../../../disease_program/presentation/pages/program_dashboard_page.dart';
 import '../../../notifications/presentation/widgets/notification_bell.dart';
 import '../../../patient/presentation/bloc/patient_bloc.dart';
 import '../../../patient/presentation/bloc/patient_event.dart';
-import '../../../patient/presentation/pages/nupi_lookup_page.dart';
 import '../../../patient/presentation/pages/patient_list_page.dart';
-import '../../../patient/presentation/pages/patient_registration_page.dart';
 import '../../../referral/presentation/pages/referrals_page.dart';
 import '../bloc/dashboard_bloc.dart';
 import '../bloc/dashboard_event.dart';
 import '../bloc/dashboard_state.dart';
+import 'analytics_page.dart';
 import 'profile_page.dart';
 import 'shell_widgets.dart';
 
@@ -152,7 +142,7 @@ class _AdminShellPageState extends State<AdminShellPage> {
 // ─── Admin Dashboard tab ──────────────────────────────────────────────────────
 
 class AdminDashboardTab extends StatelessWidget {
-  final dynamic         user;
+  final dynamic user;
   final void Function(int) onNavigate;
 
   const AdminDashboardTab({
@@ -185,66 +175,111 @@ class AdminDashboardTab extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
-            // Stats
+            // Quick Stats - Minimal, just today's snapshot
             BlocBuilder<DashboardBloc, DashboardState>(
               builder: (_, s) {
-                final p = s is DashboardLoaded ? '${s.stats.totalPatients}'    : '—';
-                final t = s is DashboardLoaded ? '${s.stats.todayVisits}'       : '—';
-                final r = s is DashboardLoaded ? '${s.stats.pendingReferrals}' : '—';
-                return Column(children: [
-                  Row(children: [
-                    StatCard(label: 'Total Patients',    value: p, icon: Icons.people_rounded,    color: Colors.blue),
-                    const SizedBox(width: 12),
-                    StatCard(label: "Today's Visits",    value: t, icon: Icons.today_rounded,      color: Colors.teal),
-                  ]),
-                  const SizedBox(height: 12),
-                  Row(children: [
-                    StatCard(label: 'Pending Referrals', value: r, icon: Icons.swap_horiz_rounded, color: Colors.orange),
-                    const SizedBox(width: 12),
-                    StatCard(label: 'Active Staff',      value: '—', icon: Icons.badge_rounded,   color: const Color(0xFF7C3AED)),
-                  ]),
-                ]);
+                final todayVisits = s is DashboardLoaded ? s.stats.todayVisits : 0;
+                final pendingReferrals = s is DashboardLoaded ? s.stats.pendingReferrals : 0;
+                
+                return Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _QuickStatItem(
+                        label: "Today's Visits",
+                        value: '$todayVisits',
+                        icon: Icons.today_rounded,
+                        color: Colors.teal,
+                      ),
+                      Container(height: 30, width: 1, color: Colors.grey.shade300),
+                      _QuickStatItem(
+                        label: 'Pending Referrals',
+                        value: '$pendingReferrals',
+                        icon: Icons.swap_horiz_rounded,
+                        color: Colors.orange,
+                      ),
+                    ],
+                  ),
+                );
               },
             ),
             const SizedBox(height: 24),
 
-            const SectionLabel('Administration'),
+            const SectionLabel('Quick Actions'),
             const SizedBox(height: 12),
+            
+            // Analytics - Go to detailed analytics
             ActionRow(
-              icon: Icons.person_add_rounded, color: const Color(0xFF7C3AED),
-              title: 'Add Staff Member', subtitle: 'Create doctor or nurse accounts',
+              icon: Icons.bar_chart_rounded, 
+              color: Colors.blue,
+              title: 'Analytics & Reports', 
+              subtitle: 'View detailed facility statistics',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AnalyticsPage()),
+                );
+              },
+            ),
+            
+            // Staff Management
+            ActionRow(
+              icon: Icons.person_add_rounded, 
+              color: const Color(0xFF7C3AED),
+              title: 'Manage Staff', 
+              subtitle: 'Add or update doctor/nurse accounts',
               onTap: () => onNavigate(2),
             ),
-            ActionRow(
-              icon: Icons.bar_chart_rounded, color: Colors.blue,
-              title: 'Analytics & Reports', subtitle: 'Facility performance stats',
-              onTap: () => onNavigate(2),
-            ),
-            ActionRow(
-              icon: Icons.person_add_alt_1_rounded, color: Colors.teal,
-              title: 'Register Patient', subtitle: 'Add new patient to the system',
-              onTap: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const PatientRegistrationPage())),
-            ),
-            ActionRow(
-              icon: Icons.travel_explore_rounded, color: Colors.indigo,
-              title: 'Cross-Facility Lookup', subtitle: 'Search shared AfyaNet index',
-              onTap: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const NupiLookupPage())),
-            ),
-            ActionRow(
-              icon: Icons.medical_services_rounded, color: Colors.green,
-              title: 'Disease Programs', subtitle: 'Manage enrollments and tracking',
-              onTap: () => Navigator.push(context, MaterialPageRoute(
-                  builder: (_) => BlocProvider(
-                    create: (_) => sl<ProgramBloc>(),
-                    child: ProgramDashboardPage(facilityId: user.facilityId as String),
-                  ))),
-            ),
+            
             const SizedBox(height: 24),
           ],
         ),
       ),
+    );
+  }
+}
+
+// Quick stat item for dashboard
+class _QuickStatItem extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  const _QuickStatItem({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: color, size: 20),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+        ),
+        Text(
+          label,
+          style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+        ),
+      ],
     );
   }
 }
@@ -317,7 +352,6 @@ class _AdminStaffTabState extends State<AdminStaffTab> {
                 itemCount: docs.length + 1,
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (context, i) {
-                  // Last item is always the Add button
                   if (i == docs.length) {
                     return OutlinedButton.icon(
                       onPressed: () => showModalBottomSheet(
@@ -481,63 +515,67 @@ class _AddStaffSheetState extends State<AddStaffSheet> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       padding: EdgeInsets.only(
-        left: 24, right: 24, top: 24,
+        left: 24, 
+        right: 24, 
+        top: 24,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
       child: Form(
         key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Add Staff Member',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 20),
-            _field(_name, 'Full Name', Icons.person_outline),
-            const SizedBox(height: 12),
-            _field(_email, 'Email', Icons.email_outlined,
-                type: TextInputType.emailAddress),
-            const SizedBox(height: 12),
-            _field(_password, 'Temporary Password', Icons.lock_outline,
-                obscure: true),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _role,
-              decoration: _deco('Role', Icons.badge_outlined),
-              items: const [
-                DropdownMenuItem(value: 'doctor', child: Text('Doctor')),
-                DropdownMenuItem(value: 'nurse',  child: Text('Nurse')),
-                DropdownMenuItem(value: 'admin',  child: Text('Admin')),
-              ],
-              onChanged: (v) => setState(() => _role = v!),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 10),
-              Text(_error!,
-                  style: const TextStyle(color: Colors.red, fontSize: 13)),
-            ],
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _busy ? null : _save,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: kPrimaryGreen,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14)),
-                ),
-                child: _busy
-                    ? const SizedBox(
-                        height: 18, width: 18,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
-                    : const Text('Create Account',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
+        child: SingleChildScrollView( // Make it scrollable
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Add Staff Member',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 20),
+              _field(_name, 'Full Name', Icons.person_outline),
+              const SizedBox(height: 12),
+              _field(_email, 'Email', Icons.email_outlined,
+                  type: TextInputType.emailAddress),
+              const SizedBox(height: 12),
+              _field(_password, 'Temporary Password', Icons.lock_outline,
+                  obscure: true),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _role,
+                decoration: _deco('Role', Icons.badge_outlined),
+                items: const [
+                  DropdownMenuItem(value: 'doctor', child: Text('Doctor')),
+                  DropdownMenuItem(value: 'nurse',  child: Text('Nurse')),
+                  DropdownMenuItem(value: 'admin',  child: Text('Admin')),
+                ],
+                onChanged: (v) => setState(() => _role = v!),
               ),
-            ),
-          ],
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(_error!,
+                    style: const TextStyle(color: Colors.red, fontSize: 13)),
+              ],
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _busy ? null : _save,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kPrimaryGreen,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: _busy
+                      ? const SizedBox(
+                          height: 18, width: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Text('Create Account',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
