@@ -5,7 +5,6 @@ import '../../../../core/config/facility_info.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
-import 'register_page.dart';
 import '../../../../core/sync/connectivity_manager.dart';
 
 class LoginPage extends StatelessWidget {
@@ -250,34 +249,6 @@ class _LoginViewState extends State<LoginView> {
                           ),
 
                           const SizedBox(height: 32),
-                          Row(
-                            children: [
-                              const Expanded(child: Divider()),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                child: Text('OR', style: TextStyle(color: Colors.grey[400], fontWeight: FontWeight.bold)),
-                              ),
-                              const Expanded(child: Divider()),
-                            ],
-                          ),
-                          const SizedBox(height: 32),
-
-                          // Register Navigation
-                          OutlinedButton(
-                            onPressed: () {
-                              Navigator.push(context, MaterialPageRoute(builder: (context) => const RegisterPage()));
-                            },
-                            style: OutlinedButton.styleFrom(
-                              side: BorderSide(color: primaryColor.withOpacity(0.5)),
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                            ),
-                            child: Text(
-                              'Create New Account',
-                              style: TextStyle(color: primaryColor, fontSize: 16, fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                          const SizedBox(height: 24),
                         ],
                       ),
                     ),
