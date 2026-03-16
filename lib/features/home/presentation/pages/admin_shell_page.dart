@@ -1,6 +1,7 @@
 // lib/features/home/presentation/pages/admin_shell_page.dart
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -472,12 +473,13 @@ class AddStaffSheet extends StatefulWidget {
 }
 
 class _AddStaffSheetState extends State<AddStaffSheet> {
-  final _formKey  = GlobalKey<FormState>();
-  final _name     = TextEditingController();
-  final _email    = TextEditingController();
-  final _password = TextEditingController();
-  String  _role   = 'doctor';
-  bool    _busy   = false;
+  final _formKey      = GlobalKey<FormState>();
+  final _name         = TextEditingController();
+  final _email        = TextEditingController();
+  final _password     = TextEditingController();
+  final _adminPassword = TextEditingController(); // to re-sign-in admin after creating user
+  String  _role       = 'doctor';
+  bool    _busy       = false;
   String? _error;
 
   @override
@@ -485,17 +487,37 @@ class _AddStaffSheetState extends State<AddStaffSheet> {
     _name.dispose();
     _email.dispose();
     _password.dispose();
+    _adminPassword.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _busy = true; _error = null; });
+
+    // Save admin credentials before creating the new user —
+    // Firebase Auth's createUserWithEmailAndPassword signs you IN as
+    // the new user, which would log the admin out. We re-sign in after.
+    final adminEmail    = FirebaseConfig.auth.currentUser?.email ?? '';
+    final adminPassword = _adminPassword.text.trim();
+
     try {
-      // ↓ FirebaseConfig.facilityDb — NOT FirebaseFirestore.instance
+      // 1. Create Firebase Auth account for the new staff member
+      final credential = await FirebaseConfig.auth
+          .createUserWithEmailAndPassword(
+        email:    _email.text.trim().toLowerCase(),
+        password: _password.text.trim(),
+      );
+      final uid = credential.user!.uid;
+
+      // 2. Write Firestore profile using the Auth UID as document ID
+      //    Login reads: facilityDb.collection('users').doc(uid).get()
+      //    so the document ID MUST be the UID.
       await FirebaseConfig.facilityDb
           .collection('users')
-          .add({
+          .doc(uid)
+          .set({
+        'id':            uid,
         'name':          _name.text.trim(),
         'email':         _email.text.trim().toLowerCase(),
         'role':          _role,
@@ -505,7 +527,32 @@ class _AddStaffSheetState extends State<AddStaffSheet> {
         'created_at':    FieldValue.serverTimestamp(),
         'updated_at':    FieldValue.serverTimestamp(),
       });
+
+      // 3. Sign back in as the admin so they stay logged in
+      if (adminEmail.isNotEmpty && adminPassword.isNotEmpty) {
+        await FirebaseConfig.auth.signInWithEmailAndPassword(
+          email:    adminEmail,
+          password: adminPassword,
+        );
+      }
+
       if (mounted) Navigator.pop(context);
+    } on FirebaseAuthException catch (e) {
+      String msg;
+      switch (e.code) {
+        case 'email-already-in-use':
+          msg = 'An account with this email already exists.';
+          break;
+        case 'weak-password':
+          msg = 'Password must be at least 6 characters.';
+          break;
+        case 'invalid-email':
+          msg = 'Please enter a valid email address.';
+          break;
+        default:
+          msg = e.message ?? 'Failed to create account.';
+      }
+      setState(() { _error = msg; _busy = false; });
     } catch (e) {
       setState(() { _error = e.toString(); _busy = false; });
     }
@@ -533,13 +580,18 @@ class _AddStaffSheetState extends State<AddStaffSheet> {
             children: [
               const Text('Add Staff Member',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              Text(
+                'A login account will be created for this staff member.',
+                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+              ),
               const SizedBox(height: 20),
-              _field(_name,     'Full Name',          Icons.person_outline),
+              _field(_name,     'Full Name',               Icons.person_outline),
               const SizedBox(height: 12),
-              _field(_email,    'Email',               Icons.email_outlined,
+              _field(_email,    'Staff Email',              Icons.email_outlined,
                   type: TextInputType.emailAddress),
               const SizedBox(height: 12),
-              _field(_password, 'Temporary Password',  Icons.lock_outline,
+              _field(_password, 'Temporary Password',       Icons.lock_outline,
                   obscure: true),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
@@ -552,6 +604,16 @@ class _AddStaffSheetState extends State<AddStaffSheet> {
                 ],
                 onChanged: (v) => setState(() => _role = v!),
               ),
+              const SizedBox(height: 20),
+              const Divider(),
+              const SizedBox(height: 8),
+              Text(
+                'Your password (to stay logged in after creating the account)',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 8),
+              _field(_adminPassword, 'Your Password', Icons.admin_panel_settings_outlined,
+                  obscure: true),
               if (_error != null) ...[
                 const SizedBox(height: 10),
                 Text(_error!,
