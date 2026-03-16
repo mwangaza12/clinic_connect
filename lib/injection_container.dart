@@ -244,6 +244,7 @@ Future<void> init() async {
       searchPatientUsecase: sl(),
       getAllPatientsUsecase: sl(),
       getAllPatientsByFacilityUsecase: sl(),
+      authBloc: sl<AuthBloc>(), // This should now work
     ),
   );
 

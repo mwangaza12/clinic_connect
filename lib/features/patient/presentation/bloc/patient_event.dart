@@ -13,7 +13,7 @@ class LoadPatientsEvent extends PatientEvent {
 }
 
 class LoadPatientsByFacilityEvent extends PatientEvent {
-  const LoadPatientsByFacilityEvent();
+  const LoadPatientsByFacilityEvent({String? facilityId});
 }
 
 class RegisterPatientEvent extends PatientEvent {
