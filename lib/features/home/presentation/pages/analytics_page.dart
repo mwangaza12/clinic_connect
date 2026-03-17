@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../../../core/config/facility_info.dart';
+import '../../../../core/config/firebase_config.dart';
 import '../../../../core/database/database_helper.dart';
 import '../../../../core/database/schema.dart';
 import 'shell_widgets.dart';
@@ -20,6 +22,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
   late TabController _tabController;
   DateTimeRange? _selectedDateRange;
   final DatabaseHelper _db = DatabaseHelper();
+  final FacilityInfo _facilityInfo = FacilityInfo();
   
   Map<String, dynamic> _localStats = {};
   bool _isLoading = true;
@@ -27,7 +30,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _selectedDateRange = DateTimeRange(
       start: DateTime.now().subtract(const Duration(days: 30)),
       end: DateTime.now(),
@@ -46,6 +49,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
     setState(() => _isLoading = true);
     try {
       await _loadLocalData();
+      await _loadStaffData();
       setState(() => _isLoading = false);
     } catch (e) {
       debugPrint('Error loading analytics: $e');
@@ -69,6 +73,72 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
     
     if (mounted) {
       setState(() => _localStats = localStats);
+    }
+  }
+
+  Future<void> _loadStaffData() async {
+    try {
+      final facilityId = _facilityInfo.facilityId;
+      if (facilityId.isEmpty) return;
+
+      // FIXED: Use FirebaseConfig.facilityDb instead of FirebaseFirestore.instance
+      final snapshot = await FirebaseConfig.facilityDb
+          .collection('users')
+          .where('facility_id', isEqualTo: facilityId)
+          .get();
+
+      int totalStaff = snapshot.docs.length;
+      int doctors = 0;
+      int nurses = 0;
+      int admins = 0;
+      int activeStaff = 0;
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final role = data['role'] as String? ?? '';
+        final isActive = data['is_active'] as bool? ?? true;
+
+        if (isActive) activeStaff++;
+        
+        switch (role) {
+          case 'doctor':
+            doctors++;
+            break;
+          case 'nurse':
+            nurses++;
+            break;
+          case 'admin':
+            admins++;
+            break;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _localStats['staffStats'] = {
+            'total': totalStaff,
+            'doctors': doctors,
+            'nurses': nurses,
+            'admins': admins,
+            'active': activeStaff,
+            'inactive': totalStaff - activeStaff,
+          };
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading staff data: $e');
+      if (mounted) {
+        setState(() {
+          _localStats['staffStats'] = {
+            'total': 0,
+            'doctors': 0,
+            'nurses': 0,
+            'admins': 0,
+            'active': 0,
+            'inactive': 0,
+          };
+        });
+      }
     }
   }
 
@@ -226,16 +296,43 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
   }
 
   Future<void> _shareReport() async {
+    final patientStats = _localStats['patientStats'] as Map<String, dynamic>? ?? {};
+    final staffStats = _localStats['staffStats'] as Map<String, dynamic>? ?? {};
+    final referralStats = _localStats['referralStats'] as Map<String, dynamic>? ?? {};
+    final programStats = _localStats['programStats'] as Map<String, dynamic>? ?? {};
+    
+    final encounterTrends = _localStats['encounterTrends'] as List? ?? [];
+    final totalEncounters = encounterTrends.fold<int>(
+      0, 
+      (sum, item) => sum + (item['count'] as int? ?? 0)
+    );
+
     final text = '''
 ClinicConnect Analytics Report
 Date: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}
 Range: ${DateFormat('yyyy-MM-dd').format(_selectedDateRange!.start)} - ${DateFormat('yyyy-MM-dd').format(_selectedDateRange!.end)}
 
-Key Metrics:
-• Total Patients: ${_localStats['patientStats']?['total'] ?? 0}
-• Total Encounters: ${(_localStats['encounterTrends'] as List?)?.fold<int>(0, (sum, item) => sum + (item['count'] as int? ?? 0)) ?? 0}
-• Total Referrals: ${_localStats['referralStats']?['total'] ?? 0}
-• Program Enrollments: ${_localStats['programStats']?['total'] ?? 0}
+📊 KEY METRICS
+━━━━━━━━━━━━━━━━━━━━━━
+• Total Patients: ${patientStats['total'] ?? 0}
+• Total Encounters: $totalEncounters
+• Total Referrals: ${referralStats['total'] ?? 0}
+• Program Enrollments: ${programStats['total'] ?? 0}
+
+👥 STAFF SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━
+• Total Staff: ${staffStats['total'] ?? 0}
+• Active Staff: ${staffStats['active'] ?? 0}
+• Doctors: ${staffStats['doctors'] ?? 0}
+• Nurses: ${staffStats['nurses'] ?? 0}
+• Admins: ${staffStats['admins'] ?? 0}
+
+📈 REFERRAL STATUS
+━━━━━━━━━━━━━━━━━━━━━━
+• Pending: ${referralStats['pending'] ?? 0}
+• Accepted: ${referralStats['accepted'] ?? 0}
+• Completed: ${referralStats['completed'] ?? 0}
+• Rejected: ${referralStats['rejected'] ?? 0}
 ''';
 
     await Share.share(text, subject: 'ClinicConnect Analytics Report');
@@ -261,9 +358,11 @@ Key Metrics:
           indicatorColor: kPrimaryGreen,
           labelColor: kPrimaryGreen,
           unselectedLabelColor: Colors.grey[600],
+          isScrollable: true,
           tabs: const [
             Tab(text: 'Overview'),
             Tab(text: 'Patients'),
+            Tab(text: 'Staff'),
             Tab(text: 'Referrals'),
           ],
         ),
@@ -296,6 +395,9 @@ Key Metrics:
               _PatientsAnalyticsTab(
                 stats: _localStats,
               ),
+              _StaffAnalyticsTab(
+                stats: _localStats,
+              ),
               _ReferralsAnalyticsTab(
                 stats: _localStats,
               ),
@@ -319,6 +421,7 @@ class _OverviewTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final patientStats = stats['patientStats'] as Map<String, dynamic>? ?? {};
+    final staffStats = stats['staffStats'] as Map<String, dynamic>? ?? {};
     final encounterTrends = stats['encounterTrends'] as List<Map<String, dynamic>>? ?? [];
     final referralStats = stats['referralStats'] as Map<String, dynamic>? ?? {};
     final programStats = stats['programStats'] as Map<String, dynamic>? ?? {};
@@ -330,9 +433,7 @@ class _OverviewTab extends StatelessWidget {
 
     return RefreshIndicator(
       color: kPrimaryGreen,
-      onRefresh: () async {
-        // Refresh handled by parent
-      },
+      onRefresh: () async {},
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -360,7 +461,7 @@ class _OverviewTab extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
-            // Metric Cards
+            // Metric Cards - First Row
             Row(
               children: [
                 Expanded(child: _MetricCard(
@@ -371,28 +472,50 @@ class _OverviewTab extends StatelessWidget {
                 )),
                 const SizedBox(width: 12),
                 Expanded(child: _MetricCard(
+                  label: 'Staff',
+                  value: staffStats['total'] ?? 0,
+                  icon: Icons.badge_rounded,
+                  color: const Color(0xFF7C3AED),
+                )),
+              ],
+            ),
+            const SizedBox(height: 12),
+            
+            // Metric Cards - Second Row
+            Row(
+              children: [
+                Expanded(child: _MetricCard(
                   label: 'Encounters',
                   value: totalEncounters,
                   icon: Icons.medical_services_rounded,
                   color: Colors.teal,
                 )),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
+                const SizedBox(width: 12),
                 Expanded(child: _MetricCard(
                   label: 'Referrals',
                   value: referralStats['total'] ?? 0,
                   icon: Icons.swap_horiz_rounded,
                   color: Colors.orange,
                 )),
-                const SizedBox(width: 12),
+              ],
+            ),
+            const SizedBox(height: 12),
+            
+            // Metric Cards - Third Row
+            Row(
+              children: [
                 Expanded(child: _MetricCard(
                   label: 'Programs',
                   value: programStats['total'] ?? 0,
                   icon: Icons.assignment_turned_in_rounded,
-                  color: const Color(0xFF7C3AED),
+                  color: Colors.green,
+                )),
+                const SizedBox(width: 12),
+                Expanded(child: _MetricCard(
+                  label: 'Active Staff',
+                  value: staffStats['active'] ?? 0,
+                  icon: Icons.check_circle_rounded,
+                  color: Colors.green,
                 )),
               ],
             ),
@@ -418,7 +541,7 @@ class _OverviewTab extends StatelessWidget {
             const Text('Gender Distribution', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
             const SizedBox(height: 12),
             Container(
-              height: 200,
+              height: 220,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -436,7 +559,245 @@ class _OverviewTab extends StatelessWidget {
   }
 }
 
-// ─── Simple Line Chart ─────────────────────────────────────────────────────
+// ─── Staff Analytics Tab ──────────────────────────────────────────────
+
+class _StaffAnalyticsTab extends StatelessWidget {
+  final Map<String, dynamic> stats;
+
+  const _StaffAnalyticsTab({required this.stats});
+
+  @override
+  Widget build(BuildContext context) {
+    final staffStats = stats['staffStats'] as Map<String, dynamic>? ?? {};
+    final total = staffStats['total'] ?? 0;
+
+    if (total == 0) {
+      return const Center(child: Text('No staff data available'));
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Staff Summary Cards
+          Row(
+            children: [
+              Expanded(
+                child: _StaffSummaryCard(
+                  label: 'Total Staff',
+                  value: staffStats['total'] ?? 0,
+                  icon: Icons.people_rounded,
+                  color: Colors.blue,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _StaffSummaryCard(
+                  label: 'Active',
+                  value: staffStats['active'] ?? 0,
+                  icon: Icons.check_circle_rounded,
+                  color: Colors.green,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _StaffSummaryCard(
+                  label: 'Inactive',
+                  value: staffStats['inactive'] ?? 0,
+                  icon: Icons.block_rounded,
+                  color: Colors.orange,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _StaffSummaryCard(
+                  label: 'Doctors',
+                  value: staffStats['doctors'] ?? 0,
+                  icon: Icons.medical_services_rounded,
+                  color: Colors.blue,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Role Distribution
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Staff by Role',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                ),
+                const SizedBox(height: 16),
+                _buildRoleProgress('Doctors', staffStats['doctors'] ?? 0, total, Colors.blue),
+                const SizedBox(height: 16),
+                _buildRoleProgress('Nurses', staffStats['nurses'] ?? 0, total, Colors.teal),
+                const SizedBox(height: 16),
+                _buildRoleProgress('Admins', staffStats['admins'] ?? 0, total, const Color(0xFF7C3AED)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Active vs Inactive Pie Chart
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              children: [
+                const Text(
+                  'Staff Status',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  height: 200,
+                  child: _StaffStatusPieChart(
+                    active: staffStats['active'] ?? 0,
+                    inactive: staffStats['inactive'] ?? 0,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRoleProgress(String label, int count, int total, Color color) {
+    final percentage = total > 0 ? (count / total) * 100 : 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            Text(
+              '$count (${percentage.toStringAsFixed(1)}%)',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        LinearProgressIndicator(
+          value: percentage / 100,
+          backgroundColor: Colors.grey[200],
+          valueColor: AlwaysStoppedAnimation<Color>(color),
+          minHeight: 10,
+          borderRadius: BorderRadius.circular(5),
+        ),
+      ],
+    );
+  }
+}
+
+class _StaffSummaryCard extends StatelessWidget {
+  final String label;
+  final int value;
+  final IconData icon;
+  final Color color;
+
+  const _StaffSummaryCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value.toString(),
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+          ),
+          Text(
+            label,
+            style: TextStyle(color: Colors.grey[600], fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StaffStatusPieChart extends StatelessWidget {
+  final int active;
+  final int inactive;
+
+  const _StaffStatusPieChart({
+    required this.active,
+    required this.inactive,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final total = active + inactive;
+    if (total == 0) return const Center(child: Text('No data'));
+
+    return PieChart(
+      PieChartData(
+        sections: [
+          PieChartSectionData(
+            value: active.toDouble(),
+            title: 'Active\n$active',
+            color: Colors.green,
+            radius: 60,
+            titleStyle: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          PieChartSectionData(
+            value: inactive.toDouble(),
+            title: 'Inactive\n$inactive',
+            color: Colors.orange,
+            radius: 60,
+            titleStyle: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+        ],
+        sectionsSpace: 2,
+        centerSpaceRadius: 30,
+      ),
+    );
+  }
+}
+
+// ─── Line Chart ─────────────────────────────────────────────────────
 
 class _LineChart extends StatelessWidget {
   final List<Map<String, dynamic>> data;
@@ -487,7 +848,7 @@ class _LineChart extends StatelessWidget {
   }
 }
 
-// ─── Simple Pie Chart ──────────────────────────────────────────────────────
+// ─── Gender Pie Chart ──────────────────────────────────────────────────────
 
 class _GenderPieChart extends StatelessWidget {
   final int male;
@@ -507,19 +868,19 @@ class _GenderPieChart extends StatelessWidget {
             value: male.toDouble(),
             title: 'Male\n$male',
             color: Colors.blue,
-            radius: 80,
-            titleStyle: const TextStyle(fontSize: 12, color: Colors.white),
+            radius: 60,
+            titleStyle: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
           ),
           PieChartSectionData(
             value: female.toDouble(),
             title: 'Female\n$female',
             color: Colors.pink,
-            radius: 80,
-            titleStyle: const TextStyle(fontSize: 12, color: Colors.white),
+            radius: 60,
+            titleStyle: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
           ),
         ],
-        sectionsSpace: 0,
-        centerSpaceRadius: 40,
+        sectionsSpace: 2,
+        centerSpaceRadius: 30,
       ),
     );
   }
