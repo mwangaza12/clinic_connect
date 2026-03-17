@@ -288,22 +288,28 @@ class AdminStaffTab extends StatefulWidget {
 
 class _AdminStaffTabState extends State<AdminStaffTab> {
   String _filter = 'all';
-  Stream<QuerySnapshot>? _stream;   // nullable — built lazily on first build
+  late Stream<QuerySnapshot> _stream;  // Initialize in initState
 
-  Stream<QuerySnapshot> _buildStream() {
+  @override
+  void initState() {
+    super.initState();
+    _buildStream();
+  }
+
+  void _buildStream() {
     final fid = FacilityInfo().facilityId;
     var q = FirebaseConfig.facilityDb
         .collection('users')
         .where('facility_id', isEqualTo: fid);
     if (_filter != 'all') q = q.where('role', isEqualTo: _filter);
-    return q.orderBy('name').snapshots();
+    _stream = q.orderBy('name').snapshots();
   }
 
   void _setFilter(String f) {
-    if (_filter == f) return;           // no-op if same filter
+    if (_filter == f) return;
     setState(() {
       _filter = f;
-      _stream  = _buildStream();        // only rebuild when filter actually changes
+      _buildStream();  // Rebuild the stream with new filter
     });
   }
 
@@ -343,12 +349,37 @@ class _AdminStaffTabState extends State<AdminStaffTab> {
 
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
-            stream: _stream ??= _buildStream(),  // built once, reused on every rebuild
-            builder: (context, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
+            key: ValueKey(_filter), // Add key to force rebuild when filter changes
+            stream: _stream,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator.adaptive());
               }
-              final docs = snap.data?.docs ?? [];
+
+              if (snapshot.hasError) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.error_outline_rounded, size: 48, color: Colors.red[300]),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Error loading staff',
+                        style: TextStyle(color: Colors.red[700], fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        snapshot.error.toString(),
+                        style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              final docs = snapshot.data?.docs ?? [];
+              
               return ListView.separated(
                 padding: const EdgeInsets.all(16),
                 itemCount: docs.length + 1,
@@ -384,7 +415,6 @@ class _AdminStaffTabState extends State<AdminStaffTab> {
     );
   }
 }
-
 // ─── Staff card ───────────────────────────────────────────────────────────────
 
 class StaffCard extends StatelessWidget {
