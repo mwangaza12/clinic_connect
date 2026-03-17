@@ -14,6 +14,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   }) : super(AuthInitial()) {
     on<LoginRequested>(_onLoginRequested);
     on<LogoutRequested>(_onLogoutRequested);
+    on<OfflineLoginSuccess>(_onOfflineLoginSuccess);
+  }
+
+  Future<void> _onOfflineLoginSuccess(
+    OfflineLoginSuccess event,
+    Emitter<AuthState> emit,
+  ) async {
+    // Offline login — credentials already verified in LoginPage.
+    // Simply emit Authenticated with the restored user.
+    emit(Authenticated(event.user));
   }
 
   Future<void> _onLoginRequested(

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-// Required for blur effects
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'dart:convert';
 import '../../../../core/config/facility_info.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
 import '../../../../core/sync/connectivity_manager.dart';
+import '../../domain/entities/user.dart';
 
 class LoginPage extends StatelessWidget {
   const LoginPage({super.key});
@@ -27,18 +29,113 @@ class _LoginViewState extends State<LoginView> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _secureStorage = const FlutterSecureStorage();
   bool _obscurePassword = true;
   bool _isOnline = true;
+  bool _hasSavedCredentials = false;
 
   @override
   void initState() {
     super.initState();
     _checkConnectivity();
+    _checkSavedCredentials();
   }
 
   Future<void> _checkConnectivity() async {
     final online = await ConnectivityManager().checkConnectivity();
     if (mounted) setState(() => _isOnline = online);
+  }
+
+  Future<void> _checkSavedCredentials() async {
+    try {
+      final savedUser = await _secureStorage.read(key: 'offline_user');
+      if (savedUser != null && mounted) {
+        setState(() => _hasSavedCredentials = true);
+      }
+    } catch (e) {
+      debugPrint('Error checking saved credentials: $e');
+    }
+  }
+
+  Future<void> _saveCredentialsOffline(User user) async {
+    try {
+      // Save user data securely for offline login
+      final userJson = jsonEncode({
+        'id': user.id,
+        'email': user.email,
+        'name': user.name,
+        'role': user.role,
+        'facilityId': user.facilityId,
+        'facilityName': user.facilityName,
+        'lastLogin': DateTime.now().toIso8601String(),
+      });
+      await _secureStorage.write(key: 'offline_user', value: userJson);
+      await _secureStorage.write(key: 'offline_password', value: _passwordController.text);
+    } catch (e) {
+      debugPrint('Error saving offline credentials: $e');
+    }
+  }
+
+  Future<void> _offlineLogin() async {
+    try {
+      final savedUserJson = await _secureStorage.read(key: 'offline_user');
+      final savedPassword = await _secureStorage.read(key: 'offline_password');
+      
+      if (savedUserJson != null && savedPassword != null) {
+        final userData = jsonDecode(savedUserJson);
+        
+        // Verify password matches saved one
+        if (savedPassword == _passwordController.text) {
+          final user = User(
+            id: userData['id'],
+            email: userData['email'],
+            name: userData['name'],
+            role: userData['role'],
+            facilityId: userData['facilityId'],
+            facilityName: userData['facilityName'],
+          );
+          
+          // Set FacilityInfo
+          FacilityInfo().set(
+            facilityId: user.facilityId,
+            facilityName: user.facilityName,
+          );
+          
+          // Emit Authenticated state
+          if (mounted) {
+            context.read<AuthBloc>().add(OfflineLoginSuccess(user));
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Invalid offline credentials'),
+                backgroundColor: Colors.redAccent,
+              ),
+            );
+          }
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No saved offline session found'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Offline login error: $e');
+    }
+  }
+
+  Future<void> _clearOfflineCredentials() async {
+    await _secureStorage.delete(key: 'offline_user');
+    await _secureStorage.delete(key: 'offline_password');
+    if (mounted) {
+      setState(() => _hasSavedCredentials = false);
+    }
   }
 
   @override
@@ -50,12 +147,18 @@ class _LoginViewState extends State<LoginView> {
 
   void _login() {
     if (_formKey.currentState!.validate()) {
-      context.read<AuthBloc>().add(
-            LoginRequested(
-              email: _emailController.text.trim(),
-              password: _passwordController.text,
-            ),
-          );
+      if (!_isOnline) {
+        // Try offline login first
+        _offlineLogin();
+      } else {
+        // Online login
+        context.read<AuthBloc>().add(
+              LoginRequested(
+                email: _emailController.text.trim(),
+                password: _passwordController.text,
+              ),
+            );
+      }
     }
   }
 
@@ -67,7 +170,6 @@ class _LoginViewState extends State<LoginView> {
       backgroundColor: const Color(0xFFF1F5F9),
       body: BlocConsumer<AuthBloc, AuthState>(
         listener: (context, state) {
-
           if (state is AuthError) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -78,14 +180,16 @@ class _LoginViewState extends State<LoginView> {
               ),
             );
           }
-          // ✅ When login succeeds
+          
           if (state is Authenticated) {
+            // Save credentials for offline use when online login succeeds
+            _saveCredentialsOffline(state.user);
+            
             // Set the FacilityInfo singleton
             FacilityInfo().set(
               facilityId: state.user.facilityId,
               facilityName: state.user.facilityName,
             );
-            
           }
         },
         builder: (context, state) {
@@ -113,34 +217,56 @@ class _LoginViewState extends State<LoginView> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Offline Banner
-                          if (!_isOnline) ...[
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFF3CD),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: const Color(0xFFFFCA28), width: 1),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.wifi_off_rounded, color: Color(0xFF856404), size: 18),
-                                  const SizedBox(width: 10),
-                                  const Expanded(
-                                    child: Text(
-                                      'You are offline. You can still log in using your last saved session.',
-                                      style: TextStyle(
-                                        color: Color(0xFF856404),
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                          // Offline/Online Status Banner
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: _isOnline ? const Color(0xFFD4EDDA) : const Color(0xFFFFF3CD),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _isOnline ? const Color(0xFF28A745) : const Color(0xFFFFCA28),
+                                width: 1,
                               ),
                             ),
-                            const SizedBox(height: 24),
-                          ],
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                                  color: _isOnline ? const Color(0xFF155724) : const Color(0xFF856404),
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    _isOnline
+                                        ? 'You are online. Login with your credentials.'
+                                        : _hasSavedCredentials
+                                            ? 'You are offline. You can login using your saved session.'
+                                            : 'You are offline. No saved session found.',
+                                    style: TextStyle(
+                                      color: _isOnline ? const Color(0xFF155724) : const Color(0xFF856404),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                if (!_isOnline && _hasSavedCredentials)
+                                  TextButton(
+                                    onPressed: _clearOfflineCredentials,
+                                    style: TextButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      minimumSize: Size.zero,
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    child: const Text(
+                                      'Clear',
+                                      style: TextStyle(fontSize: 11, color: Color(0xFF856404)),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 24),
 
                           // Brand Logo Section
                           Center(
@@ -193,6 +319,10 @@ class _LoginViewState extends State<LoginView> {
                             keyboardType: TextInputType.emailAddress,
                             validator: (value) {
                               if (value == null || value.isEmpty) return 'Enter your email';
+                              if (!_isOnline && _hasSavedCredentials) {
+                                // Offline mode with saved credentials - email is optional for validation
+                                return null;
+                              }
                               if (!value.contains('@')) return 'Enter a valid email';
                               return null;
                             },
@@ -214,19 +344,50 @@ class _LoginViewState extends State<LoginView> {
                             ),
                             validator: (value) {
                               if (value == null || value.isEmpty) return 'Enter your password';
-                              if (value.length < 6) return 'Minimum 6 characters required';
                               return null;
                             },
                           ),
 
                           const SizedBox(height: 12),
+                          
+                          // Offline Mode Hint
+                          if (!_isOnline && _hasSavedCredentials)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE7F3FF),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.info_outline, color: Color(0xFF004085), size: 18),
+                                    SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Offline mode: Enter your password to access your last saved session.',
+                                        style: TextStyle(
+                                          color: Color(0xFF004085),
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+
                           Align(
                             alignment: Alignment.centerRight,
                             child: TextButton(
-                              onPressed: () {},
+                              onPressed: _isOnline ? () {} : null,
                               child: Text(
                                 'Forgot password?',
-                                style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                  color: _isOnline ? primaryColor : Colors.grey,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
                           ),
@@ -245,8 +406,37 @@ class _LoginViewState extends State<LoginView> {
                             ),
                             child: state is AuthLoading
                                 ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                : const Text('Login to Dashboard', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                : Text(
+                                    !_isOnline && _hasSavedCredentials ? 'Offline Login' : 'Login to Dashboard',
+                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                  ),
                           ),
+
+                          if (!_isOnline && !_hasSavedCredentials) ...[
+                            const SizedBox(height: 16),
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF8D7DA),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Column(
+                                children: [
+                                  Icon(Icons.error_outline, color: Color(0xFF721C24)),
+                                  SizedBox(height: 8),
+                                  Text(
+                                    'No offline session available. Please connect to the internet to login.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: Color(0xFF721C24),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
 
                           const SizedBox(height: 32),
                         ],
