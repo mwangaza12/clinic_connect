@@ -1,19 +1,4 @@
 // lib/core/sync/sync_manager.dart
-//
-// Two categories of queued items are processed on reconnect:
-//
-//   Firestore  (patient, encounter, referral, programEnrollment)
-//     → written to FirebaseConfig.facilityDb
-//
-//   HIE Gateway  (hiePatient, hieEncounter, hieReferral)
-//     → POSTed via BackendApiService to the facility backend,
-//       which proxies to the HIE gateway so AfyaChain blocks are
-//       minted even if the device was offline at the time of creation.
-//
-// A patient created offline therefore gets:
-//   1. SQLite record — immediately, always
-//   2. Firestore sync — on reconnect  (SyncEntityType.patient)
-//   3. NUPI minted on AfyaChain       (SyncEntityType.hiePatient)
 
 import 'dart:async';
 import 'dart:convert';
@@ -74,9 +59,6 @@ class SyncManager {
   }) async {
     final db = await _db.database;
 
-    // Replace any existing item for the same entity so Firestore
-    // writes are never doubled. HIE items use a unique entityId
-    // (hie_<uuid>) and never collide with Firestore items.
     await db.delete('sync_queue',
         where: 'entity_id = ? AND entity_type = ?',
         whereArgs: [entityId, entityType.name]);
@@ -117,7 +99,8 @@ class SyncManager {
     if (!await _connectivity.checkConnectivity()) return;
 
     _isSyncing = true;
-    _emitStatus(isSyncing: true);
+    final freshCountAtStart = await _pendingCountFromDb();
+    _emitStatus(isSyncing: true, pendingCount: freshCountAtStart);
 
     final db = await _db.database;
 
@@ -127,12 +110,13 @@ class SyncManager {
 
       if (rows.isEmpty) {
         _isSyncing = false;
-        _emitStatus(isSyncing: false);
+        final count = await _pendingCountFromDb();
+        _emitStatus(isSyncing: false, pendingCount: count);
         return;
       }
 
-      // ── Phase 1: HIE items first (hiePatient gets real NUPI before
-      //    Firestore sync writes the patient document) ─────────────
+      // Phase 1: HIE items first — patient gets real NUPI before
+      // Firestore sync writes the patient document.
       final hieItems = rows
           .map(SyncQueueItem.fromMap)
           .where((i) =>
@@ -141,7 +125,7 @@ class SyncManager {
               i.entityType == SyncEntityType.hieReferral)
           .toList();
 
-      // ── Phase 2: Firestore items ────────────────────────────────
+      // Phase 2: Firestore items
       final firestoreItems = rows
           .map(SyncQueueItem.fromMap)
           .where((i) =>
@@ -164,18 +148,30 @@ class SyncManager {
               where: 'id = ?', whereArgs: [item.id]);
           failCount++;
         }
+
+        // Live count update after every item
+        final liveCount = await _pendingCountFromDb();
+        _emitStatus(pendingCount: liveCount, isSyncing: true);
       }
 
+      final finalCount = await _pendingCountFromDb();
       _emitStatus(
-        isSyncing:  false,
-        lastSyncAt: DateTime.now(),
-        lastError:  failCount > 0 ? '$failCount item(s) failed to sync' : null,
+        isSyncing:    false,
+        pendingCount: finalCount,
+        lastSyncAt:   DateTime.now(),
+        lastError:    failCount > 0
+            ? '$failCount item(s) failed to sync'
+            : null,
       );
     } catch (e) {
-      _emitStatus(isSyncing: false, lastError: 'Sync error: $e');
+      final countOnError = await _pendingCountFromDb();
+      _emitStatus(
+        isSyncing:    false,
+        pendingCount: countOnError,
+        lastError:    'Sync error: $e',
+      );
     } finally {
       _isSyncing = false;
-      await _updatePendingCount();
     }
   }
 
@@ -198,6 +194,13 @@ class SyncManager {
 
   Future<bool> _syncFirestore(SyncQueueItem item) async {
     try {
+      // KEY FIX: ensure anonymous auth is active before every Firestore write.
+      // On cold start, signInAnonymously() may have failed because the device
+      // hadn't established network yet. This call retries it so by the time
+      // the sync queue processes Firestore items, auth.currentUser != null
+      // and Firestore rules pass.
+      await FirebaseConfig.ensureAnonymousAuth();
+
       final fs  = FirebaseConfig.facilityDb;
       final col = _firestoreCollection(item.entityType);
 
@@ -206,13 +209,16 @@ class SyncManager {
         case SyncOperation.update:
           await fs.collection(col).doc(item.entityId)
               .set(_toFirestorePayload(item.payload), SetOptions(merge: true));
+          debugPrint('[Sync] ✔ Firestore write: $col/${item.entityId}');
           break;
         case SyncOperation.delete:
           await fs.collection(col).doc(item.entityId).delete();
+          debugPrint('[Sync] ✔ Firestore delete: $col/${item.entityId}');
           break;
       }
       return true;
     } catch (e) {
+      debugPrint('[Sync] ✘ Firestore failed (${item.entityType.name}): $e');
       await _recordError(item, e);
       return false;
     }
@@ -230,10 +236,6 @@ class SyncManager {
 
   // ── HIE Gateway paths ──────────────────────────────────────────
 
-  /// Registers the patient on AfyaChain and gets the real NUPI back.
-  /// If the offline-generated local NUPI differs from the real one,
-  /// updates SQLite, the pending Firestore sync queue payload, and
-  /// pushes the corrected NUPI directly to Firestore.
   Future<bool> _syncHiePatient(SyncQueueItem item) async {
     try {
       final p       = item.payload;
@@ -262,17 +264,8 @@ class SyncManager {
         final localNupi = p['localNupi'] as String? ?? '';
 
         if (realNupi.isNotEmpty && localNupi != realNupi) {
-          // 1. Replace PENDING- NUPI in all SQLite tables
           await _replaceLocalNupi(localNupi, realNupi);
-
-          // 2. Update any pending Firestore sync queue items that still
-          //    carry the old PENDING- NUPI in their payload, so when they
-          //    flush they write the correct NUPI to Firestore.
           await _fixNupiInSyncQueue(localNupi, realNupi);
-
-          // 3. Push the corrected NUPI directly to Firestore now —
-          //    the Firestore patient document may already exist with the
-          //    wrong PENDING- NUPI if the Firestore sync ran first.
           await _fixNupiInFirestore(localNupi, realNupi);
         }
 
@@ -288,20 +281,16 @@ class SyncManager {
     }
   }
 
-  /// Updates the payload of any pending sync_queue rows that contain
-  /// the old PENDING- NUPI, so they flush with the correct NUPI.
   Future<void> _fixNupiInSyncQueue(
       String localNupi, String realNupi) async {
     try {
       final db   = await _db.database;
-      final rows = await db.query('sync_queue',
-          where: 'attempts < 3');
+      final rows = await db.query('sync_queue', where: 'attempts < 3');
 
       for (final row in rows) {
         final payloadStr = row['payload'] as String? ?? '';
         if (!payloadStr.contains(localNupi)) continue;
 
-        // Replace all occurrences of the old NUPI in the JSON payload
         final updated = payloadStr.replaceAll(localNupi, realNupi);
         await db.update(
           'sync_queue',
@@ -317,21 +306,19 @@ class SyncManager {
     }
   }
 
-  /// Patches any Firestore patient document that was already written
-  /// with the PENDING- NUPI so it gets the real NUPI.
   Future<void> _fixNupiInFirestore(
       String localNupi, String realNupi) async {
     try {
+      await FirebaseConfig.ensureAnonymousAuth();
       final fs = FirebaseConfig.facilityDb;
 
-      // Find the document by the old PENDING- NUPI
       final snap = await fs
           .collection('patients')
           .where('nupi', isEqualTo: localNupi)
           .limit(1)
           .get();
 
-      if (snap.docs.isEmpty) return; // not yet synced — queue fix handles it
+      if (snap.docs.isEmpty) return;
 
       await snap.docs.first.reference.update({'nupi': realNupi});
       debugPrint('[Sync] ✔ Firestore patient NUPI patched '
@@ -404,25 +391,21 @@ class SyncManager {
 
   // ── Helpers ────────────────────────────────────────────────────
 
-  /// Replaces an offline-generated NUPI with the real one from the gateway
-  /// across all local tables that reference it.
   Future<void> _replaceLocalNupi(String localNupi, String realNupi) async {
     try {
       final db = await _db.database;
-      await db.update('patients',  {'nupi': realNupi},
-          where: 'nupi = ?',         whereArgs: [localNupi]);
+      await db.update('patients',   {'nupi': realNupi},
+          where: 'nupi = ?',          whereArgs: [localNupi]);
       await db.update('encounters', {'patient_nupi': realNupi},
-          where: 'patient_nupi = ?', whereArgs: [localNupi]);
+          where: 'patient_nupi = ?',  whereArgs: [localNupi]);
       await db.update('referrals',  {'patient_nupi': realNupi},
-          where: 'patient_nupi = ?', whereArgs: [localNupi]);
+          where: 'patient_nupi = ?',  whereArgs: [localNupi]);
       debugPrint('[Sync] ✔ NUPI updated $localNupi → $realNupi');
     } catch (e) {
       debugPrint('[Sync] ⚠ NUPI replace error: $e');
     }
   }
 
-  /// Only Firestore entities have a SQLite row whose sync_status
-  /// should be stamped 'synced'. HIE entities have no such row.
   Future<void> _markSynced(SyncQueueItem item) async {
     const firestoreTypes = {
       SyncEntityType.patient,
@@ -468,13 +451,20 @@ class SyncManager {
     return out;
   }
 
-  Future<void> _updatePendingCount() async {
+  Future<int> _pendingCountFromDb() async {
     try {
       final db     = await _db.database;
       final result = await db.rawQuery(
           'SELECT COUNT(*) as count FROM sync_queue WHERE attempts < 3');
-      _emitStatus(pendingCount: result.first['count'] as int);
-    } catch (_) {}
+      return result.first['count'] as int;
+    } catch (_) {
+      return _currentStatus.pendingCount;
+    }
+  }
+
+  Future<void> _updatePendingCount() async {
+    final count = await _pendingCountFromDb();
+    _emitStatus(pendingCount: count);
   }
 
   void _emitStatus({
@@ -489,7 +479,9 @@ class SyncManager {
       lastSyncAt:   lastSyncAt   ?? _currentStatus.lastSyncAt,
       lastError:    lastError,
     );
-    _syncStatusController.add(_currentStatus);
+    if (!_syncStatusController.isClosed) {
+      _syncStatusController.add(_currentStatus);
+    }
   }
 
   Future<void> syncNow() => _processQueue();

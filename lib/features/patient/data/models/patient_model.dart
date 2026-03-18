@@ -50,11 +50,11 @@ class PatientModel extends Patient {
       village: json['village'] ?? '',
       bloodGroup: json['blood_group'],
       facilityId: json['facility_id'] ?? '',
-      allergies: json['allergies'] != null 
-          ? List<String>.from(json['allergies'] as List) 
+      allergies: json['allergies'] != null
+          ? List<String>.from(json['allergies'] as List)
           : [],
-      chronicConditions: json['chronic_conditions'] != null 
-          ? List<String>.from(json['chronic_conditions'] as List) 
+      chronicConditions: json['chronic_conditions'] != null
+          ? List<String>.from(json['chronic_conditions'] as List)
           : [],
       nextOfKinName: json['next_of_kin_name'],
       nextOfKinPhone: json['next_of_kin_phone'],
@@ -156,6 +156,74 @@ class PatientModel extends Patient {
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
+  }
+
+  // ─────────────────────────────────────────
+  // TO JSON — generic serialisable map
+  // Safe for SyncManager queue, REST payloads, and jsonEncode().
+  // Dates → ISO-8601 strings, lists → plain List<String> (no Timestamps).
+  // SyncManager uses this when writing the Firebase patient sync payload.
+  // ─────────────────────────────────────────
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'nupi': nupi,
+      'first_name': firstName,
+      'middle_name': middleName,
+      'last_name': lastName,
+      'gender': gender,
+      'date_of_birth': dateOfBirth.toIso8601String(),
+      'phone_number': phoneNumber,
+      'email': email,
+      'county': county,
+      'sub_county': subCounty,
+      'ward': ward,
+      'village': village,
+      'blood_group': bloodGroup,
+      'facility_id': facilityId,
+      'allergies': allergies,               // plain List<String> — no jsonEncode
+      'chronic_conditions': chronicConditions,
+      'next_of_kin_name': nextOfKinName,
+      'next_of_kin_phone': nextOfKinPhone,
+      'next_of_kin_relationship': nextOfKinRelationship,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
+    };
+  }
+
+  // ─────────────────────────────────────────
+  // FROM JSON — inverse of toJson()
+  // Accepts the same plain-map format (ISO-8601 strings, plain lists).
+  // ─────────────────────────────────────────
+  factory PatientModel.fromJson(Map<String, dynamic> json) {
+    return PatientModel(
+      id: json['id'] ?? '',
+      nupi: json['nupi'] ?? '',
+      firstName: json['first_name'] ?? '',
+      middleName: json['middle_name'] ?? '',
+      lastName: json['last_name'] ?? '',
+      gender: json['gender'] ?? '',
+      dateOfBirth: DateTime.parse(json['date_of_birth'] as String),
+      phoneNumber: json['phone_number'] ?? '',
+      email: json['email'] as String?,
+      county: json['county'] ?? '',
+      subCounty: json['sub_county'] ?? '',
+      ward: json['ward'] ?? '',
+      village: json['village'] ?? '',
+      bloodGroup: json['blood_group'] as String?,
+      facilityId: json['facility_id'] ?? '',
+      allergies: json['allergies'] != null
+          ? List<String>.from(json['allergies'] as List)
+          : [],
+      chronicConditions: json['chronic_conditions'] != null
+          ? List<String>.from(json['chronic_conditions'] as List)
+          : [],
+      nextOfKinName: json['next_of_kin_name'] as String?,
+      nextOfKinPhone: json['next_of_kin_phone'] as String?,
+      nextOfKinRelationship: json['next_of_kin_relationship'] as String?,
+      createdAt: DateTime.parse(json['created_at'] as String),
+      updatedAt: DateTime.parse(json['updated_at'] as String),
+    );
   }
 
   // ─────────────────────────────────────────

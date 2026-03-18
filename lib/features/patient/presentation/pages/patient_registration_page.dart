@@ -1,5 +1,7 @@
 // lib/features/patient/presentation/pages/patient_registration_page.dart
 
+import 'dart:io'; // SocketException, HandshakeException
+import 'package:dio/dio.dart'; // DioException, DioExceptionType
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
@@ -166,10 +168,168 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         .showSnackBar(SnackBar(content: Text(msg), backgroundColor: color));
   }
 
+  // ── Offline detection ─────────────────────────────────────────
+  //
+  // ROOT CAUSE (confirmed by logs):
+  //   e  = DioException [connection error]        ← what catch receives
+  //   e.error = SocketException: Failed host lookup  ← the real cause, wrapped
+  //
+  // `e is SocketException` never fired because e IS a DioException.
+  // We must check DioException.type first, then unwrap .error.
+
+  bool _isOfflineError(Object e) {
+    // 1. DioException — check the enum type AND unwrap the inner error
+    if (e is DioException) {
+      switch (e.type) {
+        case DioExceptionType.connectionError:   // Failed host lookup, refused
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.sendTimeout:
+        case DioExceptionType.receiveTimeout:
+          return true;
+        default:
+          break;
+      }
+      // Inner error is the raw SocketException / HandshakeException
+      final inner = e.error;
+      if (inner is SocketException)    return true;
+      if (inner is HandshakeException) return true;
+    }
+
+    // 2. Bare Dart I/O exceptions (non-Dio code paths)
+    if (e is SocketException)    return true;
+    if (e is HandshakeException) return true;
+
+    // 3. BackendApiService not yet initialised
+    if (e is StateError) return true;
+
+    // 4. Last-resort string match (future-proofs against Dio version changes)
+    final msg = e.toString().toLowerCase();
+    return msg.contains('failed host lookup')    ||
+           msg.contains('no address associated') ||  // matches your exact log
+           msg.contains('connection refused')    ||
+           msg.contains('connection timed out')  ||
+           msg.contains('network is unreachable');
+  }
+
+  // ── Shared Patient builder ────────────────────────────────────
+
+  Patient _buildPatient({
+    required String nupi,
+    required String facilityId,
+  }) {
+    return Patient(
+      id:           const Uuid().v4(),
+      nupi:         nupi,
+      firstName:    _firstNameController.text.trim(),
+      middleName:   _middleNameController.text.trim(),
+      lastName:     _lastNameController.text.trim(),
+      gender:       _gender,
+      dateOfBirth:  _dateOfBirth!,
+      phoneNumber:  _phoneController.text.trim(),
+      email:        _emailController.text.trim().isEmpty
+                        ? null : _emailController.text.trim(),
+      county:       _countyController.text.trim(),
+      subCounty:    _subCountyController.text.trim(),
+      ward:         _wardController.text.trim(),
+      village:      _villageController.text.trim(),
+      bloodGroup:   _bloodGroup,
+      facilityId:   facilityId,
+      allergies:    const [],
+      chronicConditions: const [],
+      nextOfKinName: _nextOfKinNameController.text.trim().isEmpty
+                         ? null : _nextOfKinNameController.text.trim(),
+      nextOfKinPhone: _nextOfKinPhoneController.text.trim().isEmpty
+                          ? null : _nextOfKinPhoneController.text.trim(),
+      nextOfKinRelationship: _nextOfKinRelationship,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  // ── Offline save + dual sync enqueue ─────────────────────────
+
+  Future<void> _savePatientOffline({
+    required String facilityId,
+    required String dob,
+  }) async {
+    if (_dateOfBirth == null) {
+      if (mounted) _showSnack('Date of birth is missing', color: Colors.red);
+      if (mounted) setState(() => _isSubmitting = false);
+      return;
+    }
+
+    final shortId     = const Uuid().v4().substring(0, 8).toUpperCase();
+    final pendingNupi = 'PENDING-$shortId';
+    final patient     = _buildPatient(nupi: pendingNupi, facilityId: facilityId);
+
+    // 1️⃣ SQLite — patient appears in the list immediately
+    try {
+      final localDs = sl<PatientLocalDatasource>();
+      await localDs.savePatient(PatientModel.fromEntity(patient));
+      debugPrint('[Registration] Saved offline → SQLite  NUPI: $pendingNupi');
+    } catch (saveErr) {
+      debugPrint('[Registration] SQLite save error: $saveErr');
+      if (mounted) {
+        _showSnack('Could not save locally: $saveErr', color: Colors.red);
+        setState(() => _isSubmitting = false);
+      }
+      return;
+    }
+
+    final hiePayload = {
+      'localNupi':        pendingNupi,
+      'nationalId':       _nationalIdController.text.trim(),
+      'firstName':        _firstNameController.text.trim(),
+      'lastName':         _lastNameController.text.trim(),
+      'middleName':       _middleNameController.text.trim().isEmpty
+                              ? null : _middleNameController.text.trim(),
+      'dateOfBirth':      dob,
+      'gender':           _gender,
+      'phoneNumber':      _phoneController.text.trim(),
+      'email':            _emailController.text.trim().isEmpty
+                              ? null : _emailController.text.trim(),
+      'securityQuestion': _selectedSecurityQuestion,
+      'securityAnswer':   _securityAnswerController.text.trim(),
+      'pin':              _pinController.text.trim(),
+      'address': {
+        'county':    _countyController.text.trim(),
+        'subCounty': _subCountyController.text.trim(),
+        'ward':      _wardController.text.trim(),
+        'village':   _villageController.text.trim(),
+      },
+    };
+
+    // 2️⃣ Firestore sync — sends the patient record to Firebase on reconnect
+    await SyncManager().enqueue(
+      entityType: SyncEntityType.patient,
+      entityId:   patient.id,
+      operation:  SyncOperation.create,
+      payload:    PatientModel.fromEntity(patient).toJson(),
+    );
+
+    // 3️⃣ HIE sync — registers patient on AfyaChain on reconnect
+    await SyncManager().enqueue(
+      entityType: SyncEntityType.hiePatient,
+      entityId:   'hie_${patient.id}',
+      operation:  SyncOperation.create,
+      payload:    hiePayload,
+    );
+
+    if (mounted) {
+      setState(() => _isSubmitting = false);
+      _showSnack(
+        '📴 Saved offline — will sync to AfyaNet when back online.',
+        color: const Color(0xFF1B4332),
+      );
+      Navigator.of(context).pop();
+    }
+  }
+
   // ── Registration ──────────────────────────────────────────────
 
   Future<void> _registerPatient() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_dateOfBirth == null) { _showSnack('Date of birth is required'); return; }
 
     final authState = context.read<AuthBloc>().state;
     if (authState is! Authenticated) {
@@ -179,28 +339,31 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
 
     setState(() => _isSubmitting = true);
 
-    // Declared outside try so catch block can access it for offline HIE enqueue
-    final dob = _dateOfBirth != null
-        ? DateFormat('yyyy-MM-dd').format(_dateOfBirth!)
-        : '';
+    final facilityId = authState.user.facilityId;
+    final dob = DateFormat('yyyy-MM-dd').format(_dateOfBirth!);
+
+    // Init wrapped separately — a failure here means offline, not a code bug.
+    BackendApiService? backend;
+    try {
+      backend = await BackendApiService.instanceAsync;
+    } catch (initErr) {
+      debugPrint('[Registration] BackendApiService init failed: $initErr');
+      await _savePatientOffline(facilityId: facilityId, dob: dob);
+      return;
+    }
 
     try {
-      final facilityId = authState.user.facilityId;
-
-      final backend = await BackendApiService.instanceAsync;
       final hieResult = await backend.registerPatient(
         nationalId:       _nationalIdController.text.trim(),
         firstName:        _firstNameController.text.trim(),
         lastName:         _lastNameController.text.trim(),
         middleName:       _middleNameController.text.trim().isEmpty
-                              ? null
-                              : _middleNameController.text.trim(),
+                              ? null : _middleNameController.text.trim(),
         dateOfBirth:      dob,
         gender:           _gender,
         phoneNumber:      _phoneController.text.trim(),
         email:            _emailController.text.trim().isEmpty
-                              ? null
-                              : _emailController.text.trim(),
+                              ? null : _emailController.text.trim(),
         address: {
           'county':    _countyController.text.trim(),
           'subCounty': _subCountyController.text.trim(),
@@ -212,23 +375,20 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         pin:              _pinController.text.trim(),
       );
 
-      final _failShort = const Uuid().v4().substring(0, 8).toUpperCase();
-      final nupi = hieResult.nupi ??
-          (hieResult.success ? _generateLocalNupi() : 'PENDING-$_failShort');
+      final shortId       = const Uuid().v4().substring(0, 8).toUpperCase();
+      final nupi          = hieResult.nupi ??
+          (hieResult.success ? _generateLocalNupi() : 'PENDING-$shortId');
       final alreadyExists = hieResult.data?['alreadyExists'] == true;
+      final blockIndex    = hieResult.data?['blockIndex'];
 
-      // blockIndex is returned at the TOP LEVEL of the backend response,
-      // not nested inside data — BackendResult.data IS the full body map.
-      final blockIndex = hieResult.data?['blockIndex'];
-
-      // ── Duplicate guard ───────────────────────────────────────────
+      // ── Duplicate guard ──────────────────────────────────────────────────
       if (alreadyExists) {
         final localDs  = sl<PatientLocalDatasource>();
         final existing = await localDs.getPatientByNupi(nupi);
 
         if (existing != null && mounted) {
           _showSnack(
-            'This patient is already registered here (NUPI: $nupi)',
+            'Patient already registered here (NUPI: $nupi)',
             color: Colors.orange,
           );
           Navigator.of(context).pop();
@@ -248,59 +408,25 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
               : '✓ Patient registered on AfyaNet',
           color: const Color(0xFF1B4332),
         );
-      } else if (!hieResult.success && mounted) {
-        // Show the REAL error from the backend so it's diagnosable,
-        // not a misleading "HIE unreachable" message.
+      } else if (!hieResult.success) {
+        // Real backend validation error — do NOT save locally
         debugPrint('[Registration] Backend error: ${hieResult.error}');
-        _showSnack(
-          'Registration failed: ${hieResult.error ?? 'Unknown error'}',
-          color: Colors.red,
-        );
-        // Don't save locally — this is a real backend error (validation,
-        // credentials, etc.) not an offline situation. Return early so we
-        // don't create a phantom local record with a PENDING- NUPI.
+        if (mounted) {
+          _showSnack(
+            'Registration failed: ${hieResult.error ?? "Unknown error"}',
+            color: Colors.red,
+          );
+        }
         return;
       }
 
-      // Save locally — using NUPI as dedup key so ConflictAlgorithm.replace
-      // in SQLite and Firestore .set() are both idempotent
-      final patient = Patient(
-        id:           const Uuid().v4(),
-        nupi:         nupi,
-        firstName:    _firstNameController.text.trim(),
-        middleName:   _middleNameController.text.trim(),
-        lastName:     _lastNameController.text.trim(),
-        gender:       _gender,
-        dateOfBirth:  _dateOfBirth!,
-        phoneNumber:  _phoneController.text.trim(),
-        email:        _emailController.text.trim().isEmpty
-                          ? null
-                          : _emailController.text.trim(),
-        county:       _countyController.text.trim(),
-        subCounty:    _subCountyController.text.trim(),
-        ward:         _wardController.text.trim(),
-        village:      _villageController.text.trim(),
-        bloodGroup:   _bloodGroup,
-        facilityId:   facilityId,
-        allergies:    const [],
-        chronicConditions: const [],
-        nextOfKinName: _nextOfKinNameController.text.trim().isEmpty
-                           ? null
-                           : _nextOfKinNameController.text.trim(),
-        nextOfKinPhone: _nextOfKinPhoneController.text.trim().isEmpty
-                            ? null
-                            : _nextOfKinPhoneController.text.trim(),
-        nextOfKinRelationship: _nextOfKinRelationship,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
-
+      // ── Save locally + dispatch to PatientBloc (online path) ────────────
+      final patient = _buildPatient(nupi: nupi, facilityId: facilityId);
       if (mounted) {
         context.read<PatientBloc>().add(RegisterPatientEvent(patient));
       }
 
-      // When HIE registration fails online (non-exception path), enqueue
-      // for automatic retry so the patient reaches AfyaChain.
+      // Enqueue HIE retry if NUPI was not minted online
       if (!hieResult.success || hieResult.nupi == null) {
         await SyncManager().enqueue(
           entityType: SyncEntityType.hiePatient,
@@ -332,108 +458,24 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
       }
 
     } catch (e) {
-      debugPrint('[Registration] offline catch: $e');
+      debugPrint('[Registration] catch: $e');
 
-      final isNetworkError = e.toString().toLowerCase().contains('socket')   ||
-          e.toString().toLowerCase().contains('connection') ||
-          e.toString().toLowerCase().contains('dio')        ||
-          e.toString().toLowerCase().contains('network')    ||
-          e.toString().toLowerCase().contains('host')       ||
-          e.toString().toLowerCase().contains('stateerror') || // BackendApiService not init
-          e.toString().toLowerCase().contains('timeout');
+      if (_isOfflineError(e)) {
+        await _savePatientOffline(facilityId: facilityId, dob: dob);
+        return; // _savePatientOffline owns setState + Navigator.pop
+      }
 
-      if (isNetworkError && mounted) {
-        final authState = context.read<AuthBloc>().state;
-        if (authState is! Authenticated) return;
-
-        final shortId = const Uuid().v4().substring(0, 8).toUpperCase();
-        final pendingNupi = 'PENDING-$shortId';
-
-        final patient = Patient(
-          id:           const Uuid().v4(),
-          nupi:         pendingNupi,
-          firstName:    _firstNameController.text.trim(),
-          middleName:   _middleNameController.text.trim(),
-          lastName:     _lastNameController.text.trim(),
-          gender:       _gender,
-          dateOfBirth:  _dateOfBirth!,
-          phoneNumber:  _phoneController.text.trim(),
-          email:        _emailController.text.trim().isEmpty
-                            ? null : _emailController.text.trim(),
-          county:       _countyController.text.trim(),
-          subCounty:    _subCountyController.text.trim(),
-          ward:         _wardController.text.trim(),
-          village:      _villageController.text.trim(),
-          bloodGroup:   _bloodGroup,
-          facilityId:   authState.user.facilityId,
-          allergies:    const [],
-          chronicConditions: const [],
-          nextOfKinName: _nextOfKinNameController.text.trim().isEmpty
-                             ? null : _nextOfKinNameController.text.trim(),
-          nextOfKinPhone: _nextOfKinPhoneController.text.trim().isEmpty
-                              ? null : _nextOfKinPhoneController.text.trim(),
-          nextOfKinRelationship: _nextOfKinRelationship,
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-        );
-
-        try {
-          // Save directly to SQLite — bypasses PatientBloc so there's no
-          // async listener chain that can fail to navigate.
-          final localDs = sl<PatientLocalDatasource>();
-          await localDs.savePatient(PatientModel.fromEntity(patient));
-        } catch (saveErr) {
-          debugPrint('[Registration] SQLite save error: $saveErr');
-        }
-
-        // Enqueue HIE sync — runs when connectivity returns
-        await SyncManager().enqueue(
-          entityType: SyncEntityType.hiePatient,
-          entityId:   'hie_${patient.id}',
-          operation:  SyncOperation.create,
-          payload: {
-            'localNupi':        pendingNupi,
-            'nationalId':       _nationalIdController.text.trim(),
-            'firstName':        _firstNameController.text.trim(),
-            'lastName':         _lastNameController.text.trim(),
-            'middleName':       _middleNameController.text.trim().isEmpty
-                                    ? null : _middleNameController.text.trim(),
-            'dateOfBirth':      dob,
-            'gender':           _gender,
-            'phoneNumber':      _phoneController.text.trim(),
-            'email':            _emailController.text.trim().isEmpty
-                                    ? null : _emailController.text.trim(),
-            'securityQuestion': _selectedSecurityQuestion,
-            'securityAnswer':   _securityAnswerController.text.trim(),
-            'pin':              _pinController.text.trim(),
-            'address': {
-              'county':    _countyController.text.trim(),
-              'subCounty': _subCountyController.text.trim(),
-              'ward':      _wardController.text.trim(),
-              'village':   _villageController.text.trim(),
-            },
-          },
-        );
-
-        // Navigate back immediately — don't wait for PatientBloc listener.
-        // The patient is already in SQLite and will appear in the list.
-        if (mounted) {
-          setState(() => _isSubmitting = false);
-          _showSnack(
-            '📴 Saved offline — NUPI will be assigned when back online.',
-            color: const Color(0xFF1B4332),
-          );
-          Navigator.of(context).pop();
-        }
-        return; // skip the finally setState — already done above
-      } else if (mounted) {
+      if (mounted) {
         _showSnack(
           'Registration error: ${e.toString().split('\n').first}',
           color: Colors.red,
         );
       }
     } finally {
-      if (mounted) setState(() => _isSubmitting = false);
+      // Only reset if _savePatientOffline didn't already do it
+      if (mounted && _isSubmitting) {
+        setState(() => _isSubmitting = false);
+      }
     }
   }
 
@@ -708,7 +750,8 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
                       ? 'Select Date of Birth'
                       : DateFormat('dd MMM yyyy').format(_dateOfBirth!),
                   style: TextStyle(
-                      color: _dateOfBirth == null ? Colors.grey[400] : const Color(0xFF0F172A),
+                      color: _dateOfBirth == null
+                          ? Colors.grey[400] : const Color(0xFF0F172A),
                       fontSize: 14),
                 ),
               ]),
@@ -817,9 +860,12 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 side: BorderSide(color: primaryDark),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
               ),
-              child: Text('Back', style: TextStyle(color: primaryDark, fontWeight: FontWeight.w600)),
+              child: Text('Back',
+                  style: TextStyle(
+                      color: primaryDark, fontWeight: FontWeight.w600)),
             ),
           ),
           const SizedBox(width: 12),
@@ -832,14 +878,18 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
               backgroundColor: primaryDark,
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
               elevation: 0,
             ),
             child: isLoading
-                ? const SizedBox(width: 20, height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                ? const SizedBox(
+                    width: 20, height: 20,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
                 : Text(isLast ? 'Register Patient' : 'Next',
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 16)),
           ),
         ),
       ]),
@@ -877,7 +927,8 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
           const SizedBox(width: 8),
           Text(label, style: TextStyle(
               color: selected ? primaryDark : Colors.grey[600],
-              fontWeight: selected ? FontWeight.w700 : FontWeight.normal)),
+              fontWeight:
+                  selected ? FontWeight.w700 : FontWeight.normal)),
         ]),
       ),
     );
@@ -888,10 +939,13 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
       Icon(icon, color: accentGreen, size: 18),
       const SizedBox(width: 8),
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700,
-            color: primaryDark)),
+        Text(title,
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700,
+                color: primaryDark)),
         if (subtitle != null)
-          Text(subtitle, style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+          Text(subtitle,
+              style: const TextStyle(
+                  fontSize: 11, color: Color(0xFF94A3B8))),
       ]),
     ]);
   }
@@ -917,13 +971,17 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         filled:    true,
         fillColor: Colors.white,
         counterText: '',
-        border:        OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
             borderSide: BorderSide(color: accentGreen, width: 2)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
     );
   }

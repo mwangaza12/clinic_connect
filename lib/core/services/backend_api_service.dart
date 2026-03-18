@@ -32,8 +32,6 @@ class BackendApiService {
       validateStatus: (_) => true,
     ));
 
-    // Forward the Firebase auth token so the backend can pass it along
-    // to Firestore / protected gateway routes if needed.
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
@@ -83,7 +81,7 @@ class BackendApiService {
     return _instance!;
   }
 
-  // ── Internal helpers ─────────────────────────────────────────────
+  // ── Internal helpers ──────────────────────────────────────────────────────
 
   Map<String, dynamic>? _parseBody(dynamic data) {
     if (data is Map<String, dynamic>) return data;
@@ -107,6 +105,23 @@ class BackendApiService {
 
   bool _ok(Response r) =>
       r.statusCode != null && r.statusCode! >= 200 && r.statusCode! < 300;
+
+  /// Returns true for DioException types that represent a connectivity failure
+  /// (no network, DNS failure, timeout) as opposed to a real server response.
+  ///
+  /// These should be RETHROWN so the caller (e.g. patient registration page)
+  /// can handle them as offline conditions and save locally.
+  bool _isConnectivityError(DioException e) {
+    switch (e.type) {
+      case DioExceptionType.connectionError:   // Failed host lookup, refused
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return true;
+      default:
+        return false;
+    }
+  }
 
   Future<BackendResult> _requestWithRetry(
     Future<Response> Function() requestFn, {
@@ -159,9 +174,24 @@ class BackendApiService {
             nupi: nupi ?? body?['nupi'] as String?,
           );
         }
-        return BackendResult(
-            success: false, error: _errorMsg(response, null));
+        return BackendResult(success: false, error: _errorMsg(response, null));
+
       } on DioException catch (e) {
+        // ── FIX ───────────────────────────────────────────────────────────
+        // Connectivity errors (no network, DNS failure, timeout) must be
+        // RETHROWN so the caller can detect offline mode and save locally.
+        //
+        // Previously ALL DioExceptions were caught and converted into a
+        // BackendResult(success: false), so the registration page never saw
+        // the exception and its offline-save path was never triggered.
+        //
+        // Only rate-limit errors (429) are retried here; everything else
+        // that isn't a connectivity error becomes a BackendResult as before.
+        if (_isConnectivityError(e)) {
+          debugPrint('[Backend] Connectivity error — rethrowing for offline handling: ${e.type}');
+          rethrow; // ← lets patient_registration_page catch it and save locally
+        }
+
         if (e.response?.statusCode == 429) {
           retryCount++;
           if (retryCount >= maxRetries) {
@@ -174,8 +204,8 @@ class BackendApiService {
           currentDelay *= 2;
           continue;
         }
-        return BackendResult(
-            success: false, error: _errorMsg(e.response, e));
+
+        return BackendResult(success: false, error: _errorMsg(e.response, e));
       }
     }
 
@@ -398,7 +428,6 @@ class BackendApiService {
 
   // ══════════════════════════════════════════════════════════════════
   //  FHIR ENCOUNTER — GET /fhir/Encounter/:encounterId
-  //  Note: the backend mounts the FHIR proxy at /fhir, not /api
   // ══════════════════════════════════════════════════════════════════
 
   Future<BackendResult> getFhirEncounter({
@@ -430,7 +459,7 @@ class BackendApiService {
   }
 }
 
-// ── Result type (mirrors HieResult for easy swap) ─────────────────
+// ── Result type ───────────────────────────────────────────────────────────────
 
 class BackendResult {
   final bool success;
@@ -445,12 +474,10 @@ class BackendResult {
     this.nupi,
   });
 
-  /// Security question string from GET /api/patients/verify/question.
   String? get question =>
       data?['question'] as String? ??
       data?['securityQuestion'] as String?;
 
-  /// Full patient demographics map from POST /api/patients/verify/answer.
   Map<String, dynamic>? get patientData =>
       (data?['patient'] as Map?)?.cast<String, dynamic>() ?? data;
 }
