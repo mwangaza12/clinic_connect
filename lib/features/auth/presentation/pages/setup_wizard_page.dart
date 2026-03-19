@@ -47,7 +47,7 @@ class _SetupWizardPageState extends State<SetupWizardPage> {
     setState(() {
       _gatewayCtrl.text    = gw  ?? 'https://hie-gateway.onrender.com';
       _facilityIdCtrl.text = fid ?? 'FAC-KE-001';
-      _apiKeyCtrl.text     = key ?? 'FAC-CF030863557490C9BFBE8D5976BE0221';
+      _apiKeyCtrl.text     = key ?? 'FAC-9D7A6A2F4C020D37A53B07ABE6A2D4AD';
       _resolvedName        = nm;
     });
   }
@@ -288,7 +288,7 @@ class _SetupWizardPageState extends State<SetupWizardPage> {
                   label:   'Facility API Key',
                   ctrl:    _apiKeyCtrl,
                   icon:    Icons.key_outlined,
-                  hint:    'FAC-CF030863557490C9BFBE8D5976BE0221',
+                  hint:    'FAC-9D7A6A2F4C020D37A53B07ABE6A2D4AD',
                   obscure: !_showKey,
                   suffix:  IconButton(
                     icon: Icon(
