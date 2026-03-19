@@ -134,14 +134,17 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
         return;
       }
 
-      // Parse encounters from verification data first
-      final allEncounters =
+      // Parse encounters from verification data — thin list used ONLY as
+      // a last-resort fallback if both $everything AND chain index fail.
+      // Never merged with $everything or chain index results — they are
+      // supersets of this data and mixing causes duplicate cards.
+      final verifyEncounters =
           HieApiService.instance.parseEncountersFromVerification(
         verifyData,
         facilityName: registeredFacilityName,
       );
       debugPrint(
-          '📋 Found ${allEncounters.length} encounters in verification data');
+          '📋 Found ${verifyEncounters.length} encounters in verification data');
 
       // Start with basic demographics from verification
       Map<String, dynamic> demographics =
@@ -213,17 +216,18 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
         debugPrint('⚠️ Encounter fetch failed: $e');
       }
 
-      // If $everything succeeded, use ONLY those encounters — they are complete
-      // and already include everything from the chain index. Merging with
-      // allEncounters (thin verifyData list) would cause duplicates.
-      // Only merge when we fell back to the chain index.
+      // ── Encounter priority (no mixing between tiers) ─────────────────
+      // Tier 1: $everything bundle  — full clinical data, preferred
+      // Tier 2: Chain index         — thin metadata, fallback
+      // Tier 3: verifyData          — last resort if both above fail
+      //
+      // NEVER merge tiers — the same encounter appears in all three with
+      // the same ID, and mixing produces duplicate cards.
       final allEncountersCombined = gotFullData
-          ? chainEncounters
-          : [
-              ...allEncounters,
-              ...chainEncounters.where((ce) =>
-                  !allEncounters.any((ae) => ae['id'] == ce['id'])),
-            ];
+          ? chainEncounters                          // Tier 1
+          : chainEncounters.isNotEmpty
+              ? chainEncounters                      // Tier 2
+              : verifyEncounters;                    // Tier 3
 
       final patientData = <String, dynamic>{
         ...demographics,
