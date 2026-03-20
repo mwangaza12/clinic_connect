@@ -1,7 +1,5 @@
 // lib/features/patient/presentation/pages/patient_lookup_page.dart
-//
-// FIXED: Seeds DOB from form when FHIR demographics call fails (429/500)
-// FIXED: Properly falls back to verification data for all demographics
+// COMPLETE UPDATED FILE WITH DISEASE PROGRAM SUPPORT
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -125,8 +123,6 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
           patientMeta['registeredFacility'] as String? ?? 'Unknown';
 
       debugPrint('✅ Verified patient: $nupi');
-      debugPrint(
-          '✅ Registered facility: $registeredFacilityId ($registeredFacilityName)');
       debugPrint('✅ Token: $token');
 
       if (token == null || nupi == null) {
@@ -134,61 +130,58 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
         return;
       }
 
-      // Parse encounters from verification data — thin list used ONLY as
-      // a last-resort fallback if both $everything AND chain index fail.
-      // Never merged with $everything or chain index results — they are
-      // supersets of this data and mixing causes duplicate cards.
+      // Parse encounters from verification data (fallback)
       final verifyEncounters =
           HieApiService.instance.parseEncountersFromVerification(
         verifyData,
         facilityName: registeredFacilityName,
       );
-      debugPrint(
-          '📋 Found ${verifyEncounters.length} encounters in verification data');
 
       // Start with basic demographics from verification
       Map<String, dynamic> demographics =
           HieApiService.instance.parsePatientFromVerification(verifyData);
 
-      // ── FIX: Seed DOB from the form — we already have it ──────────────
-      // The verification response rarely includes dateOfBirth, so we use
-      // what the user entered to ensure it always displays.
+      // Seed DOB from form
       if ((demographics['dateOfBirth'] as String).isEmpty) {
         demographics['dateOfBirth'] = _formatDob(_selectedDob!);
       }
-      // ──────────────────────────────────────────────────────────────────
 
-      // Demographics come directly from the verify response (stored on chain).
-      // No FHIR proxy needed — works even when the registering facility is offline.
-      // The verify endpoint now returns dob, gender, phoneNumber, county etc.
-      debugPrint('✅ Demographics from chain: ${demographics['name']}, '
-          'DOB: ${demographics['dateOfBirth']}, Phone: ${demographics['phoneNumber']}');
-
-      // Fetch full encounter data via HIE gateway FHIR proxy.
-      // GET /api/fhir/Patient/:nupi/$everything calls back to the
-      // registering facility's backend which returns complete clinical data.
-      // Fall back to the chain index if the FHIR call fails.
+      // ══════════════════════════════════════════════════════════════════
+      // FIX: Fetch EVERYTHING in parallel - encounters + disease programs
+      // ══════════════════════════════════════════════════════════════════
       List<Map<String, dynamic>> chainEncounters = [];
+      List<Map<String, dynamic>> diseasePrograms = [];
       bool gotFullData = false;
-      try {
-        final everythingResult = await HieApiService.instance.fetchEverything(
-          nupi:                 nupi,
-          accessToken:          token,
-          registeredFacilityId: registeredFacilityId,
-        );
 
+      try {
+        // Fetch both in parallel
+        final results = await Future.wait([
+          // 1. Fetch encounters via $everything or chain index
+          HieApiService.instance.fetchEverything(
+            nupi: nupi,
+            accessToken: token,
+            registeredFacilityId: registeredFacilityId,
+          ),
+          // 2. Fetch disease programs
+          HieApiService.instance.fetchDiseasePrograms(nupi: nupi),
+        ]);
+
+        final everythingResult = results[0];
+        final diseaseProgramsResult = results[1];
+
+        // Process encounters
         if (everythingResult.success && everythingResult.data != null) {
-          final bundle  = everythingResult.data!;
+          final bundle = everythingResult.data!;
           final entries = bundle['entry'] as List? ?? [];
           chainEncounters = entries
               .map((e) => (e['resource'] as Map?)?.cast<String, dynamic>())
               .where((r) => r != null && r['resourceType'] == 'Encounter')
               .map((r) => r!)
               .toList();
-          gotFullData = true; // ← flag set here, only here
+          gotFullData = true;
           debugPrint('✅ Got ${chainEncounters.length} full encounters from \$everything');
         } else {
-          // $everything failed — fall back to thin chain index
+          // Fallback to chain index
           debugPrint('⚠️ \$everything failed (${everythingResult.error}), using chain index');
           final encResult = await HieApiService.instance
               .fetchPatientEncounterIndex(nupi: nupi);
@@ -197,12 +190,12 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
             chainEncounters = list.map((e) {
               final enc = e as Map<String, dynamic>;
               return <String, dynamic>{
-                'id':     enc['encounterId'],
-                'class':  {'display': enc['encounterType'] ?? 'Visit'},
-                'type':   [{'text': enc['encounterType'] ?? 'Visit'}],
+                'id': enc['encounterId'],
+                'class': {'display': enc['encounterType'] ?? 'Visit'},
+                'type': [{'text': enc['encounterType'] ?? 'Visit'}],
                 'period': {'start': enc['encounterDate']},
                 'meta': {
-                  'source':     enc['facilityId'],
+                  'source': enc['facilityId'],
                   'sourceName': enc['facilityName'] ?? enc['facilityId'],
                 },
                 'resourceType': 'Encounter',
@@ -212,22 +205,26 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
             debugPrint('✅ Got ${chainEncounters.length} encounters from chain index (fallback)');
           }
         }
+
+        // Process disease programs
+        if (diseaseProgramsResult.success && diseaseProgramsResult.data != null) {
+          final programList = diseaseProgramsResult.data!['diseasePrograms'] as List? ?? [];
+          diseasePrograms = programList.map((p) => p as Map<String, dynamic>).toList();
+          debugPrint('✅ Got ${diseasePrograms.length} disease programs');
+        } else {
+          debugPrint('⚠️ Disease programs fetch failed: ${diseaseProgramsResult.error}');
+        }
+
       } catch (e) {
-        debugPrint('⚠️ Encounter fetch failed: $e');
+        debugPrint('⚠️ Data fetch failed: $e');
       }
 
-      // ── Encounter priority (no mixing between tiers) ─────────────────
-      // Tier 1: $everything bundle  — full clinical data, preferred
-      // Tier 2: Chain index         — thin metadata, fallback
-      // Tier 3: verifyData          — last resort if both above fail
-      //
-      // NEVER merge tiers — the same encounter appears in all three with
-      // the same ID, and mixing produces duplicate cards.
+      // Use encounters in priority order
       final allEncountersCombined = gotFullData
-          ? chainEncounters                          // Tier 1
+          ? chainEncounters
           : chainEncounters.isNotEmpty
-              ? chainEncounters                      // Tier 2
-              : verifyEncounters;                    // Tier 3
+              ? chainEncounters
+              : verifyEncounters;
 
       final patientData = <String, dynamic>{
         ...demographics,
@@ -238,6 +235,7 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
         'isCurrentFacility': patientMeta['isCurrentFacility'] ?? false,
         '_accessToken': token,
         '_encounters': allEncountersCombined,
+        '_diseasePrograms': diseasePrograms, // ← NEW: Add disease programs
       };
 
       setState(() {
@@ -245,8 +243,7 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
         _step = 2;
       });
 
-      debugPrint(
-          '✅ Patient data loaded successfully with ${allEncountersCombined.length} encounters');
+      debugPrint('✅ Patient data loaded: ${allEncountersCombined.length} encounters, ${diseasePrograms.length} disease programs');
     } catch (e) {
       debugPrint('❌ Error in verification: $e');
       _setError('Network error: ${e.toString().split('\n').first}');
@@ -531,6 +528,8 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
     final isCurrentFacility = data['isCurrentFacility'] == true;
     final encounters =
         (data['_encounters'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    final diseasePrograms =
+        (data['_diseasePrograms'] as List?)?.cast<Map<String, dynamic>>() ?? []; // ← NEW
 
     String age = '';
     try {
@@ -691,6 +690,129 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
                     _chip('This Facility', const Color(0xFF2D6A4F)),
                 ]),
 
+                // ══════════════════════════════════════════════════════════════════
+                // NEW: Disease Programs Section
+                // ══════════════════════════════════════════════════════════════════
+                if (diseasePrograms.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  const Divider(color: Color(0xFFF1F5F9)),
+                  const SizedBox(height: 16),
+                  _sectionLabel('Disease Programs (${diseasePrograms.length})'),
+                  const SizedBox(height: 12),
+                  ...diseasePrograms.map((program) {
+                    final programName = program['programName']?.toString() ?? 'Unknown Program';
+                    final status = program['status']?.toString() ?? 'unknown';
+                    final enrollmentDate = program['enrollmentDate']?.toString() ?? '';
+                    final conditions = (program['conditions'] as List?)?.cast<String>() ?? [];
+                    
+                    Color statusColor;
+                    switch (status.toLowerCase()) {
+                      case 'active':
+                        statusColor = const Color(0xFF2D6A4F);
+                        break;
+                      case 'on-hold':
+                        statusColor = const Color(0xFFF59E0B);
+                        break;
+                      case 'completed':
+                        statusColor = const Color(0xFF6366F1);
+                        break;
+                      default:
+                        statusColor = const Color(0xFF94A3B8);
+                    }
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: statusColor.withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  programName,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: statusColor,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  status.toUpperCase(),
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (enrollmentDate.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              'Enrolled: ${_formatEncounterDate(enrollmentDate)}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                          if (conditions.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Conditions Addressed:',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            ...conditions.map((condition) => Padding(
+                              padding: const EdgeInsets.only(left: 8, top: 2),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 4,
+                                    height: 4,
+                                    decoration: BoxDecoration(
+                                      color: statusColor,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      condition,
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        color: Color(0xFF475569),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )),
+                          ],
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+
                 // ── Encounter history ────────────────────────────────
                 if (encounters.isNotEmpty) ...[
                   const SizedBox(height: 16),
@@ -712,12 +834,6 @@ class _PatientLookupPageState extends State<PatientLookupPage> {
                     final facName =
                         enc['meta']?['sourceName']?.toString() ??
                             facilityName;
-                    // isFederated = the encounter belongs to a DIFFERENT
-                    // facility than the one currently logged in.
-                    // Must compare against MY facility (authState.user.facilityId),
-                    // NOT the patient's registered facility — a patient registered
-                    // at FAC-KE-001 viewed from FAC-KE-002 would otherwise never
-                    // mark any encounter as federated.
                     final myFacilityId = (context.read<AuthBloc>().state
                             is Authenticated)
                         ? (context.read<AuthBloc>().state as Authenticated)

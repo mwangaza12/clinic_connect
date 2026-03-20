@@ -1,11 +1,12 @@
+// lib/core/services/hie_api_service.dart
+// COMPLETE UPDATED FILE WITH DISEASE PROGRAM SUPPORT
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../constants/storage_keys.dart';
 
-// Add this extension at the top
 extension FirstOrNullExtension<E> on List<E> {
-  /// Returns the first element, or null if the list is empty.
   E? get firstOrNull => isEmpty ? null : first;
 }
 
@@ -24,12 +25,10 @@ class HieResult {
     this.nupi,
   });
 
-  /// Security question string from GET /api/verify/question.
   String? get question =>
       data?['question'] as String? ??
       data?['securityQuestion'] as String?;
 
-  /// Full patient demographics map from POST /api/verify/answer.
   Map<String, dynamic>? get patientData =>
       (data?['patient'] as Map?)?.cast<String, dynamic>() ?? data;
 }
@@ -112,7 +111,6 @@ class HieApiService {
   bool _ok(Response r) =>
       r.statusCode != null && r.statusCode! >= 200 && r.statusCode! < 300;
 
-  /// Helper method to handle rate limiting with retries
   Future<HieResult> _requestWithRetry(
     Future<Response> Function() requestFn, {
     int maxRetries = 3,
@@ -127,7 +125,6 @@ class HieApiService {
         final response = await requestFn();
         final body = _parseBody(response.data);
 
-        // Handle rate limiting (429)
         if (response.statusCode == 429) {
           retryCount++;
           if (retryCount >= maxRetries) {
@@ -138,11 +135,10 @@ class HieApiService {
           }
           debugPrint('⏳ Rate limited (429), retrying in ${currentDelay.inMilliseconds}ms... (Attempt $retryCount/$maxRetries)');
           await Future.delayed(currentDelay);
-          currentDelay *= 2; // Exponential backoff
+          currentDelay *= 2;
           continue;
         }
 
-        // Handle gateway wrapping a 429 as 500
         if (response.statusCode == 500) {
           final diagnostics = body?['issue']?[0]?['diagnostics']?.toString() ?? '';
           if (diagnostics.contains('429')) {
@@ -190,7 +186,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  PATIENT REGISTRATION  →  POST /api/patients/register
+  //  PATIENT REGISTRATION
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> registerPatient({
@@ -209,21 +205,20 @@ class HieApiService {
   }) async {
     try {
       await _wakeUp();
-
       return await _requestWithRetry(() => _dio.post('/api/patients/register', data: {
-        'nationalId':       nationalId,
-        'dob':              dateOfBirth,
-        'name':             [firstName, if (middleName != null && middleName.isNotEmpty) middleName, lastName].join(' ').trim(),
+        'nationalId': nationalId,
+        'dob': dateOfBirth,
+        'name': [firstName, if (middleName != null && middleName.isNotEmpty) middleName, lastName].join(' ').trim(),
         'securityQuestion': securityQuestion,
-        'securityAnswer':   securityAnswer,
-        'pin':              pin,
-        'gender':           gender,
-        'phoneNumber':      phoneNumber ?? '',
-        'email':            email       ?? '',
-        'county':           address?['county']    ?? '',
-        'subCounty':        address?['subCounty'] ?? '',
-        'ward':             address?['ward']      ?? '',
-        'village':          address?['village']   ?? '',
+        'securityAnswer': securityAnswer,
+        'pin': pin,
+        'gender': gender,
+        'phoneNumber': phoneNumber ?? '',
+        'email': email ?? '',
+        'county': address?['county'] ?? '',
+        'subCounty': address?['subCounty'] ?? '',
+        'ward': address?['ward'] ?? '',
+        'village': address?['village'] ?? '',
       }));
     } catch (e) {
       return HieResult(success: false, error: e.toString());
@@ -231,7 +226,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  RECORD ENCOUNTER  →  POST /api/patients/encounter
+  //  RECORD ENCOUNTER
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> recordEncounter({
@@ -252,8 +247,7 @@ class HieApiService {
           '/api/patients/encounter',
           data: {
             'nupi': nupi,
-            'encounterId': encounterId ??
-                DateTime.now().millisecondsSinceEpoch.toString(),
+            'encounterId': encounterId ?? DateTime.now().millisecondsSinceEpoch.toString(),
             'encounterType': encounterType,
             'encounterDate': encounterDate ?? DateTime.now().toIso8601String(),
             'chiefComplaint': chiefComplaint,
@@ -271,7 +265,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  CREATE REFERRAL  →  POST /api/referrals
+  //  CREATE REFERRAL
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> createReferral({
@@ -316,7 +310,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  VERIFY BY PIN  →  POST /api/verify/pin
+  //  VERIFY BY PIN
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> verifyByPin({
@@ -336,7 +330,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  FACILITY DIRECTORY  →  GET /api/facilities
+  //  FACILITY DIRECTORY
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> getFacilities({String? query, String? county}) async {
@@ -355,7 +349,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  GET SECURITY QUESTION  →  GET /api/verify/question
+  //  GET SECURITY QUESTION
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> getSecurityQuestion({
@@ -373,14 +367,14 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  VERIFY SECURITY ANSWER  →  POST /api/verify/answer
+  //  VERIFY SECURITY ANSWER
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> verifySecurityAnswer({
     required String nationalId,
     required String dob,
     required String answer,
-    String? facilityId, // Kept for compatibility but not used in body
+    String? facilityId,
   }) async {
     try {
       return await _requestWithRetry(() => _dio.post('/api/verify/answer', data: {
@@ -394,7 +388,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  LOOKUP PATIENT  →  GET /api/patients/:nupi
+  //  LOOKUP PATIENT
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> lookupPatient({required String nupi}) async {
@@ -409,7 +403,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  FETCH EVERYTHING BUNDLE  →  GET /api/fhir/Patient/:nupi/$everything
+  //  FETCH EVERYTHING BUNDLE
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> fetchEverything({
@@ -437,9 +431,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  FETCH ENCOUNTER INDEX  →  GET /api/patients/:nupi/encounters
-  //  Returns encounter index directly from blockchain — no FHIR proxy.
-  //  Works even when the registering facility is offline.
+  //  FETCH ENCOUNTER INDEX
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> fetchPatientEncounterIndex({required String nupi}) async {
@@ -454,7 +446,77 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  UPDATE REFERRAL STATUS  →  PATCH /api/referrals/:id/status
+  //  FETCH DISEASE PROGRAMS (NEW)
+  // ════════════════════════════════════════════════════════════════
+
+  Future<HieResult> fetchDiseasePrograms({required String nupi}) async {
+    try {
+      return await _requestWithRetry(
+        () => _dio.get('/api/patients/$nupi/disease-programs'),
+        nupi: nupi,
+      );
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  ENROLL IN DISEASE PROGRAM (NEW)
+  // ════════════════════════════════════════════════════════════════
+
+  Future<HieResult> enrollInDiseaseProgram({
+    required String nupi,
+    required String programId,
+    required String programName,
+    String? startDate,
+    List<String>? conditions,
+  }) async {
+    try {
+      return await _requestWithRetry(
+        () => _dio.post(
+          '/api/patients/$nupi/disease-programs/enroll',
+          data: {
+            'programId': programId,
+            'programName': programName,
+            if (startDate != null) 'startDate': startDate,
+            if (conditions != null) 'conditions': conditions,
+          },
+        ),
+        nupi: nupi,
+      );
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  UPDATE DISEASE PROGRAM STATUS (NEW)
+  // ════════════════════════════════════════════════════════════════
+
+  Future<HieResult> updateDiseaseProgramStatus({
+    required String nupi,
+    required String programId,
+    required String status,
+    String? notes,
+  }) async {
+    try {
+      return await _requestWithRetry(
+        () => _dio.patch(
+          '/api/patients/$nupi/disease-programs/$programId',
+          data: {
+            'status': status,
+            if (notes != null) 'notes': notes,
+          },
+        ),
+        nupi: nupi,
+      );
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  //  UPDATE REFERRAL STATUS
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> updateReferralStatus({
@@ -475,7 +537,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  FETCH DEMOGRAPHICS  →  GET /api/fhir/Patient/:nupi
+  //  FETCH DEMOGRAPHICS
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> fetchDemographics({
@@ -504,7 +566,6 @@ class HieApiService {
 
       final body = result.data!;
 
-      // Handle OperationOutcome errors
       if (body['resourceType'] == 'OperationOutcome') {
         return HieResult(
           success: false,
@@ -527,9 +588,7 @@ class HieApiService {
       }
 
       final addresses = body['address'] as List? ?? [];
-      final addr = addresses.isNotEmpty
-          ? (addresses.first as Map)
-          : <String, dynamic>{};
+      final addr = addresses.isNotEmpty ? (addresses.first as Map) : <String, dynamic>{};
 
       final extensions = body['extension'] as List? ?? [];
       String bloodGroup = '';
@@ -567,9 +626,7 @@ class HieApiService {
           'nationalId': nationalId,
           'county': addr['district']?.toString() ?? '',
           'subCounty': addr['city']?.toString() ?? '',
-          'village': addr['line']?.isNotEmpty == true
-              ? addr['line'][0]?.toString() ?? ''
-              : '',
+          'village': addr['line']?.isNotEmpty == true ? addr['line'][0]?.toString() ?? '' : '',
           'bloodGroup': bloodGroup,
           'registeredFacility': meta['sourceName']?.toString() ?? '',
           'registeredFacilityId': meta['source']?.toString() ?? '',
@@ -581,7 +638,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  FETCH ENCOUNTERS  →  GET /api/fhir/Patient/:nupi/Encounter
+  //  FETCH ENCOUNTERS
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> fetchEncounters({
@@ -604,7 +661,6 @@ class HieApiService {
         nupi: nupi,
       );
 
-      // Handle OperationOutcome errors
       if (!result.success && result.data != null) {
         final body = result.data;
         if (body?['resourceType'] == 'OperationOutcome') {
@@ -617,7 +673,6 @@ class HieApiService {
         }
       }
 
-      // 404 = no encounters at this facility — treat as empty bundle
       if (!result.success && result.error?.contains('404') == true) {
         return HieResult(
           success: true,
@@ -632,7 +687,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  GET ENCOUNTER BY ID  →  GET /api/fhir/Encounter/:id
+  //  GET ENCOUNTER BY ID
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> getFhirEncounter({
@@ -659,7 +714,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  GET REFERRALS  →  GET /api/referrals/incoming/:id  or  /outgoing/:id
+  //  GET REFERRALS
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> getReferrals({
@@ -676,7 +731,7 @@ class HieApiService {
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  GET REFERRAL BY ID  →  GET /api/referrals/:referralId
+  //  GET REFERRAL BY ID
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> getReferralById({required String referralId}) async {
@@ -720,7 +775,6 @@ class HieApiService {
 
   // ════════════════════════════════════════════════════════════════
   //  PARSE PATIENT FROM VERIFICATION DATA
-  //  FIXED: Now maps all demographic fields, not just facility meta
   // ════════════════════════════════════════════════════════════════
 
   Map<String, dynamic> parsePatientFromVerification(
@@ -729,33 +783,28 @@ class HieApiService {
     final p = (verifyData['patient'] as Map?)?.cast<String, dynamic>() ?? {};
     final nupi = verifyData['nupi'] as String? ?? p['nupi'] as String? ?? '';
     return {
-      'nupi':       nupi,
-      'name':       p['name']        ?? 'Unknown',
-      'gender':     p['gender']      ?? p['sex']          ?? '',
-      'dateOfBirth': p['dob']        ?? p['dateOfBirth']   ?? p['birthDate'] ?? '',
-      'phoneNumber': p['phoneNumber'] ?? p['phone']        ?? p['msisdn']    ?? '',
-      'email':       p['email']      ?? '',
-      'county':      p['county']     ?? '',
-      'subCounty':   p['subCounty']  ?? p['sub_county']   ?? '',
-      'ward':        p['ward']       ?? '',
-      'village':     p['village']    ?? '',
-      'bloodGroup':  p['bloodGroup'] ?? p['blood_group']  ?? '',
-      'nationalId':  p['nationalId'] ?? p['national_id']  ?? '',
-      'registeredFacility':   p['registeredFacility']   ?? '',
+      'nupi': nupi,
+      'name': p['name'] ?? 'Unknown',
+      'gender': p['gender'] ?? p['sex'] ?? '',
+      'dateOfBirth': p['dob'] ?? p['dateOfBirth'] ?? p['birthDate'] ?? '',
+      'phoneNumber': p['phoneNumber'] ?? p['phone'] ?? p['msisdn'] ?? '',
+      'email': p['email'] ?? '',
+      'county': p['county'] ?? '',
+      'subCounty': p['subCounty'] ?? p['sub_county'] ?? '',
+      'ward': p['ward'] ?? '',
+      'village': p['village'] ?? '',
+      'bloodGroup': p['bloodGroup'] ?? p['blood_group'] ?? '',
+      'nationalId': p['nationalId'] ?? p['national_id'] ?? '',
+      'registeredFacility': p['registeredFacility'] ?? '',
       'registeredFacilityId': p['registeredFacilityId'] ?? '',
-      'facilityCounty':       p['facilityCounty']       ?? '',
-      'isCurrentFacility':    p['isCurrentFacility']    ?? false,
+      'facilityCounty': p['facilityCounty'] ?? '',
+      'isCurrentFacility': p['isCurrentFacility'] ?? false,
       'isFederatedRecord': true,
     };
   }
 
   // ════════════════════════════════════════════════════════════════
-  //  GET FACILITY FIREBASE CONFIG  →  GET /api/facilities/:id/firebase-config
-  //
-  //  Called once during setup wizard to fetch this facility's
-  //  Firebase credentials from the HIE Gateway.
-  //  Protected by X-Api-Key — only a registered facility can fetch
-  //  its own config.
+  //  GET FACILITY FIREBASE CONFIG
   // ════════════════════════════════════════════════════════════════
 
   Future<HieResult> getFacilityFirebaseConfig({

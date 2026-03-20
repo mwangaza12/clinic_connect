@@ -244,8 +244,7 @@ router.get('/Patient/:nupi/\\$everything', requireGateway, async (req, res) => {
       col.patients.where('nupi', '==', nupi).limit(1).get(),
       col.encounters
         .where('patient_nupi', '==', nupi)
-        .orderBy('encounter_date', 'desc')
-        .get(),
+        .get(),  // no orderBy — avoids composite index requirement
     ]);
 
     if (patientSnap.empty) {
@@ -258,11 +257,18 @@ router.get('/Patient/:nupi/\\$everything', requireGateway, async (req, res) => {
 
     const patientData = { id: patientSnap.docs[0].id, ...patientSnap.docs[0].data() };
 
+    // Sort in-memory newest first — avoids composite index on patient_nupi + encounter_date
+    const sortedEncounters = encounterSnap.docs.sort((a, b) => {
+      const da = String(a.data().encounter_date || '');
+      const db = String(b.data().encounter_date || '');
+      return da < db ? 1 : da > db ? -1 : 0;
+    });
+
     const entries = [
       { fullUrl: `Patient/${patientData.id}`, resource: buildPatient(patientData) },
     ];
 
-    encounterSnap.docs.forEach(doc => {
+    sortedEncounters.forEach(doc => {
       const data = { id: doc.id, ...doc.data() };
       entries.push({ fullUrl: `Encounter/${doc.id}`, resource: buildEncounter(data, nupi) });
     });
@@ -298,13 +304,18 @@ router.get('/Patient/:nupi/Encounter', requireGateway, async (req, res) => {
     const { nupi } = req.params;
     const snap = await col.encounters
       .where('patient_nupi', '==', nupi)
-      .orderBy('encounter_date', 'desc')
       .get();
 
-    const entries = snap.docs.map(doc => {
-      const data = { id: doc.id, ...doc.data() };
-      return { fullUrl: `Encounter/${doc.id}`, resource: buildEncounter(data, nupi) };
-    });
+    const entries = snap.docs
+      .sort((a, b) => {
+        const da = String(a.data().encounter_date || '');
+        const db = String(b.data().encounter_date || '');
+        return da < db ? 1 : da > db ? -1 : 0;
+      })
+      .map(doc => {
+        const data = { id: doc.id, ...doc.data() };
+        return { fullUrl: `Encounter/${doc.id}`, resource: buildEncounter(data, nupi) };
+      });
 
     res.set('Content-Type', 'application/fhir+json');
     res.json({
@@ -337,13 +348,18 @@ router.get('/Encounter', requireGateway, async (req, res) => {
 
     const snap = await col.encounters
       .where('patient_nupi', '==', nupi)
-      .orderBy('encounter_date', 'desc')
       .get();
 
-    const entries = snap.docs.map(doc => {
-      const data = { id: doc.id, ...doc.data() };
-      return { fullUrl: `Encounter/${doc.id}`, resource: buildEncounter(data, nupi) };
-    });
+    const entries = snap.docs
+      .sort((a, b) => {
+        const da = String(a.data().encounter_date || '');
+        const db = String(b.data().encounter_date || '');
+        return da < db ? 1 : da > db ? -1 : 0;
+      })
+      .map(doc => {
+        const data = { id: doc.id, ...doc.data() };
+        return { fullUrl: `Encounter/${doc.id}`, resource: buildEncounter(data, nupi) };
+      });
 
     res.set('Content-Type', 'application/fhir+json');
     res.json({
