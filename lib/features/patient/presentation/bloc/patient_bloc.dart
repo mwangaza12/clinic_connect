@@ -102,8 +102,24 @@ class PatientBloc extends Bloc<PatientEvent, PatientState> {
     SearchPatientEvent event,
     Emitter<PatientState> emit,
   ) async {
+    if (event.query.trim().isEmpty) {
+      // Empty search — reload the full facility list instead of hitting
+      // the use case which would reject an empty query.
+      final result = await getAllPatientsByFacilityUsecase();
+      result.fold(
+        (failure) => emit(PatientError(failure.message)),
+        (patients) => emit(PatientsLoaded(patients)),
+      );
+      return;
+    }
+
     emit(PatientLoading());
-    final result = await searchPatientUsecase(event.query as SearchParams);
+    final result = await searchPatientUsecase(
+      SearchParams(
+        query:      event.query.trim(),
+        searchType: SearchType.all,
+      ),
+    );
     result.fold(
       (failure) => emit(PatientError(failure.message)),
       (patients) => emit(PatientsLoaded(patients)),
