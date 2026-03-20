@@ -30,8 +30,14 @@ class ReferralsPage extends StatelessWidget {
   }
 }
 
-class ReferralsView extends StatelessWidget {
+class ReferralsView extends StatefulWidget {
   const ReferralsView({super.key});
+
+  @override
+  State<ReferralsView> createState() => _ReferralsViewState();
+}
+
+class _ReferralsViewState extends State<ReferralsView> {
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +57,6 @@ class ReferralsView extends StatelessWidget {
           final authState = context.read<AuthBloc>().state;
           if (authState is! Authenticated) return;
 
-          // ✅ Wait for result from CreateReferralPage
           final created = await Navigator.push<bool>(
             context,
             MaterialPageRoute(
@@ -59,8 +64,7 @@ class ReferralsView extends StatelessWidget {
             ),
           );
 
-          // ✅ Reload referrals if a new one was created
-          if (created == true && context.mounted) {
+          if (created == true && mounted) {
             context.read<ReferralBloc>().add(
               LoadReferralsEvent(authState.user.facilityId),
             );

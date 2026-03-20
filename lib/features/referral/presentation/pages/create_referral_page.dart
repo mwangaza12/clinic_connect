@@ -26,7 +26,7 @@ class CreateReferralPage extends StatelessWidget {
     return MultiBlocProvider(
       providers: [
         BlocProvider<PatientBloc>(
-          create: (_) => sl<PatientBloc>()..add(const LoadPatientsEvent()),
+          create: (_) => sl<PatientBloc>()..add(const LoadPatientsByFacilityEvent()),
         ),
         BlocProvider<FacilityBloc>(
           create: (_) => sl<FacilityBloc>(),
@@ -333,7 +333,7 @@ class _CreateReferralViewState extends State<_CreateReferralView> {
             controller: _searchController,
             onChanged: (query) {
               if (query.isEmpty) {
-                context.read<PatientBloc>().add(const LoadPatientsEvent());
+                context.read<PatientBloc>().add(const LoadPatientsByFacilityEvent());
               } else {
                 context.read<PatientBloc>().add(SearchPatientEvent(query));
               }
