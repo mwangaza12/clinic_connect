@@ -1,7 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
+import '../../../../core/config/firebase_config.dart';
 import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
@@ -35,11 +37,15 @@ class CreateEncounterPage extends StatelessWidget {
   final Map<String, dynamic>? nupiPatient;
 
   /// Access token issued by the HIE after identity verification.
-  /// Used for any follow-up FHIR calls within the encounter form.
   final String accessToken;
 
   /// The facility whose backend the HIE fetched the full record from.
   final String sourceFacilityId;
+
+  /// Triage context injected when the doctor opens an encounter from the
+  /// triage queue via "See Patient". Contains triageQueueId, chiefComplaint,
+  /// priority, and vitals so the form can pre-populate without re-entry.
+  final Map<String, dynamic>? triageContext;
 
   const CreateEncounterPage({
     super.key,
@@ -47,6 +53,7 @@ class CreateEncounterPage extends StatelessWidget {
     this.nupiPatient,
     this.accessToken      = '',
     this.sourceFacilityId = '',
+    this.triageContext,
   });
 
   @override
@@ -58,6 +65,7 @@ class CreateEncounterPage extends StatelessWidget {
         nupiPatient:      nupiPatient,
         accessToken:      accessToken,
         sourceFacilityId: sourceFacilityId,
+        triageContext:    triageContext,
       ),
     );
   }
@@ -68,12 +76,14 @@ class _CreateEncounterView extends StatefulWidget {
   final Map<String, dynamic>? nupiPatient;
   final String accessToken;
   final String sourceFacilityId;
+  final Map<String, dynamic>? triageContext;
 
   const _CreateEncounterView({
     required this.patient,
     this.nupiPatient,
     this.accessToken      = '',
     this.sourceFacilityId = '',
+    this.triageContext,
   });
 
   @override
@@ -130,6 +140,36 @@ class _CreateEncounterViewState extends State<_CreateEncounterView> {
   ];
 
   final Color primaryDark = const Color(0xFF1B4332);
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-populate from triage context when arriving via "See Patient".
+    // The nurse's data flows directly into the encounter form — no re-entry.
+    final tc = widget.triageContext;
+    if (tc != null) {
+      final complaint = tc['chiefComplaint'] as String? ?? '';
+      if (complaint.isNotEmpty) {
+        _chiefComplaintController.text = complaint;
+      }
+
+      final vitals = tc['vitals'] as Map?;
+      if (vitals != null) {
+        _systolicController.text =
+            vitals['systolic_bp']?.toString() ?? '';
+        _diastolicController.text =
+            vitals['diastolic_bp']?.toString() ?? '';
+        _pulseController.text =
+            vitals['pulse_rate']?.toString() ?? '';
+        _tempController.text =
+            vitals['temperature']?.toString() ?? '';
+        _o2Controller.text =
+            vitals['oxygen_saturation']?.toString() ?? '';
+        _weightController.text =
+            vitals['weight']?.toString() ?? '';
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -292,7 +332,23 @@ class _CreateEncounterViewState extends State<_CreateEncounterView> {
           if (state is EncounterError) {
             _showSnack(state.message, Colors.red);
           } else if (state is EncounterCreated) {
-            // Show chain result if available, then pop
+            // Auto-close the triage queue entry so the nurse's queue
+            // stays clean and the doctor doesn't need a separate "Mark Done".
+            final triageId =
+                widget.triageContext?['triageQueueId'] as String?;
+            if (triageId != null && triageId.isNotEmpty) {
+              FirebaseConfig.facilityDb
+                  .collection('triage_queue')
+                  .doc(triageId)
+                  .update({
+                'status':     'done',
+                'updated_at': FieldValue.serverTimestamp(),
+              }).catchError((_) {
+                // Non-fatal — triage doc closure is best-effort.
+                // The encounter is already saved; don't block the UX.
+              });
+            }
+
             final snackMsg = _chainStatus ?? '✅ Encounter saved!';
             _showSnack(snackMsg,
                 _chainStatus?.startsWith('⛓') == true

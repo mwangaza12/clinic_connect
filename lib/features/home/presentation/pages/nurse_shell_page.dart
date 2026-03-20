@@ -21,6 +21,7 @@ import '../../../patient/presentation/bloc/patient_bloc.dart';
 import '../../../patient/presentation/bloc/patient_event.dart';
 import '../../../patient/presentation/pages/nupi_lookup_page.dart';
 import '../../../patient/presentation/pages/patient_list_page.dart';
+import '../../../patient/presentation/pages/patient_lookup_page.dart';
 import '../../../patient/presentation/pages/patient_registration_page.dart';
 import 'check_in_page.dart';
 import 'profile_page.dart';
@@ -231,30 +232,64 @@ class _NurseTriageTabState extends State<NurseTriageTab> {
         // Quick action buttons
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
+          child: Column(
             children: [
-              _QuickActionCard(
-                icon: Icons.person_add_alt_1_rounded,
-                label: 'Register\nPatient',
-                color: Colors.teal,
-                onTap: () => Navigator.push(context,
-                    MaterialPageRoute(
-                        builder: (_) => const PatientRegistrationPage())),
+              Row(
+                children: [
+                  _QuickActionCard(
+                    icon: Icons.person_add_alt_1_rounded,
+                    label: 'Register\nPatient',
+                    color: Colors.teal,
+                    onTap: () => Navigator.push(context,
+                        MaterialPageRoute(
+                            builder: (_) => const PatientRegistrationPage())),
+                  ),
+                  const SizedBox(width: 12),
+                  _QuickActionCard(
+                    icon: Icons.travel_explore_rounded,
+                    label: 'NUPI\nLookup',
+                    color: Colors.indigo,
+                    onTap: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const NupiLookupPage())),
+                  ),
+                  const SizedBox(width: 12),
+                  _QuickActionCard(
+                    icon: Icons.people_rounded,
+                    label: 'Patient\nList',
+                    color: kPrimaryGreen,
+                    onTap: () => widget.onNavigate(1),
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              _QuickActionCard(
-                icon: Icons.travel_explore_rounded,
-                label: 'Lookup\nPatient',
-                color: Colors.indigo,
+              const SizedBox(height: 10),
+              // Cross-facility verify — full row for visibility
+              GestureDetector(
                 onTap: () => Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const NupiLookupPage())),
-              ),
-              const SizedBox(width: 12),
-              _QuickActionCard(
-                icon: Icons.people_rounded,
-                label: 'Patient\nList',
-                color: kPrimaryGreen,
-                onTap: () => widget.onNavigate(1),
+                    MaterialPageRoute(builder: (_) => const PatientLookupPage())),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withOpacity(0.07),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.purple.withOpacity(0.22)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.verified_user_outlined, color: Colors.purple[700], size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Cross-facility verify (HIE)',
+                        style: TextStyle(
+                          color: Colors.purple[700],
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
@@ -330,7 +365,7 @@ class _NurseTriageTabState extends State<NurseTriageTab> {
               }
 
               return ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
                 itemCount: docs.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (context, i) {
@@ -436,6 +471,28 @@ class TriageQueueCard extends StatelessWidget {
             Text(
               'CC: ${data['chief_complaint']}',
               style: TextStyle(color: Colors.grey[600], fontSize: 13),
+            ),
+          ],
+
+          // Vitals summary from check-in
+          if ((data['vitals'] as Map?)?.isNotEmpty == true) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                if (data['vitals']['systolic_bp'] != null)
+                  _VitalPill(
+                      'BP ${data['vitals']['systolic_bp']}/${data['vitals']['diastolic_bp'] ?? '?'}',
+                      Colors.red),
+                if (data['vitals']['pulse_rate'] != null)
+                  _VitalPill('${data['vitals']['pulse_rate']} bpm', Colors.blue),
+                if (data['vitals']['temperature'] != null)
+                  _VitalPill('${data['vitals']['temperature']}°C', Colors.orange),
+                if (data['vitals']['oxygen_saturation'] != null)
+                  _VitalPill(
+                      'SpO₂ ${data['vitals']['oxygen_saturation']}%', Colors.teal),
+              ],
             ),
           ],
 
@@ -549,6 +606,27 @@ class _QuickActionCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _VitalPill extends StatelessWidget {
+  final String text;
+  final Color  color;
+  const _VitalPill(this.text, this.color);
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.08),
+      borderRadius: BorderRadius.circular(6),
+      border: Border.all(color: color.withOpacity(0.25)),
+    ),
+    child: Text(
+      text,
+      style: TextStyle(
+          fontSize: 10, color: color, fontWeight: FontWeight.w600),
+    ),
+  );
 }
 
 class _FilterOption {

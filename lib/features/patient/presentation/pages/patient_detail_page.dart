@@ -14,21 +14,32 @@ import '../../../fhir/presentation/pages/fhir_export_page.dart';
 
 class PatientDetailPage extends StatelessWidget {
   final Patient patient;
-  const PatientDetailPage({super.key, required this.patient});
+
+  /// Triage context injected when the doctor taps "See Patient" from the
+  /// triage queue. Contains triageQueueId, chiefComplaint, priority, vitals.
+  /// Null when opening the page directly from the patient list.
+  final Map<String, dynamic>? triageContext;
+
+  const PatientDetailPage({
+    super.key,
+    required this.patient,
+    this.triageContext,
+  });
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) => sl<EncounterBloc>()
         ..add(LoadPatientEncountersEvent(patient.nupi)),
-      child: _PatientDetailView(patient: patient),
+      child: _PatientDetailView(patient: patient, triageContext: triageContext),
     );
   }
 }
 
 class _PatientDetailView extends StatefulWidget {
   final Patient patient;
-  const _PatientDetailView({required this.patient});
+  final Map<String, dynamic>? triageContext;
+  const _PatientDetailView({required this.patient, this.triageContext});
 
   @override
   State<_PatientDetailView> createState() => _PatientDetailViewState();
@@ -65,6 +76,7 @@ class _PatientDetailViewState extends State<_PatientDetailView>
         child: Column(
           children: [
             _buildHeader(context, p),
+            if (widget.triageContext != null) _buildTriageBanner(),
             _buildTabBar(),
             Expanded(
               child: TabBarView(
@@ -83,7 +95,10 @@ class _PatientDetailViewState extends State<_PatientDetailView>
           final created = await Navigator.push<bool>(
             context,
             MaterialPageRoute(
-              builder: (_) => CreateEncounterPage(patient: p),
+              builder: (_) => CreateEncounterPage(
+                patient:       p,
+                triageContext: widget.triageContext,
+              ),
             ),
           );
           if (created == true && context.mounted) {
@@ -98,6 +113,96 @@ class _PatientDetailViewState extends State<_PatientDetailView>
           'New Visit',
           style: TextStyle(
               color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+
+  // Banner shown when the doctor arrived via "See Patient" from the triage
+  // queue. Surfaces the nurse's chief complaint and priority at a glance.
+  Widget _buildTriageBanner() {
+    final tc        = widget.triageContext!;
+    final complaint = tc['chiefComplaint'] as String? ?? '';
+    final priority  = tc['priority']       as String? ?? 'medium';
+    final vitals    = tc['vitals'] as Map?;
+
+    final priorityColor = priority == 'critical'
+        ? Colors.red
+        : priority == 'high'
+            ? Colors.orange
+            : priority == 'medium'
+                ? Colors.blue
+                : Colors.green;
+
+    return Container(
+      width: double.infinity,
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFFBEB),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.amber.withOpacity(0.4)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.local_hospital_rounded,
+                  size: 14, color: Colors.amber),
+              const SizedBox(width: 6),
+              const Text('From triage',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.amber)),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: priorityColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  priority.toUpperCase(),
+                  style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: priorityColor),
+                ),
+              ),
+            ]),
+            if (complaint.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                'CC: $complaint',
+                style: const TextStyle(
+                    fontSize: 13, color: Color(0xFF475569)),
+              ),
+            ],
+            if (vitals != null && (vitals as Map).isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6, runSpacing: 4,
+                children: [
+                  if (vitals['systolic_bp'] != null)
+                    _TriageVitalChip(
+                        'BP ${vitals['systolic_bp']}/${vitals['diastolic_bp'] ?? '?'}',
+                        Colors.red),
+                  if (vitals['pulse_rate'] != null)
+                    _TriageVitalChip(
+                        '${vitals['pulse_rate']} bpm', Colors.blue),
+                  if (vitals['temperature'] != null)
+                    _TriageVitalChip(
+                        '${vitals['temperature']}°C', Colors.orange),
+                  if (vitals['oxygen_saturation'] != null)
+                    _TriageVitalChip(
+                        'SpO₂ ${vitals['oxygen_saturation']}%', Colors.teal),
+                ],
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -1183,4 +1288,24 @@ class _VisitHistoryTab extends StatelessWidget {
       ),
     );
   }
+}
+
+class _TriageVitalChip extends StatelessWidget {
+  final String text;
+  final Color  color;
+  const _TriageVitalChip(this.text, this.color);
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      color: color.withOpacity(0.08),
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Text(
+      text,
+      style: TextStyle(
+          fontSize: 11, color: color, fontWeight: FontWeight.w600),
+    ),
+  );
 }

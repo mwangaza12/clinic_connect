@@ -20,13 +20,18 @@ import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../auth/presentation/bloc/auth_state.dart';
 import '../../../disease_program/presentation/bloc/program_bloc.dart';
 import '../../../disease_program/presentation/pages/program_dashboard_page.dart';
+import '../../../patient/data/datasources/patient_local_datasource.dart';
+import '../../../patient/data/models/patient_model.dart' as pm;
 import '../../../patient/presentation/bloc/patient_bloc.dart';
 import '../../../patient/presentation/bloc/patient_event.dart';
 import '../../../patient/presentation/pages/nupi_lookup_page.dart';
+import '../../../patient/presentation/pages/patient_detail_page.dart';
 import '../../../patient/presentation/pages/patient_list_page.dart';
+import '../../../patient/presentation/pages/patient_lookup_page.dart';
 import '../../../patient/presentation/pages/patient_registration_page.dart';
 import '../../../referral/presentation/pages/referrals_page.dart';
 import '../../../encounter/presentation/pages/encounter_detail_page.dart';
+import '../../../encounter/presentation/pages/encounter_list_page.dart';
 import '../bloc/dashboard_bloc.dart';
 import '../bloc/dashboard_event.dart';
 import '../bloc/dashboard_state.dart';
@@ -101,7 +106,7 @@ class _DoctorShellPageState extends State<DoctorShellPage> {
                       sl<PatientBloc>()..add(const LoadPatientsByFacilityEvent()),
                   child: const PatientListView(),
                 ),
-                DoctorEncountersTab(facilityId: user.facilityId),
+                EncounterListPage(facilityId: user.facilityId),
                 const ReferralsPage(),
                 ProfilePage(state: state, primaryColor: kPrimaryGreen),
               ],
@@ -362,150 +367,6 @@ class _EncounterMiniCard extends StatelessWidget {
 
 // ─── Encounters tab ───────────────────────────────────────────────────────────
 
-class DoctorEncountersTab extends StatefulWidget {
-  final String facilityId;
-  const DoctorEncountersTab({super.key, required this.facilityId});
-
-  @override
-  State<DoctorEncountersTab> createState() => _DoctorEncountersTabState();
-}
-
-class _DoctorEncountersTabState extends State<DoctorEncountersTab> {
-  // Store the stream once — never recreate it on rebuild.
-  // A getter would create a new stream every build(), cancelling
-  // the previous one and causing the data to flash then disappear.
-  late final Stream<QuerySnapshot> _stream;
-
-  @override
-  void initState() {
-    super.initState();
-    _stream = FirebaseConfig.facilityDb
-        .collection('encounters')
-        .where('facility_id', isEqualTo: widget.facilityId)
-        .orderBy('encounter_date', descending: true)
-        .limit(50)
-        .snapshots();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _stream,
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator.adaptive());
-        }
-
-        final docs = snap.data?.docs ?? [];
-
-        if (docs.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.medical_services_outlined,
-                    size: 48, color: Colors.grey[300]),
-                const SizedBox(height: 12),
-                Text('No encounters yet',
-                    style: TextStyle(
-                        color: Colors.grey[500], fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                Text('Open a patient to document a clinical visit',
-                    style: TextStyle(color: Colors.grey[400], fontSize: 12)),
-              ],
-            ),
-          );
-        }
-
-        return ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: docs.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 8),
-          itemBuilder: (context, i) {
-            final data     = docs[i].data() as Map<String, dynamic>;
-            final rawDate  = data['encounter_date'];
-            final date     = rawDate is Timestamp
-                ? rawDate.toDate()
-                : rawDate is String
-                    ? DateTime.tryParse(rawDate) ?? DateTime.now()
-                    : DateTime.now();
-            final type        = data['encounter_type'] as String? ?? 'visit';
-            final complaint   = data['chief_complaint'] as String?;
-            final patientName = data['patient_name'] as String?;
-            final nupi        = data['patient_nupi'] as String? ?? '';
-
-            return InkWell(
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => EncounterDetailPage(
-                    encounter: data,
-                    patientName: patientName,
-                  ),
-                ),
-              ),
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: kPrimaryGreen.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.medical_services_rounded,
-                        color: kPrimaryGreen, size: 20),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          patientName ?? 'NUPI: $nupi',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 14),
-                        ),
-                        Text(
-                          complaint ?? type,
-                          style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(DateFormat('dd MMM').format(date),
-                          style: const TextStyle(
-                              fontSize: 12, color: Color(0xFF94A3B8))),
-                      Text(DateFormat('HH:mm').format(date),
-                          style: const TextStyle(
-                              fontSize: 11, color: Color(0xFFCBD5E1))),
-                    ],
-                  ),
-                  const SizedBox(width: 4),
-                  const Icon(Icons.chevron_right,
-                      size: 16, color: Color(0xFFCBD5E1)),
-                ],
-              ),
-            ), // InkWell child
-            ); // InkWell
-          },
-        );
-      },
-    );
-  }
-}
-
 // ─── Triage Queue Section (doctor dashboard) ─────────────────────────────────
 
 class _TriageQueueSection extends StatefulWidget {
@@ -582,10 +443,19 @@ class _TriageQueueSectionState extends State<_TriageQueueSection> {
   }
 }
 
-class _DoctorTriageCard extends StatelessWidget {
+// _DoctorTriageCard navigates to PatientDetailPage on "See Patient"
+// and passes triage context (vitals, chief complaint) for pre-population.
+class _DoctorTriageCard extends StatefulWidget {
   final String id;
   final Map<String, dynamic> data;
   const _DoctorTriageCard({required this.id, required this.data});
+
+  @override
+  State<_DoctorTriageCard> createState() => _DoctorTriageCardState();
+}
+
+class _DoctorTriageCardState extends State<_DoctorTriageCard> {
+  bool _navigating = false;
 
   Color _priorityColor(String p) {
     switch (p) {
@@ -617,21 +487,90 @@ class _DoctorTriageCard extends StatelessWidget {
   Future<void> _updateStatus(String newStatus) async {
     await FirebaseConfig.facilityDb
         .collection('triage_queue')
-        .doc(id)
+        .doc(widget.id)
         .update({
       'status':     newStatus,
       'updated_at': FieldValue.serverTimestamp(),
     });
   }
 
+  // Mark with_doctor + navigate directly to the patient record.
+  // Triage context (vitals, complaint) is passed so the encounter
+  // form can pre-populate without the doctor re-entering anything.
+  Future<void> _seePatient() async {
+    if (_navigating) return;
+    if (!mounted) return;
+    setState(() => _navigating = true);
+
+    // Fire-and-forget — do NOT await _updateStatus here.
+    // Awaiting causes the Firestore stream to rebuild the triage list
+    // immediately, which disposes this widget mid-flight and crashes
+    // on the subsequent setState / Navigator calls.
+    _updateStatus('with_doctor').catchError((_) {});
+
+    final nupi = widget.data['patient_nupi'] as String? ?? '';
+    if (nupi.isEmpty) {
+      if (mounted) setState(() => _navigating = false);
+      return;
+    }
+
+    // Look up in SQLite first (fast, offline-safe), then Firestore.
+    final ds = sl<PatientLocalDatasource>();
+    var patient = await ds.getPatientByNupi(nupi);
+
+    if (patient == null) {
+      try {
+        final snap = await FirebaseConfig.facilityDb
+            .collection('patients')
+            .where('nupi', isEqualTo: nupi)
+            .limit(1)
+            .get();
+        if (snap.docs.isNotEmpty) {
+          final model = _patientFromFirestore(
+              snap.docs.first.data(), snap.docs.first.id);
+          await ds.cachePatient(model);
+          patient = model;
+        }
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
+    setState(() => _navigating = false);
+
+    if (patient == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Patient record not found for NUPI $nupi'),
+        backgroundColor: Colors.orange[700],
+      ));
+      return;
+    }
+
+    final triageContext = <String, dynamic>{
+      'triageQueueId':  widget.id,
+      'chiefComplaint': widget.data['chief_complaint'] ?? '',
+      'priority':       widget.data['priority'] ?? 'medium',
+      'vitals':         widget.data['vitals'],
+    };
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PatientDetailPage(
+          patient:       patient!,
+          triageContext: triageContext,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final name     = data['patient_name'] as String? ?? 'Unknown';
-    final priority = data['priority']     as String? ?? 'medium';
-    final status   = data['status']       as String? ?? 'waiting';
-    final age      = data['patient_age'];
-    final complaint = data['chief_complaint'] as String? ?? '';
-    final vitals    = data['vitals'] as Map<String, dynamic>?;
+    final name      = widget.data['patient_name'] as String? ?? 'Unknown';
+    final priority  = widget.data['priority']     as String? ?? 'medium';
+    final status    = widget.data['status']       as String? ?? 'waiting';
+    final age       = widget.data['patient_age'];
+    final complaint = widget.data['chief_complaint'] as String? ?? '';
+    final vitals    = widget.data['vitals'] as Map<String, dynamic>?;
     final pc = _priorityColor(priority);
     final sc = _statusColor(status);
 
@@ -652,7 +591,6 @@ class _DoctorTriageCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            // Priority dot
             Container(
               width: 10, height: 10,
               decoration: BoxDecoration(color: pc, shape: BoxShape.circle),
@@ -663,7 +601,6 @@ class _DoctorTriageCard extends StatelessWidget {
                   style: const TextStyle(
                       fontWeight: FontWeight.w800, fontSize: 15)),
             ),
-            // Status badge
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
@@ -683,17 +620,17 @@ class _DoctorTriageCard extends StatelessWidget {
           if (complaint.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(complaint,
-                style: const TextStyle(fontSize: 13, color: Color(0xFF475569))),
+                style: const TextStyle(
+                    fontSize: 13, color: Color(0xFF475569))),
           ],
-
-          // Quick vitals summary if available
           if (vitals != null && vitals.isNotEmpty) ...[
             const SizedBox(height: 8),
             Wrap(
               spacing: 8, runSpacing: 4,
               children: [
                 if (vitals['systolic_bp'] != null)
-                  _VitalChip('BP ${vitals['systolic_bp']}/${vitals['diastolic_bp'] ?? '?'}',
+                  _VitalChip(
+                      'BP ${vitals['systolic_bp']}/${vitals['diastolic_bp'] ?? '?'}',
                       Icons.favorite_rounded, Colors.red),
                 if (vitals['pulse_rate'] != null)
                   _VitalChip('${vitals['pulse_rate']} bpm',
@@ -707,72 +644,123 @@ class _DoctorTriageCard extends StatelessWidget {
               ],
             ),
           ],
-
-          // Doctor action button
           if (status == 'ready_for_doctor') ...[
             const SizedBox(height: 10),
-            Row(children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => _updateStatus('with_doctor'),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    decoration: BoxDecoration(
-                      color: kPrimaryGreen,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.medical_services_rounded,
-                            color: Colors.white, size: 16),
-                        SizedBox(width: 6),
-                        Text('See Patient',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700)),
-                      ],
-                    ),
+            SizedBox(
+              width: double.infinity,
+              child: GestureDetector(
+                onTap: _navigating ? null : _seePatient,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  decoration: BoxDecoration(
+                    color: _navigating
+                        ? kPrimaryGreen.withOpacity(0.6)
+                        : kPrimaryGreen,
+                    borderRadius: BorderRadius.circular(8),
                   ),
+                  child: _navigating
+                      ? const Center(
+                          child: SizedBox(
+                            width: 16, height: 16,
+                            child: CircularProgressIndicator(
+                                color: Colors.white, strokeWidth: 2),
+                          ),
+                        )
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.medical_services_rounded,
+                                color: Colors.white, size: 16),
+                            SizedBox(width: 6),
+                            Text('See Patient',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700)),
+                          ],
+                        ),
                 ),
               ),
-            ]),
+            ),
           ],
           if (status == 'with_doctor') ...[
             const SizedBox(height: 10),
-            Row(children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => _updateStatus('done'),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.green,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.check_circle_rounded,
-                            color: Colors.white, size: 16),
-                        SizedBox(width: 6),
-                        Text('Mark Done',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700)),
-                      ],
-                    ),
+            SizedBox(
+              width: double.infinity,
+              child: GestureDetector(
+                onTap: () => _updateStatus('done'),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.check_circle_rounded,
+                          color: Colors.white, size: 16),
+                      SizedBox(width: 6),
+                      Text('Mark Done',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700)),
+                    ],
                   ),
                 ),
               ),
-            ]),
+            ),
           ],
         ],
       ),
     );
   }
+}
+
+
+// Top-level helper — converts a raw Firestore patient document into a
+// PatientModel without going through the full repository stack.
+// Used in _DoctorTriageCardState._seePatient() for the Firestore fallback.
+pm.PatientModel _patientFromFirestore(
+    Map<String, dynamic> data, String docId) {
+  DateTime parseDate(dynamic v) {
+    if (v == null) return DateTime.now();
+    if (v is Timestamp) return v.toDate();
+    if (v is String) return DateTime.tryParse(v) ?? DateTime.now();
+    return DateTime.now();
+  }
+
+  List<String> parseList(dynamic v) {
+    if (v == null) return [];
+    if (v is List) return v.map((e) => e.toString()).toList();
+    return [];
+  }
+
+  return pm.PatientModel(
+    id:                    docId,
+    nupi:                  data['nupi']                                      as String? ?? '',
+    firstName:             (data['first_name']  ?? data['firstName']  ?? '') as String,
+    middleName:            (data['middle_name'] ?? data['middleName'] ?? '') as String,
+    lastName:              (data['last_name']   ?? data['lastName']   ?? '') as String,
+    gender:                data['gender']                                     as String? ?? 'unknown',
+    dateOfBirth:           parseDate(data['date_of_birth']  ?? data['dateOfBirth']),
+    phoneNumber:           (data['phone_number'] ?? data['phoneNumber'] ?? '') as String,
+    email:                 data['email']                                      as String?,
+    county:                data['county']                                     as String? ?? '',
+    subCounty:             (data['sub_county']  ?? data['subCounty']  ?? '') as String,
+    ward:                  data['ward']                                       as String? ?? '',
+    village:               data['village']                                    as String? ?? '',
+    bloodGroup:            (data['blood_group'] ?? data['bloodGroup'])        as String?,
+    facilityId:            (data['facility_id'] ?? data['facilityId'] ?? '') as String,
+    allergies:             parseList(data['allergies']),
+    chronicConditions:     parseList(data['chronic_conditions'] ?? data['chronicConditions']),
+    nextOfKinName:         (data['next_of_kin_name']         ?? data['nextOfKinName'])         as String?,
+    nextOfKinPhone:        (data['next_of_kin_phone']        ?? data['nextOfKinPhone'])        as String?,
+    nextOfKinRelationship: (data['next_of_kin_relationship'] ?? data['nextOfKinRelationship']) as String?,
+    createdAt:             parseDate(data['created_at'] ?? data['createdAt']),
+    updatedAt:             parseDate(data['updated_at'] ?? data['updatedAt']),
+  );
 }
 
 class _VitalChip extends StatelessWidget {

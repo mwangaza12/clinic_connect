@@ -12,6 +12,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/config/facility_info.dart';
 import '../../../../core/config/firebase_config.dart';
 import '../../../../injection_container.dart';
+import '../../../patient/data/datasources/patient_local_datasource.dart';
 import '../../../patient/domain/entities/patient.dart';
 import '../../../patient/presentation/bloc/patient_bloc.dart';
 import '../../../patient/presentation/bloc/patient_event.dart';
@@ -256,11 +257,15 @@ class _CheckInPageState extends State<CheckInPage> {
               const Icon(Icons.check_circle_rounded,
                   color: _primaryDark, size: 18),
               const SizedBox(width: 10),
-              Text('Patient selected. Tap Continue to proceed.',
+              Expanded(
+                child: Text(
+                  'Patient selected. Tap Continue to proceed.',
                   style: TextStyle(
                       color: _primaryDark,
                       fontSize: 13,
-                      fontWeight: FontWeight.w600)),
+                      fontWeight: FontWeight.w600),
+                ),
+              ),
             ]),
           ),
         ] else ...[
@@ -591,29 +596,54 @@ class _CheckInPageState extends State<CheckInPage> {
 }
 
 // ── Patient search field ──────────────────────────────────────────────────────
+// Searches both Firestore (via PatientBloc) AND SQLite directly so that
+// cross-facility patients recently cached after HIE verification appear
+// in the check-in list without requiring a full registration step.
 
-class _PatientSearchField extends StatelessWidget {
+class _PatientSearchField extends StatefulWidget {
   final TextEditingController controller;
   final void Function(Patient) onSelect;
   const _PatientSearchField(
       {required this.controller, required this.onSelect});
 
   @override
+  State<_PatientSearchField> createState() => _PatientSearchFieldState();
+}
+
+class _PatientSearchFieldState extends State<_PatientSearchField> {
+  List<Patient> _sqliteExtras = [];
+
+  Future<void> _searchSqlite(String query) async {
+    final ds = sl<PatientLocalDatasource>();
+    final all = await ds.getAllPatients();
+    final q = query.toLowerCase();
+    final matches = all
+        .where((p) =>
+            '${p.firstName} ${p.lastName}'.toLowerCase().contains(q) ||
+            p.nupi.toLowerCase().contains(q) ||
+            p.phoneNumber.contains(q))
+        .toList();
+    if (mounted) setState(() => _sqliteExtras = matches.map((m) => m as Patient).toList());
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Column(children: [
       TextField(
-        controller: controller,
+        controller: widget.controller,
         onChanged: (q) {
           if (q.isEmpty) {
             context
                 .read<PatientBloc>()
                 .add(const LoadPatientsByFacilityEvent());
+            setState(() => _sqliteExtras = []);
           } else {
             context.read<PatientBloc>().add(SearchPatientEvent(q));
+            _searchSqlite(q);
           }
         },
         decoration: InputDecoration(
-          hintText: 'Search by name or NUPI...',
+          hintText: 'Search by name, NUPI, or phone…',
           prefixIcon: const Icon(Icons.search_rounded,
               color: Color(0xFF00796B)),
           filled: true,
@@ -642,7 +672,17 @@ class _PatientSearchField extends StatelessWidget {
               child: CircularProgressIndicator.adaptive(),
             );
           }
-          if (state is PatientsLoaded && state.patients.isNotEmpty) {
+
+          // Merge Firestore results with SQLite extras, dedup by nupi
+          final blocPatients =
+              state is PatientsLoaded ? state.patients : <Patient>[];
+          final seen = <String>{};
+          final merged = <Patient>[];
+          for (final p in [...blocPatients, ..._sqliteExtras]) {
+            if (seen.add(p.nupi)) merged.add(p);
+          }
+
+          if (merged.isNotEmpty) {
             return Container(
               constraints: const BoxConstraints(maxHeight: 320),
               decoration: BoxDecoration(
@@ -658,43 +698,61 @@ class _PatientSearchField extends StatelessWidget {
               ),
               child: ListView.separated(
                 shrinkWrap: true,
-                itemCount: state.patients.length,
+                itemCount: merged.length,
                 separatorBuilder: (_, __) =>
                     Divider(height: 1, color: Colors.grey.shade100),
                 itemBuilder: (_, i) {
-                  final p = state.patients[i];
-                  return ListTile(
-                    onTap: () => onSelect(p),
-                    leading: CircleAvatar(
-                      backgroundColor: p.gender == 'female'
-                          ? const Color(0xFFEC4899).withOpacity(0.12)
-                          : const Color(0xFF00796B).withOpacity(0.12),
-                      child: Text(
-                        p.firstName.isNotEmpty
-                            ? p.firstName[0].toUpperCase()
-                            : '?',
-                        style: TextStyle(
-                          color: p.gender == 'female'
-                              ? const Color(0xFFEC4899)
-                              : const Color(0xFF00796B),
-                          fontWeight: FontWeight.w800,
+                  final p = merged[i];
+                  // Amber left border flags cross-facility cached patients
+                  final isCached = !blocPatients.any((b) => b.nupi == p.nupi);
+                  return Container(
+                    decoration: isCached
+                        ? const BoxDecoration(
+                            border: Border(
+                                left: BorderSide(
+                                    color: Colors.amber, width: 3)))
+                        : null,
+                    child: ListTile(
+                      onTap: () => widget.onSelect(p),
+                      leading: CircleAvatar(
+                        backgroundColor: p.gender == 'female'
+                            ? const Color(0xFFEC4899).withOpacity(0.12)
+                            : const Color(0xFF00796B).withOpacity(0.12),
+                        child: Text(
+                          p.firstName.isNotEmpty
+                              ? p.firstName[0].toUpperCase()
+                              : '?',
+                          style: TextStyle(
+                            color: p.gender == 'female'
+                                ? const Color(0xFFEC4899)
+                                : const Color(0xFF00796B),
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
+                      title: Text(p.fullName,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 14)),
+                      subtitle: Text(
+                        isCached
+                            ? '${p.age} yrs  •  ${p.nupi}  •  cross-facility'
+                            : '${p.age} yrs  •  ${p.nupi}',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: isCached
+                                ? Colors.amber[800]
+                                : Colors.grey[600]),
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded,
+                          color: Color(0xFFCBD5E1)),
                     ),
-                    title: Text(p.fullName,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 14)),
-                    subtitle: Text(
-                        '${p.age} yrs  •  ${p.nupi}',
-                        style: const TextStyle(fontSize: 12)),
-                    trailing: const Icon(Icons.chevron_right_rounded,
-                        color: Color(0xFFCBD5E1)),
                   );
                 },
               ),
             );
           }
-          if (state is PatientsLoaded && state.patients.isEmpty) {
+
+          if (widget.controller.text.isNotEmpty) {
             return const Padding(
               padding: EdgeInsets.all(24),
               child: Column(children: [
