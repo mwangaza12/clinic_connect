@@ -35,7 +35,7 @@ const col = {
 // ── Gateway client ────────────────────────────────────────────────
 
 const gateway = axios.create({
-  baseURL: process.env.HIE_GATEWAY_URL || 'https://hie-gateway.onrender.com',
+  baseURL: process.env.HIE_GATEWAY_URL || 'http://localhost:5000',
   timeout: 60000,
   headers: {
     'X-Facility-Id': process.env.FACILITY_ID      || '',
@@ -61,12 +61,9 @@ class PatientService {
 
   async create(data) {
     // Step 1 — derive NUPI
-    // Gateway exposes GET /api/patients/nupi?nationalId=X&dob=Y (not POST)
-    const nupiRes = await gateway.get('/api/patients/nupi', {
-      params: {
-        nationalId: data.nationalId,
-        dob:        data.dateOfBirth,
-      },
+    const nupiRes = await gateway.post('/api/patients/nupi', {
+      nationalId: data.nationalId,
+      dob:        data.dateOfBirth,
     });
     const nupi = nupiRes.data.nupi;
 
@@ -77,22 +74,13 @@ class PatientService {
     }
 
     // Step 3 — register on blockchain via gateway
-    // FIX: send full demographics so they are stored on chain
-    // and any facility can retrieve them via verify/answer or verify/pin
     const chainRes = await gateway.post('/api/patients/register', {
       nationalId:       data.nationalId,
       dob:              data.dateOfBirth,
-      name:             [data.firstName, data.middleName, data.lastName].filter(Boolean).join(' '),
+      name:             `${data.firstName} ${data.lastName}`,
       securityQuestion: data.securityQuestion,
       securityAnswer:   data.securityAnswer,
       pin:              data.pin,
-      gender:           data.gender           || '',
-      phoneNumber:      data.phoneNumber      || '',
-      email:            data.email            || '',
-      county:           data.address?.county    || '',
-      subCounty:        data.address?.subCounty || '',
-      ward:             data.address?.ward      || '',
-      village:          data.address?.village   || '',
     });
     const blockIndex = chainRes.data.blockIndex ?? null;
 
@@ -334,17 +322,36 @@ class PatientService {
   // ══════════════════════════════════════════════════════════════
 
   async recordEncounter(data) {
+    // Look up patient name from Firestore so encounters are readable
+    // without a separate patient lookup
+    let patientName = data.patientName || '';
+    if (!patientName && data.nupi) {
+      try {
+        const snap = await col.patients
+          .where('nupi', '==', data.nupi).limit(1).get();
+        if (!snap.empty) {
+          const p = snap.docs[0].data();
+          patientName = [p.firstName || p.first_name, p.lastName || p.last_name]
+            .filter(Boolean).join(' ');
+        }
+      } catch (_) {}
+    }
+
     const encounterDoc = {
       patient_nupi:      data.nupi,
+      patient_name:      patientName || null,
       facility_id:       process.env.FACILITY_ID || '',
+      facility_name:     process.env.FACILITY_NAME || 'ClinicConnect',
       encounter_type:    data.encounterType,
       encounter_date:    data.encounterDate   || new Date().toISOString(),
       chief_complaint:   data.chiefComplaint  ?? null,
       practitioner_name: data.practitionerName ?? 'Unknown',
+      clinician_name:    data.practitionerName ?? 'Unknown',
       vital_signs:       data.vitalSigns      ?? null,
       diagnoses:         data.diagnoses       ?? [],
       medications:       data.medications     ?? null,
       notes:             data.notes           ?? null,
+      treatment_plan:    data.treatmentPlan   ?? null,
       status:            'active',
       source:            process.env.FACILITY_NAME || 'ClinicConnect',
       created_at:        admin.firestore.FieldValue.serverTimestamp(),
@@ -366,7 +373,7 @@ class PatientService {
       console.log(`⛓  Encounter on chain: Block #${chainRes.data.blockIndex}`);
       return { encounter, blockIndex: chainRes.data.blockIndex };
     } catch (err) {
-      console.error('Chain notification failed (saved locally):', err.message);
+      console.error('⚠️  Chain notification failed (saved locally):', err.message);
       return { encounter, blockIndex: null, chainError: err.message };
     }
   }
@@ -410,7 +417,15 @@ class PatientService {
 export const patientService = new PatientService();
 
 // ── Keep-alive ping ───────────────────────────────────────────────
-// Kept for backward compat — server.js now calls startSelfKeepAlive() instead
 export function startGatewayKeepAlive() {
-  // no-op: keep-alive is handled in server.js startSelfKeepAlive()
+  if (process.env.NODE_ENV !== 'production') return;
+  setInterval(async () => {
+    try {
+      await gateway.get('/health');
+      console.log('🏓 Gateway keep-alive OK');
+    } catch {
+      console.warn('⚠️  Gateway keep-alive failed');
+    }
+  }, 10 * 60 * 1000);
+  console.log('🏓 Gateway keep-alive started (every 10 min)');
 }

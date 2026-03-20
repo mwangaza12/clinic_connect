@@ -1,10 +1,9 @@
-// TODO Implement this library.
 // lib/features/home/presentation/pages/doctor_shell_page.dart
 //
 // Doctor shell — 5 tabs:
 //   0 Dashboard   → clinical quick-actions + today's encounters
 //   1 Patients    → PatientListView (existing)
-//   2 Encounters  → Firestore-backed encounter list for this facility
+//   2 Encounters  → EncounterListPage (Firestore + SQLite, no HIE)
 //   3 Referrals   → ReferralsPage (existing)
 //   4 Profile     → ProfilePage (existing)
 
@@ -13,7 +12,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
-import '../../../../core/config/firebase_config.dart';
 import '../../../../core/sync/widgets/sync_status_widget.dart';
 import '../../../../injection_container.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
@@ -27,6 +25,7 @@ import '../../../patient/presentation/pages/patient_list_page.dart';
 import '../../../patient/presentation/pages/patient_registration_page.dart';
 import '../../../referral/presentation/pages/referrals_page.dart';
 import '../../../encounter/presentation/pages/encounter_detail_page.dart';
+import '../../../encounter/presentation/pages/encounter_list_page.dart';
 import '../bloc/dashboard_bloc.dart';
 import '../bloc/dashboard_event.dart';
 import '../bloc/dashboard_state.dart';
@@ -101,7 +100,8 @@ class _DoctorShellPageState extends State<DoctorShellPage> {
                       sl<PatientBloc>()..add(const LoadPatientsByFacilityEvent()),
                   child: const PatientListView(),
                 ),
-                DoctorEncountersTab(facilityId: user.facilityId),
+                // ↓ Reads from Firestore + SQLite only. No HIE gateway.
+                EncounterListPage(facilityId: user.facilityId),
                 const ReferralsPage(),
                 ProfilePage(state: state, primaryColor: kPrimaryGreen),
               ],
@@ -183,7 +183,6 @@ class DoctorDashboardTab extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
-            // Stats row
             BlocBuilder<DashboardBloc, DashboardState>(
               builder: (_, s) {
                 final p = s is DashboardLoaded ? '${s.stats.totalPatients}'    : '—';
@@ -207,10 +206,7 @@ class DoctorDashboardTab extends StatelessWidget {
               title: 'Register Patient', subtitle: 'Add new patient record',
               onTap: () => Navigator.push(context,
                   MaterialPageRoute(builder: (_) => const PatientRegistrationPage()))
-                .then((_) {
-                  // Navigate to the Patients tab and reload after registration
-                  onNavigate(1);
-                }),
+                .then((_) => onNavigate(1)),
             ),
             ActionRow(
               icon: Icons.medical_services_rounded, color: Colors.blue,
@@ -244,7 +240,6 @@ class DoctorDashboardTab extends StatelessWidget {
             ),
             const SizedBox(height: 24),
 
-            // Today's encounters
             _TodayEncountersSection(),
           ],
         ),
@@ -252,6 +247,8 @@ class DoctorDashboardTab extends StatelessWidget {
     );
   }
 }
+
+// ─── Today's encounters (dashboard section) ───────────────────────────────────
 
 class _TodayEncountersSection extends StatelessWidget {
   @override
@@ -296,208 +293,59 @@ class _EncounterMiniCard extends StatelessWidget {
         context,
         MaterialPageRoute(
           builder: (_) => EncounterDetailPage(
-            encounter: encounter,
+            encounter:   encounter,
             patientName: encounter['patient_name'] as String?,
           ),
         ),
       ),
       borderRadius: BorderRadius.circular(14),
       child: Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: kPrimaryGreen.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(12),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: kPrimaryGreen.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.medical_services_rounded,
+                  color: kPrimaryGreen, size: 20),
             ),
-            child: const Icon(Icons.medical_services_rounded,
-                color: kPrimaryGreen, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(encounter['patient_name'] ?? 'Unknown',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 14)),
-                Text(
-                  encounter['chief_complaint'] ??
-                      encounter['type'] ??
-                      'Consultation',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(encounter['patient_name'] ?? 'Unknown',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 14)),
+                  Text(
+                    encounter['chief_complaint'] ??
+                        encounter['type'] ??
+                        'Consultation',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
-          ),
-          Row(
-            children: [
+            Row(children: [
               Text(DateFormat('HH:mm').format(date),
                   style: const TextStyle(
                       fontSize: 12, color: Color(0xFF94A3B8))),
               const SizedBox(width: 4),
-              const Icon(Icons.chevron_right,
-                  size: 16, color: Color(0xFFCBD5E1)),
-            ],
-          ),
-        ],
+              const Icon(Icons.chevron_right, size: 16, color: Color(0xFFCBD5E1)),
+            ]),
+          ],
+        ),
       ),
-    ), // InkWell child
-    ); // InkWell
-  }
-}
-
-// ─── Encounters tab ───────────────────────────────────────────────────────────
-
-class DoctorEncountersTab extends StatefulWidget {
-  final String facilityId;
-  const DoctorEncountersTab({super.key, required this.facilityId});
-
-  @override
-  State<DoctorEncountersTab> createState() => _DoctorEncountersTabState();
-}
-
-class _DoctorEncountersTabState extends State<DoctorEncountersTab> {
-  // Store the stream once — never recreate it on rebuild.
-  // A getter would create a new stream every build(), cancelling
-  // the previous one and causing the data to flash then disappear.
-  late final Stream<QuerySnapshot> _stream;
-
-  @override
-  void initState() {
-    super.initState();
-    _stream = FirebaseConfig.facilityDb
-        .collection('encounters')
-        .where('facility_id', isEqualTo: widget.facilityId)
-        .orderBy('encounter_date', descending: true)
-        .limit(50)
-        .snapshots();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _stream,
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator.adaptive());
-        }
-
-        final docs = snap.data?.docs ?? [];
-
-        if (docs.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.medical_services_outlined,
-                    size: 48, color: Colors.grey[300]),
-                const SizedBox(height: 12),
-                Text('No encounters yet',
-                    style: TextStyle(
-                        color: Colors.grey[500], fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                Text('Open a patient to document a clinical visit',
-                    style: TextStyle(color: Colors.grey[400], fontSize: 12)),
-              ],
-            ),
-          );
-        }
-
-        return ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: docs.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 8),
-          itemBuilder: (context, i) {
-            final data     = docs[i].data() as Map<String, dynamic>;
-            final rawDate  = data['encounter_date'];
-            final date     = rawDate is Timestamp
-                ? rawDate.toDate()
-                : rawDate is String
-                    ? DateTime.tryParse(rawDate) ?? DateTime.now()
-                    : DateTime.now();
-            final type        = data['encounter_type'] as String? ?? 'visit';
-            final complaint   = data['chief_complaint'] as String?;
-            final patientName = data['patient_name'] as String?;
-            final nupi        = data['patient_nupi'] as String? ?? '';
-
-            return InkWell(
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => EncounterDetailPage(
-                    encounter: data,
-                    patientName: patientName,
-                  ),
-                ),
-              ),
-              borderRadius: BorderRadius.circular(14),
-              child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: kPrimaryGreen.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.medical_services_rounded,
-                        color: kPrimaryGreen, size: 20),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          patientName ?? 'NUPI: $nupi',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 14),
-                        ),
-                        Text(
-                          complaint ?? type,
-                          style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(DateFormat('dd MMM').format(date),
-                          style: const TextStyle(
-                              fontSize: 12, color: Color(0xFF94A3B8))),
-                      Text(DateFormat('HH:mm').format(date),
-                          style: const TextStyle(
-                              fontSize: 11, color: Color(0xFFCBD5E1))),
-                    ],
-                  ),
-                  const SizedBox(width: 4),
-                  const Icon(Icons.chevron_right,
-                      size: 16, color: Color(0xFFCBD5E1)),
-                ],
-              ),
-            ), // InkWell child
-            ); // InkWell
-          },
-        );
-      },
     );
   }
 }
