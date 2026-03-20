@@ -244,7 +244,9 @@ Future<void> init() async {
       searchPatientUsecase: sl(),
       getAllPatientsUsecase: sl(),
       getAllPatientsByFacilityUsecase: sl(),
-      authBloc: sl<AuthBloc>(), // This should now work
+      // Pass the concrete repository so the bloc can receive
+      // background Firestore refresh notifications
+      repository: sl<PatientRepository>() as PatientRepositoryImpl,
     ),
   );
 

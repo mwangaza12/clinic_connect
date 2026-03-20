@@ -7,6 +7,10 @@ import '../models/patient_model.dart';
 
 abstract class PatientLocalDatasource {
   Future<PatientModel> savePatient(PatientModel patient);
+  /// Cache a patient from Firestore into SQLite WITHOUT enqueueing a sync.
+  /// Use this when the data already came FROM Firestore — re-enqueueing
+  /// would cause an infinite loop (write → sync → write → sync...).
+  Future<void> cachePatient(PatientModel patient);
   Future<PatientModel> updatePatient(PatientModel patient);
   Future<List<PatientModel>> getAllPatients();
   Future<PatientModel?> getPatientByNupi(String nupi);
@@ -45,6 +49,22 @@ class PatientLocalDatasourceImpl implements PatientLocalDatasource {
       return patient;
     } catch (e) {
       throw LocalException('Failed to save patient: $e');
+    }
+  }
+
+  @override
+  Future<void> cachePatient(PatientModel patient) async {
+    // SQLite write only — no sync enqueue.
+    // Called when seeding local DB from a Firestore read.
+    try {
+      final db = await dbHelper.database;
+      await db.insert(
+        'patients',
+        patient.toSqlite(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (e) {
+      throw LocalException('Failed to cache patient: $e');
     }
   }
 

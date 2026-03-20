@@ -167,16 +167,31 @@ class PatientRemoteDatasourceImpl implements PatientRemoteDatasource {
     }
 
     try {
-      final snapshot = await FirebaseConfig.facilityDb
-          .collection('patients')
-          .where('facility_id', isEqualTo: currentFacilityId)
-          .get();
+      // Query both field name formats:
+      // snake_case (app-registered patients) + camelCase (seeded patients)
+      final results = await Future.wait([
+        FirebaseConfig.facilityDb
+            .collection('patients')
+            .where('facility_id', isEqualTo: currentFacilityId)
+            .get(),
+        FirebaseConfig.facilityDb
+            .collection('patients')
+            .where('facilityId', isEqualTo: currentFacilityId)
+            .get(),
+      ]);
 
-      final patients = snapshot.docs.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        return PatientModel.fromFirestore(data);
-      }).toList();
+      // Merge and deduplicate by document ID
+      final seen = <String>{};
+      final patients = <PatientModel>[];
+      for (final snapshot in results) {
+        for (final doc in snapshot.docs) {
+          if (seen.add(doc.id)) {
+            final data = Map<String, dynamic>.from(doc.data());
+            data['id'] = doc.id;
+            patients.add(PatientModel.fromFirestore(data));
+          }
+        }
+      }
 
       patients.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return patients;

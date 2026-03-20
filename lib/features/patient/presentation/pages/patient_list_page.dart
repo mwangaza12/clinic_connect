@@ -1,6 +1,3 @@
-// lib/features/patient/presentation/pages/patient_list_page.dart
-
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../injection_container.dart';
@@ -18,7 +15,8 @@ class PatientListPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (_) => sl<PatientBloc>()..add(const LoadPatientsByFacilityEvent()),
+      create: (_) =>
+          sl<PatientBloc>()..add(const LoadPatientsByFacilityEvent()),
       child: const PatientListView(),
     );
   }
@@ -33,42 +31,16 @@ class PatientListView extends StatefulWidget {
 
 class _PatientListViewState extends State<PatientListView> {
   final _searchController = TextEditingController();
-  Timer? _debounceTimer;
   final Color primaryGreen = const Color(0xFF1B4332);
   final Color slateBg = const Color(0xFFF1F5F9);
 
   @override
   void dispose() {
-    _debounceTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
   int _getAge(DateTime dob) => DateTime.now().year - dob.year;
-
-  void _onSearchChanged(String query) {
-    if (_debounceTimer?.isActive ?? false) {
-      _debounceTimer!.cancel();
-    }
-    
-    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
-      if (!mounted) return;
-      
-      if (query.isEmpty) {
-        // Reload all patients when search is cleared
-        context.read<PatientBloc>().add(
-          const LoadPatientsByFacilityEvent(),
-        );
-      } else {
-        // Only search if query has at least 3 characters
-        if (query.length >= 3) {
-          context.read<PatientBloc>().add(
-            SearchPatientEvent(query),
-          );
-        }
-      }
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -78,7 +50,19 @@ class _PatientListViewState extends State<PatientListView> {
       body: Column(
         children: [
           _buildSearchAndFilter(),
-          Expanded(child: _buildPatientContent()),
+          Expanded(
+            child: RefreshIndicator(
+              color: primaryGreen,
+              onRefresh: () async {
+                context.read<PatientBloc>().add(
+                  const LoadPatientsByFacilityEvent(),
+                );
+                // Give the bloc time to fetch and emit
+                await Future.delayed(const Duration(seconds: 2));
+              },
+              child: _buildPatientContent(),
+            ),
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -86,7 +70,8 @@ class _PatientListViewState extends State<PatientListView> {
           context,
           MaterialPageRoute(builder: (_) => const PatientRegistrationPage()),
         ).then((_) {
-          // Reload list when registration page pops
+          // Reload list when registration page pops — catches both the
+          // successful online path and the new offline path.
           if (context.mounted) {
             context
                 .read<PatientBloc>()
@@ -157,21 +142,11 @@ class _PatientListViewState extends State<PatientListView> {
       color: Colors.white,
       child: TextField(
         controller: _searchController,
-        onChanged: _onSearchChanged,
+        onChanged: (v) =>
+            context.read<PatientBloc>().add(SearchPatientEvent(v)),
         decoration: InputDecoration(
           hintText: 'Search by NUPI, Name or Phone...',
           prefixIcon: Icon(Icons.search_rounded, color: primaryGreen),
-          suffixIcon: _searchController.text.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.clear, size: 20),
-                  onPressed: () {
-                    _searchController.clear();
-                    context.read<PatientBloc>().add(
-                      const LoadPatientsByFacilityEvent(),
-                    );
-                  },
-                )
-              : null,
           filled: true,
           fillColor: slateBg,
           border: OutlineInputBorder(
@@ -190,15 +165,8 @@ class _PatientListViewState extends State<PatientListView> {
         if (state is PatientLoading) {
           return const Center(child: CircularProgressIndicator.adaptive());
         }
-        
         if (state is PatientsLoaded) {
-          if (state.patients.isEmpty) {
-            return _buildEmptyState(
-              message: _searchController.text.isEmpty
-                  ? 'No Patient Records Found'
-                  : 'No patients match "${_searchController.text}"',
-            );
-          }
+          if (state.patients.isEmpty) return _buildEmptyState();
           return ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: state.patients.length,
@@ -206,51 +174,6 @@ class _PatientListViewState extends State<PatientListView> {
                 _buildMedicalCard(state.patients[index]),
           );
         }
-        
-        if (state is PatientError) {
-          return Center(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.error_outline_rounded, size: 60, color: Colors.red[300]),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Error loading patients',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      state.message,
-                      style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 24),
-                    ElevatedButton(
-                      onPressed: () {
-                        context.read<PatientBloc>().add(
-                          const LoadPatientsByFacilityEvent(),
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: primaryGreen,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 32,
-                          vertical: 12,
-                        ),
-                      ),
-                      child: const Text('Retry'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }
-        
         return _buildEmptyState();
       },
     );
@@ -297,6 +220,8 @@ class _PatientListViewState extends State<PatientListView> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // FIX: name row — badge is now inside the Expanded
+                      // so it cannot push the row past its boundary.
                       Row(
                         children: [
                           Expanded(
@@ -322,6 +247,9 @@ class _PatientListViewState extends State<PatientListView> {
                       const SizedBox(height: 12),
                       const Divider(height: 1),
                       const SizedBox(height: 12),
+                      // FIX: Wrap already handles line-breaking; each
+                      // _dataPoint is individually width-capped so the
+                      // location string can't overflow a narrow card.
                       Wrap(
                         spacing: 16,
                         runSpacing: 8,
@@ -376,11 +304,14 @@ class _PatientListViewState extends State<PatientListView> {
           fontWeight: FontWeight.w800,
           fontSize: 10,
         ),
-        overflow: TextOverflow.ellipsis,
+        overflow: TextOverflow.ellipsis, // FIX: long NUPIs won't blow the badge
       ),
     );
   }
 
+  /// Shown instead of the NUPI badge when a patient was registered offline.
+  /// The real NUPI will be assigned by the HIE gateway once connectivity
+  /// is restored and SyncManager processes the pending queue.
   Widget _pendingNupiBadge() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -407,6 +338,7 @@ class _PatientListViewState extends State<PatientListView> {
     );
   }
 
+  // FIX: added optional maxWidth so callers can cap wide data points
   Widget _dataPoint(IconData icon, String text, {double? maxWidth}) {
     final content = Row(
       mainAxisSize: MainAxisSize.min,
@@ -436,37 +368,18 @@ class _PatientListViewState extends State<PatientListView> {
     return content;
   }
 
-  Widget _buildEmptyState({String? message}) {
+  Widget _buildEmptyState() {
     return Center(
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min, // Add this to prevent overflow
-            children: [
-              Icon(Icons.folder_open_rounded, size: 60, color: Colors.grey[300]),
-              const SizedBox(height: 16),
-              Text(
-                message ?? 'No Patient Records Found',
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Colors.grey),
-                textAlign: TextAlign.center,
-              ),
-              if (_searchController.text.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                TextButton(
-                  onPressed: () {
-                    _searchController.clear();
-                    context.read<PatientBloc>().add(
-                      const LoadPatientsByFacilityEvent(),
-                    );
-                  },
-                  child: const Text('Clear Search'),
-                ),
-              ],
-            ],
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.folder_open_rounded, size: 60, color: Colors.grey[300]),
+          const SizedBox(height: 16),
+          const Text(
+            'No Patient Records Found',
+            style: TextStyle(fontWeight: FontWeight.w700, color: Colors.grey),
           ),
-        ),
+        ],
       ),
     );
   }

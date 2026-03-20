@@ -34,33 +34,57 @@ class PatientModel extends Patient {
   // FROM FIRESTORE (uses Timestamp)
   // ─────────────────────────────────────────
   factory PatientModel.fromFirestore(Map<String, dynamic> json) {
+    // Read a field that may be snake_case OR camelCase.
+    // The app writes snake_case; the seeding script writes camelCase.
+    // Both must work so seeded data is visible without re-seeding.
+    T? r<T>(String snake, String camel) {
+      final v = json[snake] ?? json[camel];
+      if (v == null) return null;
+      return v as T?;
+    }
+
+    // Date field can be a Firestore Timestamp or an ISO string
+    DateTime parseDate(String snake, String camel) {
+      final v = json[snake] ?? json[camel];
+      if (v == null) return DateTime.now();
+      if (v is Timestamp) return v.toDate();
+      if (v is String && v.isNotEmpty) {
+        return DateTime.tryParse(v) ?? DateTime.now();
+      }
+      return DateTime.now();
+    }
+
+    // Lists: stored as List or null
+    List<String> parseList(String snake, String camel) {
+      final v = json[snake] ?? json[camel];
+      if (v == null) return [];
+      if (v is List) return List<String>.from(v);
+      return [];
+    }
+
     return PatientModel(
-      id: json['id'] ?? json['patient_id'] ?? '',
-      nupi: json['nupi'] ?? '',
-      firstName: json['first_name'] ?? '',
-      middleName: json['middle_name'] ?? '',
-      lastName: json['last_name'] ?? '',
-      gender: json['gender'] ?? '',
-      dateOfBirth: (json['date_of_birth'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      phoneNumber: json['phone_number'] ?? '',
-      email: json['email'],
-      county: json['county'] ?? '',
-      subCounty: json['sub_county'] ?? '',
-      ward: json['ward'] ?? '',
-      village: json['village'] ?? '',
-      bloodGroup: json['blood_group'],
-      facilityId: json['facility_id'] ?? '',
-      allergies: json['allergies'] != null
-          ? List<String>.from(json['allergies'] as List)
-          : [],
-      chronicConditions: json['chronic_conditions'] != null
-          ? List<String>.from(json['chronic_conditions'] as List)
-          : [],
-      nextOfKinName: json['next_of_kin_name'],
-      nextOfKinPhone: json['next_of_kin_phone'],
-      nextOfKinRelationship: json['next_of_kin_relationship'],
-      createdAt: (json['created_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      updatedAt: (json['updated_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      id:           json['id'] ?? json['patient_id'] ?? '',
+      nupi:         json['nupi'] ?? '',
+      firstName:    r<String>('first_name',    'firstName')    ?? '',
+      middleName:   r<String>('middle_name',   'middleName')   ?? '',
+      lastName:     r<String>('last_name',     'lastName')     ?? '',
+      gender:       json['gender'] ?? '',
+      dateOfBirth:  parseDate('date_of_birth', 'dateOfBirth'),
+      phoneNumber:  r<String>('phone_number',  'phoneNumber')  ?? '',
+      email:        r<String>('email',         'email'),
+      county:       json['county'] ?? '',
+      subCounty:    r<String>('sub_county',    'subCounty')    ?? '',
+      ward:         json['ward']    ?? '',
+      village:      json['village'] ?? '',
+      bloodGroup:   r<String>('blood_group',   'bloodGroup'),
+      facilityId:   r<String>('facility_id',   'facilityId')   ?? '',
+      allergies:           parseList('allergies',          'allergies'),
+      chronicConditions:   parseList('chronic_conditions', 'chronicConditions'),
+      nextOfKinName:         r<String>('next_of_kin_name',         'nextOfKinName'),
+      nextOfKinPhone:        r<String>('next_of_kin_phone',        'nextOfKinPhone'),
+      nextOfKinRelationship: r<String>('next_of_kin_relationship', 'nextOfKinRelationship'),
+      createdAt: parseDate('created_at', 'createdAt'),
+      updatedAt: parseDate('updated_at', 'updatedAt'),
     );
   }
 
@@ -93,6 +117,10 @@ class PatientModel extends Patient {
       'updated_at': Timestamp.fromDate(updatedAt),
     };
   }
+
+  /// Alias for toSqlite() — used by sync queue and other callers
+  /// that expect a toJson() method on the model.
+  Map<String, dynamic> toJson() => toSqlite();
 
   // ─────────────────────────────────────────
   // FROM SQLITE (uses String for dates/lists)
@@ -156,74 +184,6 @@ class PatientModel extends Patient {
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
-  }
-
-  // ─────────────────────────────────────────
-  // TO JSON — generic serialisable map
-  // Safe for SyncManager queue, REST payloads, and jsonEncode().
-  // Dates → ISO-8601 strings, lists → plain List<String> (no Timestamps).
-  // SyncManager uses this when writing the Firebase patient sync payload.
-  // ─────────────────────────────────────────
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'nupi': nupi,
-      'first_name': firstName,
-      'middle_name': middleName,
-      'last_name': lastName,
-      'gender': gender,
-      'date_of_birth': dateOfBirth.toIso8601String(),
-      'phone_number': phoneNumber,
-      'email': email,
-      'county': county,
-      'sub_county': subCounty,
-      'ward': ward,
-      'village': village,
-      'blood_group': bloodGroup,
-      'facility_id': facilityId,
-      'allergies': allergies,               // plain List<String> — no jsonEncode
-      'chronic_conditions': chronicConditions,
-      'next_of_kin_name': nextOfKinName,
-      'next_of_kin_phone': nextOfKinPhone,
-      'next_of_kin_relationship': nextOfKinRelationship,
-      'created_at': createdAt.toIso8601String(),
-      'updated_at': updatedAt.toIso8601String(),
-    };
-  }
-
-  // ─────────────────────────────────────────
-  // FROM JSON — inverse of toJson()
-  // Accepts the same plain-map format (ISO-8601 strings, plain lists).
-  // ─────────────────────────────────────────
-  factory PatientModel.fromJson(Map<String, dynamic> json) {
-    return PatientModel(
-      id: json['id'] ?? '',
-      nupi: json['nupi'] ?? '',
-      firstName: json['first_name'] ?? '',
-      middleName: json['middle_name'] ?? '',
-      lastName: json['last_name'] ?? '',
-      gender: json['gender'] ?? '',
-      dateOfBirth: DateTime.parse(json['date_of_birth'] as String),
-      phoneNumber: json['phone_number'] ?? '',
-      email: json['email'] as String?,
-      county: json['county'] ?? '',
-      subCounty: json['sub_county'] ?? '',
-      ward: json['ward'] ?? '',
-      village: json['village'] ?? '',
-      bloodGroup: json['blood_group'] as String?,
-      facilityId: json['facility_id'] ?? '',
-      allergies: json['allergies'] != null
-          ? List<String>.from(json['allergies'] as List)
-          : [],
-      chronicConditions: json['chronic_conditions'] != null
-          ? List<String>.from(json['chronic_conditions'] as List)
-          : [],
-      nextOfKinName: json['next_of_kin_name'] as String?,
-      nextOfKinPhone: json['next_of_kin_phone'] as String?,
-      nextOfKinRelationship: json['next_of_kin_relationship'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
-    );
   }
 
   // ─────────────────────────────────────────
