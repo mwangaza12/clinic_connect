@@ -22,6 +22,7 @@ import '../../../patient/presentation/bloc/patient_event.dart';
 import '../../../patient/presentation/pages/nupi_lookup_page.dart';
 import '../../../patient/presentation/pages/patient_list_page.dart';
 import '../../../patient/presentation/pages/patient_registration_page.dart';
+import 'check_in_page.dart';
 import 'profile_page.dart';
 import 'shell_widgets.dart';
 
@@ -71,6 +72,23 @@ class _NurseShellPageState extends State<NurseShellPage> {
         return Scaffold(
           backgroundColor: kBgSlate,
           appBar: _buildAppBar(user.facilityName),
+          floatingActionButton: _tab == 0
+              ? FloatingActionButton.extended(
+                  onPressed: () async {
+                    final result = await Navigator.push<bool>(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const CheckInPage()),
+                    );
+                    // Queue updates via Firestore stream automatically
+                  },
+                  backgroundColor: Colors.teal,
+                  icon: const Icon(Icons.add_rounded, color: Colors.white),
+                  label: const Text('Check In',
+                      style: TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.w700)),
+                )
+              : null,
           body: PageView(
             controller: _pageController,
             physics: const NeverScrollableScrollPhysics(),
