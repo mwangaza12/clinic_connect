@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:sqflite/sqlite_api.dart';
@@ -99,18 +100,30 @@ class EncounterRemoteDatasourceImpl implements EncounterRemoteDatasource {
   Future<List<EncounterModel>> getPatientEncounters(
       String patientId) async {
     try {
+      // Backend writes 'patient_nupi', not 'patient_id'.
+      // No orderBy — avoids needing a composite index. Sort in-memory.
+      debugPrint('[EncounterDS] querying patient_nupi == "$patientId"');
       final query = await _db
           .collection('encounters')
-          .where('patient_id', isEqualTo: patientId)
-          .orderBy('encounter_date', descending: true)
+          .where('patient_nupi', isEqualTo: patientId)
           .get();
 
-      return query.docs.map((doc) {
+      debugPrint('[EncounterDS] got ${query.docs.length} docs');
+      if (query.docs.isNotEmpty) {
+        debugPrint('[EncounterDS] sample doc keys: ${query.docs.first.data().keys.toList()}');
+        debugPrint('[EncounterDS] sample patient_nupi: ${query.docs.first.data()['patient_nupi']}');
+      }
+
+      final results = query.docs.map((doc) {
         final data = doc.data();
         data['id'] = doc.id;
         return EncounterModel.fromFirestore(data);
       }).toList();
+
+      results.sort((a, b) => b.encounterDate.compareTo(a.encounterDate));
+      return results;
     } catch (e) {
+      debugPrint('[EncounterDS] ERROR: $e');
       throw ServerException('Failed to get patient encounters: $e');
     }
   }

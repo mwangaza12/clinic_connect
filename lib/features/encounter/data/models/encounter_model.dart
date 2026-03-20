@@ -72,6 +72,14 @@ class DiagnosisModel extends Diagnosis {
   }
 }
 
+/// Handles both Firestore Timestamps and ISO-8601 strings.
+/// The seed writes ISO strings; the app writes Timestamps.
+DateTime _toDateTime(dynamic value) {
+  if (value is Timestamp) return value.toDate();
+  if (value is String)    return DateTime.parse(value);
+  return DateTime.now();
+}
+
 class EncounterModel extends Encounter {
   const EncounterModel({
     required super.id,
@@ -101,95 +109,44 @@ class EncounterModel extends Encounter {
   // ── FIRESTORE ────────────────────────────────────────────────────────────────
 
   factory EncounterModel.fromFirestore(Map<String, dynamic> json) {
-    // Helper: reads snake_case first, falls back to camelCase.
-    // Supports both the Flutter app format and the Node.js backend format.
-    T? r<T>(String snake, String camel) =>
-        (json[snake] ?? json[camel]) as T?;
-
-    // Date: may be Timestamp (app), ISO string (backend), or null
-    DateTime parseDate(String snake, String camel) {
-      final v = json[snake] ?? json[camel];
-      if (v == null)        return DateTime.now();
-      if (v is Timestamp)   return v.toDate();
-      if (v is String && v.isNotEmpty) return DateTime.tryParse(v) ?? DateTime.now();
-      return DateTime.now();
-    }
-
-    // Vitals: stored as 'vitals' (app) or 'vital_signs' (backend)
-    VitalsModel? parseVitals() {
-      final v = json['vitals'] ?? json['vital_signs'];
-      if (v == null) return null;
-      if (v is Map) return VitalsModel.fromMap(Map<String, dynamic>.from(v));
-      return null;
-    }
-
-    // Diagnoses: app stores List<Map>, backend stores List<Map> with different keys
-    List<DiagnosisModel> parseDiagnoses() {
-      final raw = json['diagnoses'];
-      if (raw == null) return [];
-      if (raw is String) {
-        try {
-          final decoded = jsonDecode(raw) as List;
-          return decoded
-              .map((d) => DiagnosisModel.fromMap(Map<String, dynamic>.from(d)))
-              .toList();
-        } catch (_) { return []; }
-      }
-      if (raw is List) {
-        return raw
-            .map((d) => DiagnosisModel.fromMap(Map<String, dynamic>.from(d as Map)))
-            .toList();
-      }
-      return [];
-    }
-
-    // EncounterType: app uses 'type', backend uses 'encounter_type'
-    final typeStr = r<String>('type', 'encounterType') ??
-                    r<String>('encounter_type', 'encounterType') ?? 'outpatient';
-    final type = EncounterType.values.firstWhere(
-      (e) => e.name == typeStr,
-      orElse: () => EncounterType.outpatient,
-    );
-
-    // patientName: app stores it, backend does NOT — derive from nupi as fallback
-    final patientName = r<String>('patient_name', 'patientName') ?? '';
-
     return EncounterModel(
-      id:           json['id'] as String? ?? '',
-      patientId:    r<String>('patient_id',    'patientId')    ?? '',
-      patientName:  patientName,
-      patientNupi:  r<String>('patient_nupi',  'patientNupi')  ?? '',
-      facilityId:   r<String>('facility_id',   'facilityId')   ?? '',
-      facilityName: r<String>('facility_name', 'facilityName') ??
-                    json['source'] as String? ?? '',
-      clinicianId:   r<String>('clinician_id',   'clinicianId')   ?? '',
-      clinicianName: r<String>('clinician_name', 'clinicianName') ??
-                     r<String>('practitioner_name', 'practitionerName') ?? '',
-      type:   type,
+      id:            json['id'] ?? '',
+      patientId:     json['patient_id'] ?? '',
+      patientName:   json['patient_name'] ?? '',
+      patientNupi:   json['patient_nupi'] ?? '',
+      facilityId:    json['facility_id'] ?? '',
+      facilityName:  json['facility_name'] ?? '',
+      clinicianId:   json['clinician_id'] ?? '',
+      clinicianName: json['clinician_name'] ?? '',
+      type: EncounterType.values.firstWhere(
+        (e) => e.name == json['type'],
+        orElse: () => EncounterType.outpatient,
+      ),
       status: EncounterStatus.values.firstWhere(
-        (e) => e.name == (json['status'] as String? ?? ''),
+        (e) => e.name == json['status'],
         orElse: () => EncounterStatus.finished,
       ),
-      vitals:                     parseVitals(),
-      chiefComplaint:             r<String>('chief_complaint',              'chiefComplaint'),
-      historyOfPresentingIllness: r<String>('history_of_presenting_illness','historyOfPresentingIllness') ??
-                                  r<String>('history',                      'history'),
-      examinationFindings:        r<String>('examination_findings',         'examinationFindings') ??
-                                  r<String>('examination',                  'examination'),
-      diagnoses:     parseDiagnoses(),
-      treatmentPlan: r<String>('treatment_plan', 'treatmentPlan'),
-      clinicalNotes: r<String>('clinical_notes', 'clinicalNotes') ??
-                     r<String>('notes',          'notes'),
+      vitals: (json['vital_signs'] ?? json['vitals']) != null
+          ? VitalsModel.fromMap(Map<String, dynamic>.from(json['vital_signs'] ?? json['vitals']))
+          : null,
+      chiefComplaint:             json['chief_complaint'],
+      historyOfPresentingIllness: json['history_of_presenting_illness'],
+      examinationFindings:        json['examination_findings'],
+      diagnoses: (json['diagnoses'] as List<dynamic>? ?? [])
+          .map((d) => DiagnosisModel.fromMap(Map<String, dynamic>.from(d)))
+          .toList(),
+      treatmentPlan: json['treatment_plan'],
+      clinicalNotes: json['clinical_notes'],
       disposition: json['disposition'] != null
           ? Disposition.values.firstWhere(
               (e) => e.name == json['disposition'],
               orElse: () => Disposition.discharged,
             )
           : null,
-      referralId:    r<String>('referral_id', 'referralId'),
-      encounterDate: parseDate('encounter_date', 'encounterDate'),
-      createdAt:     parseDate('created_at',     'createdAt'),
-      updatedAt:     parseDate('updated_at',     'updatedAt'),
+      referralId:    json['referral_id'],
+      encounterDate: _toDateTime(json['encounter_date']),
+      createdAt:     _toDateTime(json['created_at']),
+      updatedAt:     _toDateTime(json['updated_at']),
     );
   }
 

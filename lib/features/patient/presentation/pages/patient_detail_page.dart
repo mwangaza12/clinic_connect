@@ -20,7 +20,7 @@ class PatientDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) => sl<EncounterBloc>()
-        ..add(LoadPatientEncountersEvent(patient.id)),
+        ..add(LoadPatientEncountersEvent(patient.nupi)),
       child: _PatientDetailView(patient: patient),
     );
   }
@@ -89,7 +89,7 @@ class _PatientDetailViewState extends State<_PatientDetailView>
           if (created == true && context.mounted) {
             context
                 .read<EncounterBloc>()
-                .add(LoadPatientEncountersEvent(p.id));
+                .add(LoadPatientEncountersEvent(p.nupi));
           }
         },
         backgroundColor: _primary,
@@ -1172,7 +1172,7 @@ class _VisitHistoryTab extends StatelessWidget {
           ElevatedButton(
             onPressed: () => context
                 .read<EncounterBloc>()
-                .add(LoadPatientEncountersEvent(patient.id)),
+                .add(LoadPatientEncountersEvent(patient.nupi)),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF1B4332),
               foregroundColor: Colors.white,

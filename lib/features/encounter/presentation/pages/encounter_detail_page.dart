@@ -367,16 +367,23 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
     String _s(String key) => enc[key]?.toString() ?? '';
     String _orDash(String v) => v.trim().isEmpty ? '—' : v;
 
-    // Parse vitals JSON if stored as a string
-    Map<String, dynamic> vitals = {};
-    final rawVitals = enc['vitals'];
+    // Backend writes vitals under 'vital_signs' with snake_case keys.
+    // Convert to Vitals entity so we reuse _buildVitalsCard (threshold colour signals).
+    final rawVitals = enc['vital_signs'] ?? enc['vitals'];
+    Vitals? vitalsEntity;
     if (rawVitals is Map) {
-      vitals = Map<String, dynamic>.from(rawVitals);
-    } else if (rawVitals is String && rawVitals.isNotEmpty) {
-      try {
-        vitals = Map<String, dynamic>.from(
-            (rawVitals as dynamic) == null ? {} : {}); // safe fallback
-      } catch (_) {}
+      final v = Map<String, dynamic>.from(rawVitals);
+      vitalsEntity = Vitals(
+        systolicBP:       (v['systolic_bp']      as num?)?.toDouble(),
+        diastolicBP:      (v['diastolic_bp']      as num?)?.toDouble(),
+        temperature:      (v['temperature']       as num?)?.toDouble(),
+        weight:           (v['weight']            as num?)?.toDouble(),
+        height:           (v['height']            as num?)?.toDouble(),
+        oxygenSaturation: (v['oxygen_saturation'] as num?)?.toDouble(),
+        pulseRate:        (v['pulse_rate']         as num?)?.toInt(),
+        respiratoryRate:  (v['respiratory_rate']   as num?)?.toInt(),
+        bloodGlucose:     (v['blood_glucose']      as num?)?.toDouble(),
+      );
     }
 
     // Parse diagnoses list
@@ -485,25 +492,11 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
               ),
           ]),
 
-        // Vitals
-        if (vitals.isNotEmpty)
-          section('Vitals', Icons.monitor_heart_outlined, [
-            if (vitals['temperature'] != null)
-              row('Temperature', '${vitals['temperature']} °C'),
-            if (vitals['pulse'] != null)
-              row('Pulse', '${vitals['pulse']} bpm'),
-            if (vitals['systolic'] != null && vitals['diastolic'] != null)
-              row('Blood Pressure',
-                  '${vitals['systolic']}/${vitals['diastolic']} mmHg'),
-            if (vitals['oxygen_saturation'] != null)
-              row('SpO₂', '${vitals['oxygen_saturation']}%'),
-            if (vitals['respiratory_rate'] != null)
-              row('Resp. Rate', '${vitals['respiratory_rate']} /min'),
-            if (vitals['weight'] != null)
-              row('Weight', '${vitals['weight']} kg'),
-            if (vitals['height'] != null)
-              row('Height', '${vitals['height']} cm'),
-          ]),
+        // Vitals — same card as local encounter, with threshold colour signals
+        if (vitalsEntity != null) ...[
+          _buildVitalsCard(vitalsEntity),
+          const SizedBox(height: 12),
+        ],
 
         // Examination
         if (_s('examination').isNotEmpty)

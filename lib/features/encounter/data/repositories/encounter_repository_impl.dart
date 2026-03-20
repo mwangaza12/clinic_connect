@@ -111,13 +111,17 @@ class EncounterRepositoryImpl implements EncounterRepository {
   Future<Either<Failure, List<Encounter>>> getPatientEncounters(
       String patientId) async {
     final online = await _conn.checkConnectivity();
+    debugPrint('[EncounterRepo] getPatientEncounters("$patientId") online=$online');
     if (!online) {
+      debugPrint('[EncounterRepo] offline → SQLite');
       return _getPatientEncountersSQLite(patientId);
     }
     try {
       final result = await remoteDatasource.getPatientEncounters(patientId);
+      debugPrint('[EncounterRepo] Firestore returned ${result.length} encounters');
       return Right(result);
-    } on ServerException catch (_) {
+    } on ServerException catch (e) {
+      debugPrint('[EncounterRepo] Firestore error → SQLite fallback: $e');
       return _getPatientEncountersSQLite(patientId);
     }
   }
@@ -127,7 +131,7 @@ class EncounterRepositoryImpl implements EncounterRepository {
     try {
       final db   = await _dbHelper.database;
       final rows = await db.query('encounters',
-          where:     'patient_id = ?',
+          where:     'patient_nupi = ?',
           whereArgs: [patientId],
           orderBy:   'encounter_date DESC');
       return Right(rows
