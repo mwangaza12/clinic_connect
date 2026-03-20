@@ -6,6 +6,7 @@
 // Offline → queries local SQLite directly — never returns all-zeros
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 import '../../../core/config/firebase_config.dart';
 import '../../../core/database/database_helper.dart';
 import '../../../core/sync/connectivity_manager.dart';
@@ -131,27 +132,31 @@ class DashboardService {
       final now        = DateTime.now();
       final startOfDay = DateTime(now.year, now.month, now.day);
       final endOfDay   = startOfDay.add(const Duration(days: 1));
-      final snap = await _firestore
-          .collection('encounters')
-          .where('facility_id', isEqualTo: facilityId)
-          .where('encounter_date',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-          .where('encounter_date', isLessThan: Timestamp.fromDate(endOfDay))
-          .count()
-          .get();
-      final count = snap.count ?? 0;
-      if (count == 0) {
-        final all = await _firestore
+      final todayStr   = DateFormat('yyyy-MM-dd').format(now);
+
+      // Try Timestamp query (Flutter app writes Timestamps)
+      try {
+        final snap = await _firestore
             .collection('encounters')
+            .where('facility_id', isEqualTo: facilityId)
             .where('encounter_date',
                 isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-            .where('encounter_date',
-                isLessThan: Timestamp.fromDate(endOfDay))
+            .where('encounter_date', isLessThan: Timestamp.fromDate(endOfDay))
             .count()
             .get();
-        return all.count ?? 0;
-      }
-      return count;
+        if ((snap.count ?? 0) > 0) return snap.count!;
+      } catch (_) {}
+
+      // Fallback: ISO string range (seed/backend writes ISO strings)
+      // "2026-03-20T00:00:00" ≤ encounter_date < "2026-03-20Z" (Z > T)
+      final snap2 = await _firestore
+          .collection('encounters')
+          .where('facility_id', isEqualTo: facilityId)
+          .where('encounter_date', isGreaterThanOrEqualTo: todayStr)
+          .where('encounter_date', isLessThan: '${todayStr}Z')
+          .count()
+          .get();
+      return snap2.count ?? 0;
     } catch (_) { return 0; }
   }
 
@@ -197,14 +202,33 @@ class DashboardService {
     try {
       final now        = DateTime.now();
       final startOfDay = DateTime(now.year, now.month, now.day);
-      final snap = await _firestore
+      final todayStr   = DateFormat('yyyy-MM-dd').format(now);
+
+      // Try Timestamp query first (Flutter app writes Timestamps)
+      try {
+        final snap = await _firestore
+            .collection('encounters')
+            .where('facility_id', isEqualTo: facilityId)
+            .where('encounter_date',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+            .orderBy('encounter_date', descending: true)
+            .limit(10)
+            .get();
+        if (snap.docs.isNotEmpty) {
+          return snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
+        }
+      } catch (_) {}
+
+      // Fallback: ISO string range (seed/backend writes ISO strings)
+      final snap2 = await _firestore
           .collection('encounters')
-          .where('encounter_date',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+          .where('facility_id', isEqualTo: facilityId)
+          .where('encounter_date', isGreaterThanOrEqualTo: todayStr)
+          .where('encounter_date', isLessThan: '${todayStr}Z')
           .orderBy('encounter_date', descending: true)
           .limit(10)
           .get();
-      return snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
+      return snap2.docs.map((d) => {...d.data(), 'id': d.id}).toList();
     } catch (_) {
       return _getTodayEncountersSQLite(facilityId);
     }

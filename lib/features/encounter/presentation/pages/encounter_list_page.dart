@@ -270,29 +270,27 @@ class _EncounterListPageState extends State<EncounterListPage> {
   Widget _buildSearchBar() {
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
       child: TextField(
         controller: _searchCtrl,
         onChanged: (v) => setState(() => _search = v),
         decoration: InputDecoration(
-          hintText: 'Search by patient, NUPI or complaint...',
-          prefixIcon: const Icon(Icons.search_rounded, color: _primary, size: 20),
+          hintText: 'Search patient, NUPI or complaint...',
+          hintStyle: TextStyle(fontSize: 13, color: Colors.grey[400]),
+          prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF1B4332), size: 18),
           suffixIcon: _search.isNotEmpty
               ? IconButton(
-                  icon: const Icon(Icons.clear, size: 18),
-                  onPressed: () {
-                    _searchCtrl.clear();
-                    setState(() => _search = '');
-                  },
+                  icon: const Icon(Icons.clear_rounded, size: 16, color: Colors.grey),
+                  onPressed: () { _searchCtrl.clear(); setState(() => _search = ''); },
                 )
               : null,
           filled: true,
-          fillColor: _bg,
+          fillColor: const Color(0xFFF1F5F9),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             borderSide: BorderSide.none,
           ),
-          contentPadding: const EdgeInsets.symmetric(vertical: 0),
+          contentPadding: const EdgeInsets.symmetric(vertical: 10),
         ),
       ),
     );
@@ -302,37 +300,82 @@ class _EncounterListPageState extends State<EncounterListPage> {
     final types = ['all', ..._types.toList()..sort()];
     return Container(
       color: Colors.white,
-      height: 40,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: types.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (_, i) {
-          final t        = types[i];
-          final selected = _filter == t;
-          return GestureDetector(
-            onTap: () => setState(() => _filter = t),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              decoration: BoxDecoration(
-                color: selected ? _primary : _bg,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                t == 'all' ? 'All' : _typeLabel(t),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: selected ? Colors.white : Colors.grey[600],
+      padding: const EdgeInsets.only(bottom: 12),
+      child: SizedBox(
+        height: 36,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          itemCount: types.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 8),
+          itemBuilder: (_, i) {
+            final t        = types[i];
+            final selected = _filter == t;
+            final color    = _typeChipColor(t);
+            return GestureDetector(
+              onTap: () => setState(() => _filter = t),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: selected ? color : color.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: selected ? color : color.withOpacity(0.2),
+                    width: 1.2,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _typeChipIcon(t),
+                      size: 13,
+                      color: selected ? Colors.white : color,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      t == 'all' ? 'All' : _typeLabel(t),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: selected ? Colors.white : color,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
+  }
+
+  Color _typeChipColor(String type) {
+    switch (type) {
+      case 'all':        return const Color(0xFF1B4332);
+      case 'emergency':  return const Color(0xFFDC2626);
+      case 'inpatient':  return const Color(0xFF6366F1);
+      case 'referral':   return const Color(0xFFF59E0B);
+      case 'follow-up':  return const Color(0xFF0891B2);
+      case 'outpatient': return const Color(0xFF059669);
+      case 'check-in':   return const Color(0xFF7C3AED);
+      default:           return const Color(0xFF1B4332);
+    }
+  }
+
+  IconData _typeChipIcon(String type) {
+    switch (type) {
+      case 'all':        return Icons.grid_view_rounded;
+      case 'emergency':  return Icons.emergency_rounded;
+      case 'inpatient':  return Icons.hotel_rounded;
+      case 'referral':   return Icons.swap_horiz_rounded;
+      case 'follow-up':  return Icons.replay_rounded;
+      case 'outpatient': return Icons.medical_services_rounded;
+      case 'check-in':   return Icons.login_rounded;
+      default:           return Icons.circle_outlined;
+    }
   }
 
   Widget _buildBody() {
