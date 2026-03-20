@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../data/models/encounter_model.dart';
 import '../../domain/entities/encounter.dart';
 import '../../../../core/services/backend_api_service.dart';
+import '../../../../core/services/hie_api_service.dart';
 import 'edit_encounter_page.dart';
 
 extension MapExtension on Map<String, dynamic> {
@@ -76,14 +78,20 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
 
     if (encounterId == null || encounterId.isEmpty) return;
 
+    // Only attempt FHIR fetch if we have an access token (federated encounters)
+    final token = widget.accessToken;
+    if (token == null || token.isEmpty) return;
+
     setState(() { _fetching = true; _fetchError = null; });
 
     try {
       debugPrint('📋 Fetching full encounter: $encounterId from $facilityId');
 
-      final backend = await BackendApiService.instanceAsync;
-      final result  = await backend.getFhirEncounter(
+      // FHIR routes live on the HIE gateway — not the facility backend
+      final hie    = HieApiService.instance;
+      final result = await hie.getFhirEncounter(
         encounterId: encounterId,
+        accessToken: token,
         facilityId:  facilityId,
       );
 
@@ -108,7 +116,6 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
         }
       } else {
         debugPrint('⚠️ Could not fetch full encounter: ${result.error}');
-        // Non-fatal — the original map already has enough to display
       }
     } catch (e) {
       debugPrint('⚠️ Encounter fetch failed (using passed map): $e');
@@ -121,15 +128,37 @@ class _EncounterDetailPageState extends State<EncounterDetailPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
-      // Show Edit FAB only for local (non-FHIR) encounters
-      floatingActionButton: !_isFhirMap
+      // Show Edit FAB for any local encounter — entity OR local Firestore map.
+      // Hide only for federated (cross-facility FHIR) encounters.
+      floatingActionButton: !widget.isFederated
           ? FloatingActionButton.extended(
               onPressed: () async {
-                final enc = _localEncounter ?? (widget.encounter as Encounter);
+                Encounter? enc = _localEncounter;
+
+                // If opened from encounter list (raw Firestore map), convert to entity
+                if (enc == null && _isFhirMap && !widget.isFederated) {
+                  try {
+                    final map = _fullEncounter ??
+                        (widget.encounter as Map<String, dynamic>);
+                    enc = EncounterModel.fromFirestore(map);
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text(
+                                'Cannot edit — open from patient profile')),
+                      );
+                    }
+                    return;
+                  }
+                }
+
+                if (enc == null) return;
+
                 final updated = await Navigator.push<Encounter>(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => EditEncounterPage(encounter: enc),
+                    builder: (_) => EditEncounterPage(encounter: enc!),
                   ),
                 );
                 if (updated != null && mounted) {
