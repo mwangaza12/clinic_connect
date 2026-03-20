@@ -56,16 +56,21 @@ if (process.env.NODE_ENV === 'development') {
 class PatientService {
 
   // ══════════════════════════════════════════════════════════════
-  //  PATIENT REGISTRATION (FIXED)
+  //  PATIENT REGISTRATION (FIXED - No /api/patients/nupi call)
   // ══════════════════════════════════════════════════════════════
 
   async create(data) {
+    console.log('🔍 PATIENT SERVICE CREATE CALLED');
+    console.log('🔍 Gateway URL:', process.env.HIE_GATEWAY_URL);
+    console.log('🔍 Facility ID:', process.env.FACILITY_ID);
+    
     // Step 1 — First check if patient exists via search
     let nupi;
     let blockIndex = null;
     
     try {
-      // Try to find existing patient first
+      // Try to find existing patient first using SEARCH endpoint (GET)
+      console.log('🔍 Checking if patient exists via search...');
       const searchRes = await gateway.get('/api/patients/search/nupi', {
         params: { 
           nationalId: data.nationalId, 
@@ -78,29 +83,40 @@ class PatientService {
         console.log(`✅ Found existing patient with NUPI: ${nupi}`);
       }
     } catch (searchErr) {
-      // Patient doesn't exist, proceed with registration
-      console.log('Patient not found, proceeding with registration');
+      // Patient doesn't exist or search failed, proceed with registration
+      console.log('ℹ️ Patient not found or search failed, proceeding with registration');
+      if (searchErr.response) {
+        console.log('🔍 Search response status:', searchErr.response.status);
+      }
     }
 
     // Step 2 — If no NUPI found, register new patient
     if (!nupi) {
-      const chainRes = await gateway.post('/api/patients/register', {
-        nationalId:       data.nationalId,
-        dob:              data.dateOfBirth,
-        name:             `${data.firstName} ${data.lastName}`,
-        securityQuestion: data.securityQuestion,
-        securityAnswer:   data.securityAnswer,
-        pin:              data.pin,
-      });
-      
-      nupi = chainRes.data.nupi;
-      blockIndex = chainRes.data.blockIndex ?? null;
-      console.log(`✅ Registered new patient with NUPI: ${nupi} | Block #${blockIndex}`);
+      console.log('🔍 Registering new patient with gateway...');
+      try {
+        const chainRes = await gateway.post('/api/patients/register', {
+          nationalId:       data.nationalId,
+          dob:              data.dateOfBirth,
+          name:             `${data.firstName} ${data.lastName}`,
+          securityQuestion: data.securityQuestion,
+          securityAnswer:   data.securityAnswer,
+          pin:              data.pin,
+        });
+        
+        nupi = chainRes.data.nupi;
+        blockIndex = chainRes.data.blockIndex ?? null;
+        console.log(`✅ Registered new patient with NUPI: ${nupi} | Block #${blockIndex}`);
+      } catch (regErr) {
+        console.error('❌ Gateway registration failed:', regErr.response?.data || regErr.message);
+        throw new Error(`Gateway registration failed: ${regErr.response?.data?.error || regErr.message}`);
+      }
     }
 
     // Step 3 — check if already in Firestore
+    console.log('🔍 Checking Firestore for existing patient...');
     const existing = await col.patients.where('nupi', '==', nupi).limit(1).get();
     if (!existing.empty) {
+      console.log(`✅ Patient already exists in Firestore: ${nupi}`);
       return { 
         patient: { id: existing.docs[0].id, ...existing.docs[0].data() }, 
         alreadyExists: true, 
@@ -109,6 +125,7 @@ class PatientService {
     }
 
     // Step 4 — save to Firestore
+    console.log('🔍 Saving patient to Firestore...');
     const patientDoc = {
       nupi,
       nationalId:        data.nationalId,
