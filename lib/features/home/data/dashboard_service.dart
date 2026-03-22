@@ -86,44 +86,68 @@ class DashboardService {
             snap.docs.map((d) => {...d.data(), 'id': d.id}).toList());
   }
 
-  // ── Firestore stats (online path — unchanged logic) ────────────
+  // ── Firestore stats (online path) ────────────────────────────
 
   Future<DashboardStats> _getStatsFirestore(String facilityId) async {
     try {
-      final results = await Future.wait([
-        _getTotalPatientsFirestore(facilityId),
-        _getTodayVisitsFirestore(facilityId),
-        _getPendingReferralsFirestore(facilityId),
-        _getTotalReferralsFirestore(facilityId),
-      ]);
+      // Patients and visits → Firestore (live).
+      // Referral counts → SQLite in ALL cases.
+      // The gateway blockchain is the source of truth for referrals.
+      // Firestore only holds referrals created from this device/install,
+      // so counting from Firestore gives a lower number than the full
+      // gateway history that is synced into SQLite.
+      final patientCount  = await _getTotalPatientsFirestore(facilityId);
+      final todayVisits   = await _getTodayVisitsFirestore(facilityId);
+      final refCounts     = await _getReferralCountsSQLite(facilityId);
+
       return DashboardStats(
-        totalPatients:   results[0],
-        todayVisits:     results[1],
-        pendingReferrals: results[2],
-        totalReferrals:  results[3],
-        syncedRecords:   results[0] + results[3],
-        pendingSync:     0,
+        totalPatients:    patientCount,
+        todayVisits:      todayVisits,
+        pendingReferrals: refCounts[0],
+        totalReferrals:   refCounts[1],
+        syncedRecords:    patientCount + refCounts[1],
+        pendingSync:      0,
       );
     } catch (_) {
-      // Firestore failed mid-flight (e.g. connectivity dropped after check)
-      // — fall back to SQLite so the UI never stays at zero.
       return _getStatsSQLite(facilityId);
+    }
+  }
+
+  /// [pendingCount, totalCount] for outgoing referrals — read from SQLite
+  /// so online and offline dashboards always show the same number.
+  Future<List<int>> _getReferralCountsSQLite(String facilityId) async {
+    try {
+      final db = await _db.database;
+      final pendingRows = await db.rawQuery(
+        "SELECT COUNT(*) AS c FROM referrals "
+        "WHERE from_facility_id = ? AND status = 'pending'",
+        [facilityId],
+      );
+      final totalRows = await db.rawQuery(
+        'SELECT COUNT(*) AS c FROM referrals WHERE from_facility_id = ?',
+        [facilityId],
+      );
+      return [
+        (pendingRows.first['c'] as int?) ?? 0,
+        (totalRows.first['c'] as int?) ?? 0,
+      ];
+    } catch (_) {
+      return [0, 0];
     }
   }
 
   Future<int> _getTotalPatientsFirestore(String facilityId) async {
     try {
-      final snap = await _firestore
-          .collection('patients')
-          .where('facility_id', isEqualTo: facilityId)
-          .count()
-          .get();
-      final count = snap.count ?? 0;
-      if (count == 0) {
-        final all = await _firestore.collection('patients').count().get();
-        return all.count ?? 0;
-      }
-      return count;
+      // Query both field-name variants in parallel — the gateway writes
+      // 'facilityId' (camelCase) while the Flutter app writes 'facility_id'.
+      // Never fall back to an unfiltered count across all facilities.
+      final results = await Future.wait([
+        _firestore.collection('patients')
+            .where('facility_id', isEqualTo: facilityId).count().get(),
+        _firestore.collection('patients')
+            .where('facilityId', isEqualTo: facilityId).count().get(),
+      ]);
+      return (results[0].count ?? 0) + (results[1].count ?? 0);
     } catch (_) { return 0; }
   }
 
@@ -134,66 +158,33 @@ class DashboardService {
       final endOfDay   = startOfDay.add(const Duration(days: 1));
       final todayStr   = DateFormat('yyyy-MM-dd').format(now);
 
-      // Try Timestamp query (Flutter app writes Timestamps)
-      try {
-        final snap = await _firestore
-            .collection('encounters')
-            .where('facility_id', isEqualTo: facilityId)
-            .where('encounter_date',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
-            .where('encounter_date', isLessThan: Timestamp.fromDate(endOfDay))
-            .count()
-            .get();
-        if ((snap.count ?? 0) > 0) return snap.count!;
-      } catch (_) {}
-
-      // Fallback: ISO string range (seed/backend writes ISO strings)
-      // "2026-03-20T00:00:00" ≤ encounter_date < "2026-03-20Z" (Z > T)
-      final snap2 = await _firestore
-          .collection('encounters')
-          .where('facility_id', isEqualTo: facilityId)
-          .where('encounter_date', isGreaterThanOrEqualTo: todayStr)
-          .where('encounter_date', isLessThan: '${todayStr}Z')
-          .count()
-          .get();
-      return snap2.count ?? 0;
-    } catch (_) { return 0; }
-  }
-
-  Future<int> _getPendingReferralsFirestore(String facilityId) async {
-    try {
-      final snap = await _firestore
-          .collection('referrals')
-          .where('from_facility_id', isEqualTo: facilityId)
-          .where('status', isEqualTo: 'pending')
-          .count()
-          .get();
-      final count = snap.count ?? 0;
-      if (count == 0) {
-        final all = await _firestore
-            .collection('referrals')
-            .where('status', isEqualTo: 'pending')
-            .count()
-            .get();
-        return all.count ?? 0;
+      // Query both field-name variants — gateway writes 'facilityId',
+      // Flutter app writes 'facility_id'. Sum both to cover all records.
+      int total = 0;
+      for (final field in ['facility_id', 'facilityId']) {
+        try {
+          final snap = await _firestore
+              .collection('encounters')
+              .where(field, isEqualTo: facilityId)
+              .where('encounter_date',
+                  isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+              .where('encounter_date', isLessThan: Timestamp.fromDate(endOfDay))
+              .count()
+              .get();
+          total += snap.count ?? 0;
+        } catch (_) {}
+        try {
+          final snap2 = await _firestore
+              .collection('encounters')
+              .where(field, isEqualTo: facilityId)
+              .where('encounter_date', isGreaterThanOrEqualTo: todayStr)
+              .where('encounter_date', isLessThan: '${todayStr}Z')
+              .count()
+              .get();
+          total += snap2.count ?? 0;
+        } catch (_) {}
       }
-      return count;
-    } catch (_) { return 0; }
-  }
-
-  Future<int> _getTotalReferralsFirestore(String facilityId) async {
-    try {
-      final snap = await _firestore
-          .collection('referrals')
-          .where('from_facility_id', isEqualTo: facilityId)
-          .count()
-          .get();
-      final count = snap.count ?? 0;
-      if (count == 0) {
-        final all = await _firestore.collection('referrals').count().get();
-        return all.count ?? 0;
-      }
-      return count;
+      return total;
     } catch (_) { return 0; }
   }
 
@@ -258,19 +249,9 @@ class DashboardService {
       final todayVisits = (encRows.first['c'] as int?) ?? 0;
 
       // Pending referrals from this facility
-      final pendingRows = await db.rawQuery(
-        "SELECT COUNT(*) AS c FROM referrals "
-        "WHERE from_facility_id = ? AND status = 'pending'",
-        [facilityId],
-      );
-      final pendingReferrals = (pendingRows.first['c'] as int?) ?? 0;
-
-      // Total referrals from this facility
-      final totalRefRows = await db.rawQuery(
-        'SELECT COUNT(*) AS c FROM referrals WHERE from_facility_id = ?',
-        [facilityId],
-      );
-      final totalReferrals = (totalRefRows.first['c'] as int?) ?? 0;
+      final refCounts      = await _getReferralCountsSQLite(facilityId);
+      final pendingReferrals = refCounts[0];
+      final totalReferrals   = refCounts[1];
 
       // Pending sync items (anything in queue not yet synced)
       final syncRows = await db.rawQuery(
