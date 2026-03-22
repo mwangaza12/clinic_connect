@@ -1,13 +1,31 @@
 // lib/features/disease_program/presentation/pages/enrollment_detail_page.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+import '../../../../injection_container.dart';
 import '../../domain/entities/disease_program.dart';
+import '../bloc/program_bloc.dart';
+import '../bloc/program_event.dart';
+import 'enroll_patient_page.dart';
 
-class EnrollmentDetailPage extends StatelessWidget {
+class EnrollmentDetailPage extends StatefulWidget {
   final ProgramEnrollment enrollment;
 
   const EnrollmentDetailPage({super.key, required this.enrollment});
+
+  @override
+  State<EnrollmentDetailPage> createState() => _EnrollmentDetailPageState();
+}
+
+class _EnrollmentDetailPageState extends State<EnrollmentDetailPage> {
+  late ProgramEnrollment _enrollment;
+
+  @override
+  void initState() {
+    super.initState();
+    _enrollment = widget.enrollment;
+  }
 
   // ── colour palette – matches rest of the app ──────────────────────────
   static const _bg       = Color(0xFFF8FAFC);
@@ -35,8 +53,8 @@ class EnrollmentDetailPage extends StatelessWidget {
     DiseaseProgram.mch:          Icons.child_care_outlined,
   };
 
-  Color get _color => _programColors[enrollment.program]!;
-  IconData get _icon => _programIcons[enrollment.program]!;
+  Color get _color => _programColors[_enrollment.program]!;
+  IconData get _icon => _programIcons[_enrollment.program]!;
 
   // ── helpers ───────────────────────────────────────────────────────────
   String _fmt(DateTime? d) =>
@@ -67,8 +85,8 @@ class EnrollmentDetailPage extends StatelessWidget {
                 const SizedBox(height: 16),
                 _programSpecificCard(),
                 const SizedBox(height: 16),
-                if (enrollment.outcomeNotes != null &&
-                    enrollment.outcomeNotes!.isNotEmpty)
+                if (_enrollment.outcomeNotes != null &&
+                    _enrollment.outcomeNotes!.isNotEmpty)
                   _notesCard(),
               ]),
             ),
@@ -89,6 +107,18 @@ class EnrollmentDetailPage extends StatelessWidget {
             size: 20, color: Colors.white),
         onPressed: () => Navigator.pop(context),
       ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.swap_horiz_rounded, color: Colors.white),
+          tooltip: 'Change status',
+          onPressed: _changeStatus,
+        ),
+        IconButton(
+          icon: const Icon(Icons.edit_rounded, color: Colors.white),
+          tooltip: 'Edit enrollment',
+          onPressed: _openEdit,
+        ),
+      ],
       flexibleSpace: FlexibleSpaceBar(
         background: Container(
           decoration: BoxDecoration(
@@ -121,7 +151,7 @@ class EnrollmentDetailPage extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              enrollment.program.name,
+                              _enrollment.program.name,
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 20,
@@ -131,7 +161,7 @@ class EnrollmentDetailPage extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              enrollment.patientName,
+                              _enrollment.patientName,
                               style: TextStyle(
                                 color: Colors.white.withOpacity(0.85),
                                 fontSize: 14,
@@ -141,7 +171,7 @@ class EnrollmentDetailPage extends StatelessWidget {
                           ],
                         ),
                       ),
-                      _statusPill(enrollment.status),
+                      _statusPill(_enrollment.status),
                     ],
                   ),
                 ],
@@ -151,6 +181,155 @@ class EnrollmentDetailPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _changeStatus() async {
+    final options = <_StatusOption>[
+      if (_enrollment.status != ProgramEnrollmentStatus.active)
+        _StatusOption(ProgramEnrollmentStatus.active,      'Active',       Icons.play_circle_outline_rounded,    Colors.green),
+      if (_enrollment.status != ProgramEnrollmentStatus.completed)
+        _StatusOption(ProgramEnrollmentStatus.completed,   'Complete',     Icons.check_circle_outline_rounded,   Colors.blue),
+      if (_enrollment.status != ProgramEnrollmentStatus.defaulted)
+        _StatusOption(ProgramEnrollmentStatus.defaulted,   'Defaulted',    Icons.warning_amber_rounded,          Colors.orange),
+      if (_enrollment.status != ProgramEnrollmentStatus.transferred)
+        _StatusOption(ProgramEnrollmentStatus.transferred, 'Transferred',  Icons.swap_horiz_rounded,             Colors.purple),
+      if (_enrollment.status != ProgramEnrollmentStatus.died)
+        _StatusOption(ProgramEnrollmentStatus.died,        'Deceased',     Icons.remove_circle_outline_rounded,  Colors.red),
+    ];
+
+    final notesCtrl = TextEditingController();
+
+    final chosen = await showModalBottomSheet<ProgramEnrollmentStatus>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Padding(
+        padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Change program status',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              Text('Current: ${_enrollment.status.name.toUpperCase()}',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+              const SizedBox(height: 16),
+              ...options.map((o) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  radius: 20,
+                  backgroundColor: o.color.withOpacity(0.12),
+                  child: Icon(o.icon, color: o.color, size: 18),
+                ),
+                title: Text(o.label,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 14)),
+                trailing: const Icon(Icons.chevron_right_rounded,
+                    color: Colors.grey),
+                onTap: () => Navigator.pop(context, o.status),
+              )),
+              const Divider(),
+              const SizedBox(height: 8),
+              TextField(
+                controller: notesCtrl,
+                decoration: InputDecoration(
+                  hintText: 'Optional notes (e.g. reason for change)…',
+                  hintStyle: TextStyle(fontSize: 13, color: Colors.grey[400]),
+                  filled: true,
+                  fillColor: const Color(0xFFF1F5F9),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 10),
+                ),
+                maxLines: 2,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (chosen == null || !mounted) return;
+
+    // Fire the status update through a fresh bloc instance
+    final bloc = sl<ProgramBloc>();
+    bloc.add(UpdateEnrollmentStatus(
+      enrollmentId: _enrollment.id,
+      status:       chosen,
+      notes:        notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
+    ));
+
+    // Optimistically update local state so the badge refreshes immediately
+    setState(() {
+      _enrollment = ProgramEnrollment(
+        id:                  _enrollment.id,
+        patientNupi:         _enrollment.patientNupi,
+        patientName:         _enrollment.patientName,
+        facilityId:          _enrollment.facilityId,
+        program:             _enrollment.program,
+        status:              chosen,
+        enrollmentDate:      _enrollment.enrollmentDate,
+        completionDate:      chosen == ProgramEnrollmentStatus.completed
+                                 ? DateTime.now()
+                                 : _enrollment.completionDate,
+        programSpecificData: _enrollment.programSpecificData,
+        outcomeNotes:        notesCtrl.text.trim().isEmpty
+                                 ? _enrollment.outcomeNotes
+                                 : notesCtrl.text.trim(),
+        createdAt:           _enrollment.createdAt,
+      );
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Status updated to ${chosen.name.toUpperCase()}'),
+        backgroundColor: const Color(0xFF2D6A4F),
+      ));
+    }
+  }
+
+  Future<void> _openEdit() async {
+    final updated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BlocProvider(
+          create: (_) => sl<ProgramBloc>(),
+          child: EnrollPatientPage(
+            patientNupi:        _enrollment.patientNupi,
+            patientName:        _enrollment.patientName,
+            facilityId:         _enrollment.facilityId,
+            initialEnrollment:  _enrollment,
+          ),
+        ),
+      ),
+    );
+    if (updated == true && mounted) {
+      // Reload the enrollment from the detail page isn't straightforward
+      // without a bloc — pop back to the dashboard so it refreshes.
+      Navigator.pop(context, true);
+    }
   }
 
   Widget _statusPill(ProgramEnrollmentStatus status) {
@@ -186,23 +365,23 @@ class EnrollmentDetailPage extends StatelessWidget {
       title: 'Enrollment Summary',
       icon: Icons.assignment_outlined,
       children: [
-        _row(Icons.badge_outlined,        'NUPI',             enrollment.patientNupi),
-        _row(Icons.local_hospital_outlined,'Facility',        enrollment.facilityId),
-        _row(Icons.calendar_today_outlined,'Enrolled',        _fmt(enrollment.enrollmentDate)),
-        if (enrollment.completionDate != null)
-          _row(Icons.event_available_outlined, 'Completed',   _fmt(enrollment.completionDate)),
+        _row(Icons.badge_outlined,        'NUPI',             _enrollment.patientNupi),
+        _row(Icons.local_hospital_outlined,'Facility',        _enrollment.facilityId),
+        _row(Icons.calendar_today_outlined,'Enrolled',        _fmt(_enrollment.enrollmentDate)),
+        if (_enrollment.completionDate != null)
+          _row(Icons.event_available_outlined, 'Completed',   _fmt(_enrollment.completionDate)),
         _row(Icons.sync_outlined,          'Sync status',
-            enrollment.programSpecificData != null ? 'Saved' : 'Pending'),
+            _enrollment.programSpecificData != null ? 'Saved' : 'Pending'),
       ],
     );
   }
 
   // ── program-specific card ─────────────────────────────────────────────
   Widget _programSpecificCard() {
-    final data = enrollment.programSpecificData ?? {};
+    final data = _enrollment.programSpecificData ?? {};
 
     final Widget content;
-    switch (enrollment.program) {
+    switch (_enrollment.program) {
       case DiseaseProgram.hivArt:
         content = _hivSection(data);
         break;
@@ -413,7 +592,7 @@ class EnrollmentDetailPage extends StatelessWidget {
       icon: Icons.notes_outlined,
       children: [
         Text(
-          enrollment.outcomeNotes!,
+          _enrollment.outcomeNotes!,
           style: const TextStyle(
             fontSize: 14,
             color: _textMid,
@@ -550,4 +729,12 @@ class EnrollmentDetailPage extends StatelessWidget {
       ),
     );
   }
+}
+
+class _StatusOption {
+  final ProgramEnrollmentStatus status;
+  final String   label;
+  final IconData icon;
+  final Color    color;
+  const _StatusOption(this.status, this.label, this.icon, this.color);
 }

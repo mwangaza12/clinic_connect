@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 class HivEnrollmentForm extends StatefulWidget {
-  const HivEnrollmentForm({super.key, required void Function(dynamic data) onDataChanged});
+  final void Function(Map<String, dynamic> data) onDataChanged;
+  final Map<String, dynamic>? initialData;
+  const HivEnrollmentForm({super.key, required this.onDataChanged, this.initialData});
 
   @override
   State<HivEnrollmentForm> createState() => _HivEnrollmentFormState();
@@ -23,6 +25,44 @@ class _HivEnrollmentFormState extends State<HivEnrollmentForm> {
   String? _viralLoadStatus;
   bool _onTbProphylaxis = false;
   bool _onCotrimoxazole = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final d = widget.initialData;
+    if (d != null) {
+      _diagnosisDateController.text = d['hivDiagnosisDate']?.toString() ?? '';
+      _arvStartDateController.text  = d['arvStartDate']?.toString() ?? '';
+      _cd4CountController.text      = d['currentCd4Count']?.toString() ?? '';
+      _viralLoadController.text     = d['lastViralLoad']?.toString() ?? '';
+      _viralLoadDateController.text = d['lastViralLoadDate']?.toString() ?? '';
+      _nextAppointmentController.text = d['nextAppointmentDate']?.toString() ?? '';
+      _whoStage         = d['whoStage'] as String?;
+      _arvRegimen       = d['arvRegimen'] as String?;
+      final rawVl = d['viralLoadStatus'] as String? ?? '';
+      _viralLoadStatus = rawVl.startsWith('Suppressed')
+          ? 'Suppressed <50'
+          : rawVl.isEmpty ? null : rawVl;
+      _onTbProphylaxis  = d['onTbProphylaxis'] == true;
+      _onCotrimoxazole  = d['onCotrimoxazole'] == true;
+    }
+  }
+
+  void _notify() {
+    widget.onDataChanged({
+      'hivDiagnosisDate':    _diagnosisDateController.text,
+      'whoStage':            _whoStage,
+      'currentCd4Count':     _cd4CountController.text,
+      'arvRegimen':          _arvRegimen,
+      'arvStartDate':        _arvStartDateController.text,
+      'viralLoadStatus':     _viralLoadStatus,
+      'lastViralLoad':       _viralLoadController.text,
+      'lastViralLoadDate':   _viralLoadDateController.text,
+      'onTbProphylaxis':     _onTbProphylaxis,
+      'onCotrimoxazole':     _onCotrimoxazole,
+      'nextAppointmentDate': _nextAppointmentController.text,
+    });
+  }
 
   @override
   void dispose() {
@@ -58,6 +98,7 @@ class _HivEnrollmentFormState extends State<HivEnrollmentForm> {
 
     if (date != null) {
       controller.text = DateFormat('dd/MM/yyyy').format(date);
+      _notify();
     }
   }
 
@@ -138,7 +179,8 @@ class _HivEnrollmentFormState extends State<HivEnrollmentForm> {
                       child: Text(stage),
                     ))
                 .toList(),
-            onChanged: (value) => setState(() => _whoStage = value),
+            isExpanded: true,
+            onChanged: (value) { setState(() => _whoStage = value); _notify(); },
             validator: (value) => value == null ? 'WHO stage required' : null,
           ),
           const SizedBox(height: 16),
@@ -157,6 +199,7 @@ class _HivEnrollmentFormState extends State<HivEnrollmentForm> {
               helperText: 'Normal range: 500-1200 cells/μL',
             ),
             keyboardType: TextInputType.number,
+            onChanged: (_) => _notify(),
           ),
           const SizedBox(height: 16),
 
@@ -181,10 +224,11 @@ class _HivEnrollmentFormState extends State<HivEnrollmentForm> {
             ]
                 .map((regimen) => DropdownMenuItem(
                       value: regimen,
-                      child: Text(regimen),
+                      child: Text(regimen, overflow: TextOverflow.ellipsis),
                     ))
                 .toList(),
-            onChanged: (value) => setState(() => _arvRegimen = value),
+            isExpanded: true,
+            onChanged: (value) { setState(() => _arvRegimen = value); _notify(); },
             validator: (value) => value == null ? 'ARV regimen required' : null,
           ),
           const SizedBox(height: 16),
@@ -213,20 +257,20 @@ class _HivEnrollmentFormState extends State<HivEnrollmentForm> {
             initialValue: _viralLoadStatus,
             decoration: InputDecoration(
               labelText: 'Viral Load Status',
-              prefixIcon: const Icon(Icons.science_rounded),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
               filled: true,
               fillColor: const Color(0xFFF8FAFC),
             ),
-            items: ['Suppressed (<50 copies/mL)', 'Detectable', 'Pending']
+            isExpanded: true,
+            items: ['Suppressed <50', 'Detectable', 'Pending']
                 .map((status) => DropdownMenuItem(
                       value: status,
-                      child: Text(status),
+                      child: Text(status, overflow: TextOverflow.ellipsis),
                     ))
                 .toList(),
-            onChanged: (value) => setState(() => _viralLoadStatus = value),
+            onChanged: (value) { setState(() => _viralLoadStatus = value); _notify(); },
           ),
           const SizedBox(height: 16),
 
@@ -247,6 +291,7 @@ class _HivEnrollmentFormState extends State<HivEnrollmentForm> {
                     fillColor: const Color(0xFFF8FAFC),
                   ),
                   keyboardType: TextInputType.number,
+                  onChanged: (_) => _notify(),
                 ),
               ),
               const SizedBox(width: 12),
@@ -301,6 +346,7 @@ class _HivEnrollmentFormState extends State<HivEnrollmentForm> {
                   value: _onTbProphylaxis,
                   onChanged: (value) {
                     setState(() => _onTbProphylaxis = value ?? false);
+                    _notify();
                   },
                   activeColor: const Color(0xFF2D6A4F),
                   contentPadding: EdgeInsets.zero,
@@ -314,6 +360,7 @@ class _HivEnrollmentFormState extends State<HivEnrollmentForm> {
                   value: _onCotrimoxazole,
                   onChanged: (value) {
                     setState(() => _onCotrimoxazole = value ?? false);
+                    _notify();
                   },
                   activeColor: const Color(0xFF2D6A4F),
                   contentPadding: EdgeInsets.zero,

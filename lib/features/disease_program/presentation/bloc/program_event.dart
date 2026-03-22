@@ -60,3 +60,13 @@ class UpdateEnrollmentStatus extends ProgramEvent {
   @override
   List<Object?> get props => [enrollmentId, status, notes];
 }
+
+/// Replaces the clinical data of an existing enrollment.
+/// Uses the same id so the local datasource upserts (ConflictAlgorithm.replace).
+class UpdateEnrollment extends ProgramEvent {
+  final ProgramEnrollment enrollment;
+  const UpdateEnrollment(this.enrollment);
+
+  @override
+  List<Object?> get props => [enrollment];
+}

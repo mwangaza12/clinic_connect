@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 class DiabetesEnrollmentForm extends StatefulWidget {
-  const DiabetesEnrollmentForm({super.key, required void Function(dynamic data) onDataChanged});
+  final void Function(Map<String, dynamic> data) onDataChanged;
+  final Map<String, dynamic>? initialData;
+  const DiabetesEnrollmentForm({super.key, required this.onDataChanged, this.initialData});
 
   @override
   State<DiabetesEnrollmentForm> createState() => _DiabetesEnrollmentFormState();
@@ -20,6 +22,37 @@ class _DiabetesEnrollmentFormState extends State<DiabetesEnrollmentForm> {
 
   String? _diabetesType;
   bool _onInsulin = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final d = widget.initialData;
+    if (d != null) {
+      _diagnosisDateController.text    = d['diagnosisDate']?.toString() ?? '';
+      _hba1cController.text            = d['hba1c']?.toString() ?? '';
+      _fbsController.text              = d['fastingBloodSugar']?.toString() ?? '';
+      _rbsController.text              = d['randomBloodSugar']?.toString() ?? '';
+      _medicationController.text       = d['medication']?.toString() ?? '';
+      _insulinRegimenController.text   = d['insulinRegimen']?.toString() ?? '';
+      _nextAppointmentController.text  = d['nextAppointmentDate']?.toString() ?? '';
+      _diabetesType = d['diabetesType'] as String?;
+      _onInsulin    = d['onInsulin'] == true;
+    }
+  }
+
+    void _notify() {
+    widget.onDataChanged({
+      'diabetesType':        _diabetesType,
+      'diagnosisDate':       _diagnosisDateController.text,
+      'hba1c':               _hba1cController.text,
+      'fastingBloodSugar':   _fbsController.text,
+      'randomBloodSugar':    _rbsController.text,
+      'medication':          _medicationController.text,
+      'onInsulin':           _onInsulin,
+      'insulinRegimen':      _insulinRegimenController.text,
+      'nextAppointmentDate': _nextAppointmentController.text,
+    });
+  }
 
   @override
   void dispose() {
@@ -42,6 +75,7 @@ class _DiabetesEnrollmentFormState extends State<DiabetesEnrollmentForm> {
     );
     if (date != null) {
       controller.text = DateFormat('dd/MM/yyyy').format(date);
+      _notify();
     }
   }
 
@@ -76,8 +110,9 @@ class _DiabetesEnrollmentFormState extends State<DiabetesEnrollmentForm> {
           DropdownButtonFormField<String>(
             initialValue: _diabetesType,
             decoration: const InputDecoration(labelText: 'Diabetes Type *', border: OutlineInputBorder()),
-            items: ['Type 1', 'Type 2', 'Gestational'].map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
-            onChanged: (value) => setState(() => _diabetesType = value),
+            items: ['Type 1', 'Type 2', 'Gestational'].map((type) => DropdownMenuItem(value: type, child: Text(type, overflow: TextOverflow.ellipsis))).toList(),
+                        isExpanded: true,
+            onChanged: (value) { setState(() => _diabetesType = value); _notify(); },
             validator: (value) => value == null ? 'Type required' : null,
           ),
           const SizedBox(height: 16),
@@ -151,7 +186,9 @@ class _DiabetesEnrollmentFormState extends State<DiabetesEnrollmentForm> {
 
 // ==================== HYPERTENSION ====================
 class HypertensionEnrollmentForm extends StatefulWidget {
-  const HypertensionEnrollmentForm({super.key, required void Function(dynamic data) onDataChanged});
+  final void Function(Map<String, dynamic> data) onDataChanged;
+  final Map<String, dynamic>? initialData;
+  const HypertensionEnrollmentForm({super.key, required this.onDataChanged, this.initialData});
 
   @override
   State<HypertensionEnrollmentForm> createState() => _HypertensionEnrollmentFormState();
@@ -165,6 +202,31 @@ class _HypertensionEnrollmentFormState extends State<HypertensionEnrollmentForm>
   final _nextAppointmentController = TextEditingController();
   
   String? _stage;
+
+  @override
+  void initState() {
+    super.initState();
+    final d = widget.initialData;
+    if (d != null) {
+      _diagnosisDateController.text   = d['diagnosisDate']?.toString() ?? '';
+      _systolicController.text        = d['systolic']?.toString() ?? '';
+      _diastolicController.text       = d['diastolic']?.toString() ?? '';
+      _medicationController.text      = d['medication']?.toString() ?? '';
+      _nextAppointmentController.text = d['nextAppointmentDate']?.toString() ?? '';
+      _stage = d['stage'] as String?;
+    }
+  }
+
+    void _notify() {
+    widget.onDataChanged({
+      'diagnosisDate':       _diagnosisDateController.text,
+      'systolic':            _systolicController.text,
+      'diastolic':           _diastolicController.text,
+      'medication':          _medicationController.text,
+      'stage':               _stage,
+      'nextAppointmentDate': _nextAppointmentController.text,
+    });
+  }
 
   @override
   void dispose() {
@@ -249,7 +311,8 @@ class _HypertensionEnrollmentFormState extends State<HypertensionEnrollmentForm>
             decoration: const InputDecoration(labelText: 'Stage', border: OutlineInputBorder()),
             items: ['Stage 1 (130-139/80-89)', 'Stage 2 (≥140/≥90)', 'Hypertensive Crisis (>180/>120)']
                 .map((stage) => DropdownMenuItem(value: stage, child: Text(stage, style: const TextStyle(fontSize: 13)))).toList(),
-            onChanged: (value) => setState(() => _stage = value),
+                        isExpanded: true,
+            onChanged: (value) { setState(() => _stage = value); _notify(); },
           ),
           const SizedBox(height: 16),
           
@@ -274,7 +337,9 @@ class _HypertensionEnrollmentFormState extends State<HypertensionEnrollmentForm>
 
 // ==================== MALARIA ====================
 class MalariaEnrollmentForm extends StatefulWidget {
-  const MalariaEnrollmentForm({super.key, required void Function(dynamic data) onDataChanged});
+  final void Function(Map<String, dynamic> data) onDataChanged;
+  final Map<String, dynamic>? initialData;
+  const MalariaEnrollmentForm({super.key, required this.onDataChanged, this.initialData});
 
   @override
   State<MalariaEnrollmentForm> createState() => _MalariaEnrollmentFormState();
@@ -287,6 +352,30 @@ class _MalariaEnrollmentFormState extends State<MalariaEnrollmentForm> {
   
   String? _testType;
   String? _severity;
+
+  @override
+  void initState() {
+    super.initState();
+    final d = widget.initialData;
+    if (d != null) {
+      _symptomsDateController.text = d['diagnosisDate']?.toString() ?? '';
+      _treatmentController.text    = d['treatment']?.toString() ?? '';
+      _followUpController.text     = d['followUpDate']?.toString() ?? '';
+      _testType = d['diagnosisMethod'] as String?;
+      _severity = d['severity'] as String?;
+    }
+  }
+
+    void _notify() {
+    widget.onDataChanged({
+      'diagnosisDate':    _symptomsDateController.text,
+      'diagnosisMethod':  _testType,
+      'severity':         _severity,
+      'treatment':        _treatmentController.text,
+      'followUpDate':     _followUpController.text,
+      'receivedTreatment': _treatmentController.text.isNotEmpty,
+    });
+  }
 
   @override
   void dispose() {
@@ -348,8 +437,9 @@ class _MalariaEnrollmentFormState extends State<MalariaEnrollmentForm> {
           DropdownButtonFormField<String>(
             initialValue: _testType,
             decoration: const InputDecoration(labelText: 'Test Type *', border: OutlineInputBorder()),
-            items: ['RDT (Rapid Diagnostic Test)', 'Microscopy'].map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
-            onChanged: (value) => setState(() => _testType = value),
+            items: ['RDT (Rapid Diagnostic Test)', 'Microscopy'].map((type) => DropdownMenuItem(value: type, child: Text(type, overflow: TextOverflow.ellipsis))).toList(),
+                        isExpanded: true,
+            onChanged: (value) { setState(() => _testType = value); _notify(); },
             validator: (value) => value == null ? 'Test type required' : null,
           ),
           const SizedBox(height: 16),
@@ -357,8 +447,9 @@ class _MalariaEnrollmentFormState extends State<MalariaEnrollmentForm> {
           DropdownButtonFormField<String>(
             initialValue: _severity,
             decoration: const InputDecoration(labelText: 'Severity *', border: OutlineInputBorder()),
-            items: ['Uncomplicated', 'Severe'].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-            onChanged: (value) => setState(() => _severity = value),
+            items: ['Uncomplicated', 'Severe'].map((s) => DropdownMenuItem(value: s, child: Text(s, overflow: TextOverflow.ellipsis))).toList(),
+                        isExpanded: true,
+            onChanged: (value) { setState(() => _severity = value); _notify(); },
             validator: (value) => value == null ? 'Severity required' : null,
           ),
           const SizedBox(height: 16),
@@ -385,7 +476,9 @@ class _MalariaEnrollmentFormState extends State<MalariaEnrollmentForm> {
 
 // ==================== TB ====================
 class TbEnrollmentForm extends StatefulWidget {
-  const TbEnrollmentForm({super.key, required void Function(dynamic data) onDataChanged});
+  final void Function(Map<String, dynamic> data) onDataChanged;
+  final Map<String, dynamic>? initialData;
+  const TbEnrollmentForm({super.key, required this.onDataChanged, this.initialData});
 
   @override
   State<TbEnrollmentForm> createState() => _TbEnrollmentFormState();
@@ -399,6 +492,31 @@ class _TbEnrollmentFormState extends State<TbEnrollmentForm> {
   
   String? _tbType;
   String? _category;
+
+  @override
+  void initState() {
+    super.initState();
+    final d = widget.initialData;
+    if (d != null) {
+      _diagnosisDateController.text    = d['diagnosisDate']?.toString() ?? '';
+      _treatmentStartController.text   = d['treatmentStartDate']?.toString() ?? '';
+      _dotProviderController.text      = d['dotProvider']?.toString() ?? '';
+      _nextAppointmentController.text  = d['nextAppointmentDate']?.toString() ?? '';
+      _tbType   = d['tbType'] as String?;
+      _category = d['treatmentRegimen'] as String?;
+    }
+  }
+
+    void _notify() {
+    widget.onDataChanged({
+      'diagnosisDate':       _diagnosisDateController.text,
+      'tbType':              _tbType,
+      'treatmentRegimen':    _category,
+      'treatmentStartDate':  _treatmentStartController.text,
+      'dotProvider':         _dotProviderController.text,
+      'nextAppointmentDate': _nextAppointmentController.text,
+    });
+  }
 
   @override
   void dispose() {
@@ -461,8 +579,9 @@ class _TbEnrollmentFormState extends State<TbEnrollmentForm> {
           DropdownButtonFormField<String>(
             initialValue: _tbType,
             decoration: const InputDecoration(labelText: 'TB Type *', border: OutlineInputBorder()),
-            items: ['Pulmonary TB', 'Extra-pulmonary TB'].map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
-            onChanged: (value) => setState(() => _tbType = value),
+            items: ['Pulmonary TB', 'Extra-pulmonary TB'].map((type) => DropdownMenuItem(value: type, child: Text(type, overflow: TextOverflow.ellipsis))).toList(),
+                        isExpanded: true,
+            onChanged: (value) { setState(() => _tbType = value); _notify(); },
             validator: (value) => value == null ? 'Type required' : null,
           ),
           const SizedBox(height: 16),
@@ -470,8 +589,9 @@ class _TbEnrollmentFormState extends State<TbEnrollmentForm> {
           DropdownButtonFormField<String>(
             initialValue: _category,
             decoration: const InputDecoration(labelText: 'Category *', border: OutlineInputBorder()),
-            items: ['New', 'Relapse', 'Treatment Failure', 'MDR-TB'].map((cat) => DropdownMenuItem(value: cat, child: Text(cat))).toList(),
-            onChanged: (value) => setState(() => _category = value),
+            items: ['New', 'Relapse', 'Treatment Failure', 'MDR-TB'].map((cat) => DropdownMenuItem(value: cat, child: Text(cat, overflow: TextOverflow.ellipsis))).toList(),
+                        isExpanded: true,
+            onChanged: (value) { setState(() => _category = value); _notify(); },
             validator: (value) => value == null ? 'Category required' : null,
           ),
           const SizedBox(height: 16),
@@ -506,7 +626,9 @@ class _TbEnrollmentFormState extends State<TbEnrollmentForm> {
 
 // ==================== MCH ====================
 class MchEnrollmentForm extends StatefulWidget {
-  const MchEnrollmentForm({super.key, required void Function(dynamic data) onDataChanged});
+  final void Function(Map<String, dynamic> data) onDataChanged;
+  final Map<String, dynamic>? initialData;
+  const MchEnrollmentForm({super.key, required this.onDataChanged, this.initialData});
 
   @override
   State<MchEnrollmentForm> createState() => _MchEnrollmentFormState();
@@ -522,6 +644,31 @@ class _MchEnrollmentFormState extends State<MchEnrollmentForm> {
   String? _programType;
   String? _hivStatus;
   bool _onPmtct = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final d = widget.initialData;
+    if (d != null) {
+      _eddController.text      = d['edd']?.toString() ?? '';
+      _gravidaController.text  = d['gravidity']?.toString() ?? '';
+      _parityController.text   = d['parity']?.toString() ?? '';
+      _nextAncController.text  = d['nextVisitDate']?.toString() ?? '';
+      _programType = d['serviceType'] as String?;
+      _hivStatus   = d['hivStatus'] as String?;
+    }
+  }
+
+    void _notify() {
+    widget.onDataChanged({
+      'serviceType':   _programType,
+      'edd':           _eddController.text,
+      'gravidity':     _gravidaController.text,
+      'parity':        _parityController.text,
+      'hivStatus':     _hivStatus,
+      'nextVisitDate': _nextAncController.text,
+    });
+  }
 
   @override
   void dispose() {
@@ -576,8 +723,9 @@ class _MchEnrollmentFormState extends State<MchEnrollmentForm> {
           DropdownButtonFormField<String>(
             initialValue: _programType,
             decoration: const InputDecoration(labelText: 'Program Type *', border: OutlineInputBorder()),
-            items: ['Antenatal Care (ANC)', 'Postnatal Care (PNC)', 'Child Wellness'].map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
-            onChanged: (value) => setState(() => _programType = value),
+            items: ['Antenatal Care (ANC)', 'Postnatal Care (PNC)', 'Child Wellness'].map((type) => DropdownMenuItem(value: type, child: Text(type, overflow: TextOverflow.ellipsis))).toList(),
+                        isExpanded: true,
+            onChanged: (value) { setState(() => _programType = value); _notify(); },
             validator: (value) => value == null ? 'Type required' : null,
           ),
           const SizedBox(height: 16),
@@ -622,8 +770,9 @@ class _MchEnrollmentFormState extends State<MchEnrollmentForm> {
           DropdownButtonFormField<String>(
             initialValue: _hivStatus,
             decoration: const InputDecoration(labelText: 'HIV Status', border: OutlineInputBorder()),
-            items: ['Negative', 'Positive', 'Unknown'].map((status) => DropdownMenuItem(value: status, child: Text(status))).toList(),
-            onChanged: (value) => setState(() => _hivStatus = value),
+            items: ['Negative', 'Positive', 'Unknown'].map((status) => DropdownMenuItem(value: status, child: Text(status, overflow: TextOverflow.ellipsis))).toList(),
+                        isExpanded: true,
+            onChanged: (value) { setState(() => _hivStatus = value); _notify(); },
           ),
           const SizedBox(height: 16),
           
@@ -632,7 +781,7 @@ class _MchEnrollmentFormState extends State<MchEnrollmentForm> {
               title: const Text('On PMTCT'),
               subtitle: const Text('Prevention of Mother-to-Child Transmission', style: TextStyle(fontSize: 11)),
               value: _onPmtct,
-              onChanged: (value) => setState(() => _onPmtct = value ?? false),
+              onChanged: (value) { setState(() => _onPmtct = value ?? false); _notify(); },
               contentPadding: EdgeInsets.zero,
             ),
           

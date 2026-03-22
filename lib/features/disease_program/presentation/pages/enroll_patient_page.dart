@@ -17,11 +17,16 @@ class EnrollPatientPage extends StatefulWidget {
   final String patientName;
   final String facilityId;
 
+  /// When provided, the page is in edit mode — program is pre-selected
+  /// and existing clinical data seeds the form via _formData.
+  final ProgramEnrollment? initialEnrollment;
+
   const EnrollPatientPage({
     super.key,
     required this.patientNupi,
     required this.patientName,
     required this.facilityId,
+    this.initialEnrollment,
   });
 
   @override
@@ -32,6 +37,20 @@ class _EnrollPatientPageState extends State<EnrollPatientPage> {
   DiseaseProgram? _selectedProgram;
   final _formKey = GlobalKey<FormState>();
   final Map<String, dynamic> _formData = {};
+
+  bool get _isEditing => widget.initialEnrollment != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.initialEnrollment;
+    if (e != null) {
+      _selectedProgram = e.program;
+      if (e.programSpecificData != null) {
+        _formData.addAll(e.programSpecificData!);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,9 +67,9 @@ class _EnrollPatientPageState extends State<EnrollPatientPage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Enroll in Disease Program',
-              style: TextStyle(
+            Text(
+              _isEditing ? 'Edit Enrollment' : 'Enroll in Disease Program',
+              style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w900,
                 color: Color(0xFF0F172A),
@@ -195,7 +214,9 @@ class _EnrollPatientPageState extends State<EnrollPatientPage> {
                           icon:
                               const Icon(Icons.check_circle_rounded),
                           label: Text(
-                              'Enroll in ${_selectedProgram!.code}'),
+                              _isEditing
+                                  ? 'Update ${_selectedProgram!.code}'
+                                  : 'Enroll in ${_selectedProgram!.code}'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF2D6A4F),
                             foregroundColor: Colors.white,
@@ -220,25 +241,38 @@ class _EnrollPatientPageState extends State<EnrollPatientPage> {
   }
 
   Widget _buildProgramSpecificForm(DiseaseProgram program) {
+    // In edit mode _formData is pre-seeded from the existing enrollment's
+    // programSpecificData. Pass it as initialData so form controllers
+    // pre-populate their fields.
+    final init = _isEditing && _formData.isNotEmpty
+        ? Map<String, dynamic>.from(_formData)
+        : null;
+
     switch (program) {
       case DiseaseProgram.hivArt:
         return HivEnrollmentForm(
-            onDataChanged: (data) => _formData.addAll(data));
+            onDataChanged: (data) => _formData.addAll(data),
+            initialData: init);
       case DiseaseProgram.ncdDiabetes:
         return DiabetesEnrollmentForm(
-            onDataChanged: (data) => _formData.addAll(data));
+            onDataChanged: (data) => _formData.addAll(data),
+            initialData: init);
       case DiseaseProgram.hypertension:
         return HypertensionEnrollmentForm(
-            onDataChanged: (data) => _formData.addAll(data));
+            onDataChanged: (data) => _formData.addAll(data),
+            initialData: init);
       case DiseaseProgram.malaria:
         return MalariaEnrollmentForm(
-            onDataChanged: (data) => _formData.addAll(data));
+            onDataChanged: (data) => _formData.addAll(data),
+            initialData: init);
       case DiseaseProgram.tb:
         return TbEnrollmentForm(
-            onDataChanged: (data) => _formData.addAll(data));
+            onDataChanged: (data) => _formData.addAll(data),
+            initialData: init);
       case DiseaseProgram.mch:
         return MchEnrollmentForm(
-            onDataChanged: (data) => _formData.addAll(data));
+            onDataChanged: (data) => _formData.addAll(data),
+            initialData: init);
     }
   }
 
@@ -246,19 +280,24 @@ class _EnrollPatientPageState extends State<EnrollPatientPage> {
     if (_formKey.currentState?.validate() ?? false) {
       _formKey.currentState?.save();
 
+      final existing = widget.initialEnrollment;
       final enrollment = ProgramEnrollment(
-        id:                  const Uuid().v4(),
+        id:                  existing?.id ?? const Uuid().v4(),
         patientNupi:         widget.patientNupi,
         patientName:         widget.patientName,
         facilityId:          widget.facilityId,
         program:             _selectedProgram!,
-        status:              ProgramEnrollmentStatus.active,
-        enrollmentDate:      DateTime.now(),
+        status:              existing?.status ?? ProgramEnrollmentStatus.active,
+        enrollmentDate:      existing?.enrollmentDate ?? DateTime.now(),
         programSpecificData: _formData.isEmpty ? null : Map.from(_formData),
-        createdAt:           DateTime.now(),
+        createdAt:           existing?.createdAt ?? DateTime.now(),
       );
 
-      context.read<ProgramBloc>().add(EnrollPatientInProgram(enrollment));
+      if (_isEditing) {
+        context.read<ProgramBloc>().add(UpdateEnrollment(enrollment));
+      } else {
+        context.read<ProgramBloc>().add(EnrollPatientInProgram(enrollment));
+      }
     }
   }
 }

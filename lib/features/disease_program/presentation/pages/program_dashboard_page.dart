@@ -3,10 +3,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+import '../../../../injection_container.dart';
+import '../../../patient/data/datasources/patient_local_datasource.dart';
+import '../../../patient/domain/entities/patient.dart';
+import '../../../patient/presentation/bloc/patient_bloc.dart';
+import '../../../patient/presentation/bloc/patient_event.dart';
+import '../../../patient/presentation/bloc/patient_state.dart';
 import '../../domain/entities/disease_program.dart';
 import '../bloc/program_bloc.dart';
 import '../bloc/program_event.dart';
 import '../bloc/program_state.dart';
+import 'enroll_patient_page.dart';
 import 'enrollment_detail_page.dart';
 
 class ProgramDashboardPage extends StatefulWidget {
@@ -61,6 +68,15 @@ class _ProgramDashboardPageState extends State<ProgramDashboardPage> {
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _pickPatientAndEnroll,
+        backgroundColor: const Color(0xFF2D6A4F),
+        icon: const Icon(Icons.person_add_rounded, color: Colors.white),
+        label: const Text(
+          'Enroll Patient',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
       body: BlocBuilder<ProgramBloc, ProgramState>(
         builder: (context, state) {
           if (state is ProgramLoading) {
@@ -98,48 +114,60 @@ class _ProgramDashboardPageState extends State<ProgramDashboardPage> {
             // Calculate stats
             final stats = _calculateStats(enrollments);
 
-            return Column(
-              children: [
-                // Stats Cards
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  color: Colors.white,
-                  child: Column(
-                    children: [
-                      _buildStatsGrid(stats),
-                      const SizedBox(height: 16),
-                      _buildProgramFilter(),
-                    ],
+            // Single CustomScrollView — header and list scroll together.
+            // No Column+Expanded so there is nothing to overflow on small screens.
+            return CustomScrollView(
+              slivers: [
+                // Stats + filter header
+                SliverToBoxAdapter(
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                    color: Colors.white,
+                    child: Column(
+                      children: [
+                        _buildStatsGrid(stats),
+                        const SizedBox(height: 12),
+                        _buildProgramFilter(),
+                      ],
+                    ),
                   ),
                 ),
 
-                // Enrollments List
-                Expanded(
-                  child: filteredEnrollments.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.medical_services_outlined, size: 64, color: Colors.grey[400]),
-                              const SizedBox(height: 16),
-                              Text(
-                                _selectedFilter != null
-                                    ? 'No patients enrolled in ${_selectedFilter!.code}'
-                                    : 'No program enrollments yet',
-                                style: const TextStyle(fontSize: 16, color: Colors.grey),
-                              ),
-                            ],
+                // Empty state
+                if (filteredEnrollments.isEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.medical_services_outlined,
+                              size: 64, color: Colors.grey[400]),
+                          const SizedBox(height: 16),
+                          Text(
+                            _selectedFilter != null
+                                ? 'No patients enrolled in ${_selectedFilter!.code}'
+                                : 'No program enrollments yet',
+                            style: const TextStyle(
+                                fontSize: 16, color: Colors.grey),
+                            textAlign: TextAlign.center,
                           ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: filteredEnrollments.length,
-                          itemBuilder: (context, index) {
-                            final enrollment = filteredEnrollments[index];
-                            return _buildEnrollmentCard(context, enrollment);
-                          },
-                        ),
-                ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  // Enrollment cards — bottom padding clears the FAB
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) => _buildEnrollmentCard(
+                            context, filteredEnrollments[index]),
+                        childCount: filteredEnrollments.length,
+                      ),
+                    ),
+                  ),
               ],
             );
           }
@@ -150,6 +178,43 @@ class _ProgramDashboardPageState extends State<ProgramDashboardPage> {
     );
   }
 
+  // Opens a searchable bottom sheet to pick a patient, then pushes
+  // EnrollPatientPage with the selected patient's NUPI and name.
+  Future<void> _pickPatientAndEnroll() async {
+    final patient = await showModalBottomSheet<Patient>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => BlocProvider(
+        create: (_) =>
+            sl<PatientBloc>()..add(const LoadPatientsByFacilityEvent()),
+        child: _PatientPickerSheet(facilityId: widget.facilityId),
+      ),
+    );
+
+    if (patient == null || !mounted) return;
+
+    final enrolled = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BlocProvider(
+          create: (_) => sl<ProgramBloc>(),
+          child: EnrollPatientPage(
+            patientNupi: patient.nupi,
+            patientName: patient.fullName,
+            facilityId:  widget.facilityId,
+          ),
+        ),
+      ),
+    );
+
+    if (enrolled == true && mounted) {
+      context
+          .read<ProgramBloc>()
+          .add(LoadFacilityEnrollments(widget.facilityId));
+    }
+  }
+
   Widget _buildStatsGrid(Map<DiseaseProgram, int> stats) {
     return GridView.count(
       crossAxisCount: 3,
@@ -157,7 +222,7 @@ class _ProgramDashboardPageState extends State<ProgramDashboardPage> {
       physics: const NeverScrollableScrollPhysics(),
       mainAxisSpacing: 12,
       crossAxisSpacing: 12,
-      childAspectRatio: 1.4,
+      childAspectRatio: 1.1,
       children: DiseaseProgram.values.map((program) {
         final count = stats[program] ?? 0;
         return _buildStatCard(program, count);
@@ -459,5 +524,221 @@ class _ProgramDashboardPageState extends State<ProgramDashboardPage> {
       stats[program] = enrollments.where((e) => e.program == program).length;
     }
     return stats;
+  }
+}
+// ─── Patient picker bottom sheet ─────────────────────────────────────────────
+
+class _PatientPickerSheet extends StatefulWidget {
+  final String facilityId;
+  const _PatientPickerSheet({required this.facilityId});
+
+  @override
+  State<_PatientPickerSheet> createState() => _PatientPickerSheetState();
+}
+
+class _PatientPickerSheetState extends State<_PatientPickerSheet> {
+  final _searchCtrl = TextEditingController();
+  List<Patient> _sqliteExtras = [];
+
+  static const _primary = Color(0xFF2D6A4F);
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _searchLocal(String q) async {
+    if (q.isEmpty) {
+      if (mounted) setState(() => _sqliteExtras = []);
+      return;
+    }
+    final ds    = sl<PatientLocalDatasource>();
+    final all   = await ds.getAllPatients();
+    final lower = q.toLowerCase();
+    final hits  = all
+        .where((p) =>
+            '${p.firstName} ${p.lastName}'.toLowerCase().contains(lower) ||
+            p.nupi.toLowerCase().contains(lower) ||
+            p.phoneNumber.contains(lower))
+        .toList();
+    if (mounted) setState(() => _sqliteExtras = hits.cast<Patient>());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize:     0.5,
+      maxChildSize:     0.95,
+      builder: (_, scrollCtrl) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            // Handle
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              width: 40, height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Select patient to enroll',
+                      style: TextStyle(
+                          fontSize: 17, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            // Search
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: TextField(
+                controller: _searchCtrl,
+                autofocus: true,
+                onChanged: (v) {
+                  if (v.isEmpty) {
+                    context
+                        .read<PatientBloc>()
+                        .add(const LoadPatientsByFacilityEvent());
+                  } else {
+                    context
+                        .read<PatientBloc>()
+                        .add(SearchPatientEvent(v));
+                  }
+                  _searchLocal(v);
+                },
+                decoration: InputDecoration(
+                  hintText: 'Search by name, NUPI or phone…',
+                  hintStyle:
+                      TextStyle(fontSize: 13, color: Colors.grey[400]),
+                  prefixIcon: const Icon(Icons.search_rounded,
+                      color: _primary, size: 20),
+                  suffixIcon: _searchCtrl.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear_rounded,
+                              size: 16, color: Colors.grey),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            context.read<PatientBloc>().add(
+                                const LoadPatientsByFacilityEvent());
+                            setState(() => _sqliteExtras = []);
+                          },
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: const Color(0xFFF1F5F9),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding:
+                      const EdgeInsets.symmetric(vertical: 10),
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            // Patient list
+            Expanded(
+              child: BlocBuilder<PatientBloc, PatientState>(
+                builder: (_, state) {
+                  if (state is PatientLoading) {
+                    return const Center(
+                        child: CircularProgressIndicator.adaptive());
+                  }
+
+                  final blocList =
+                      state is PatientsLoaded ? state.patients : <Patient>[];
+                  final seen    = <String>{};
+                  final merged  = <Patient>[];
+                  for (final p in [...blocList, ..._sqliteExtras]) {
+                    if (seen.add(p.nupi)) merged.add(p);
+                  }
+
+                  if (merged.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.search_off_rounded,
+                              size: 48, color: Colors.grey[300]),
+                          const SizedBox(height: 12),
+                          Text('No patients found',
+                              style: TextStyle(
+                                  color: Colors.grey[500],
+                                  fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return ListView.separated(
+                    controller: scrollCtrl,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
+                    itemCount: merged.length,
+                    separatorBuilder: (_, __) =>
+                        Divider(height: 1, color: Colors.grey[100]),
+                    itemBuilder: (_, i) {
+                      final p = merged[i];
+                      return ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        onTap: () => Navigator.pop(context, p),
+                        leading: CircleAvatar(
+                          backgroundColor: p.gender == 'female'
+                              ? const Color(0xFFEC4899).withOpacity(0.12)
+                              : const Color(0xFF2D6A4F).withOpacity(0.12),
+                          child: Text(
+                            p.firstName.isNotEmpty
+                                ? p.firstName[0].toUpperCase()
+                                : '?',
+                            style: TextStyle(
+                              color: p.gender == 'female'
+                                  ? const Color(0xFFEC4899)
+                                  : _primary,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        title: Text(
+                          p.fullName,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 14),
+                        ),
+                        subtitle: Text(
+                          '${p.age} yrs  •  ${p.nupi}',
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.grey[500]),
+                        ),
+                        trailing: const Icon(
+                            Icons.chevron_right_rounded,
+                            color: Color(0xFFCBD5E1)),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

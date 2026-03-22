@@ -18,6 +18,7 @@ class ProgramBloc extends Bloc<ProgramEvent, ProgramState> {
     required this.repository,
   }) : super(ProgramInitial()) {
     on<EnrollPatientInProgram>(_onEnrollPatient);
+    on<UpdateEnrollment>(_onUpdateEnrollment);
     on<LoadFacilityEnrollments>(_onLoadFacilityEnrollments);
     on<LoadPatientEnrollments>(_onLoadPatientEnrollments);
     on<LoadProgramStats>(_onLoadProgramStats);
@@ -30,9 +31,6 @@ class ProgramBloc extends Bloc<ProgramEvent, ProgramState> {
   ) async {
     emit(ProgramLoading());
 
-    // BUG FIX: was casting event.enrollment directly as EnrollPatientParams
-    // (ProgramEnrollment is not EnrollPatientParams — this threw a cast error).
-    // Correct: wrap the entity in the params object the use-case expects.
     final result = await enrollPatient(
       EnrollPatientParams(enrollment: event.enrollment),
     );
@@ -40,6 +38,25 @@ class ProgramBloc extends Bloc<ProgramEvent, ProgramState> {
     result.fold(
       (failure) => emit(ProgramError(failure.message)),
       (_) => emit(const EnrollmentSuccess('Patient enrolled successfully')),
+    );
+  }
+
+  Future<void> _onUpdateEnrollment(
+    UpdateEnrollment event,
+    Emitter<ProgramState> emit,
+  ) async {
+    emit(ProgramLoading());
+
+    // The local datasource uses ConflictAlgorithm.replace, so inserting
+    // with the same id overwrites the existing record — no separate
+    // update SQL needed.
+    final result = await enrollPatient(
+      EnrollPatientParams(enrollment: event.enrollment),
+    );
+
+    result.fold(
+      (failure) => emit(ProgramError(failure.message)),
+      (_) => emit(const EnrollmentSuccess('Enrollment updated successfully')),
     );
   }
 
