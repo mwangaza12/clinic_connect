@@ -1,6 +1,8 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+import '../../../../core/config/firebase_config.dart';
 import '../../../../injection_container.dart';
 import '../../../encounter/domain/entities/encounter.dart';
 import '../../../encounter/presentation/bloc/encounter_bloc.dart';
@@ -48,7 +50,11 @@ class _PatientDetailView extends StatefulWidget {
 class _PatientDetailViewState extends State<_PatientDetailView>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  late Patient _patient; // mutable — updated after edit
+  late Patient _patient;
+
+  // True if the patient has a 'died' disease-program enrollment.
+  // Gates the New Visit FAB and shows a deceased banner.
+  bool _isDeceased = false;
 
   static const Color _primary = Color(0xFF1B4332);
   static const Color _bg = Color(0xFFF1F5F9);
@@ -58,6 +64,25 @@ class _PatientDetailViewState extends State<_PatientDetailView>
     super.initState();
     _patient = widget.patient;
     _tabController = TabController(length: 2, vsync: this);
+    _checkDeceasedStatus();
+  }
+
+  /// Checks Firestore for any enrollment with status == 'died' for this patient.
+  /// Lightweight single query — does not block the page render.
+  Future<void> _checkDeceasedStatus() async {
+    try {
+      final snap = await FirebaseConfig.facilityDb
+          .collection('program_enrollments')
+          .where('patient_nupi', isEqualTo: _patient.nupi)
+          .where('status', isEqualTo: 'died')
+          .limit(1)
+          .get();
+      if (mounted && snap.docs.isNotEmpty) {
+        setState(() => _isDeceased = true);
+      }
+    } catch (_) {
+      // Non-fatal — if the check fails the FAB stays enabled
+    }
   }
 
   @override
@@ -76,6 +101,7 @@ class _PatientDetailViewState extends State<_PatientDetailView>
         child: Column(
           children: [
             _buildHeader(context, p),
+            if (_isDeceased) _buildDeceasedBanner(),
             if (widget.triageContext != null) _buildTriageBanner(),
             _buildTabBar(),
             Expanded(
@@ -90,29 +116,80 @@ class _PatientDetailViewState extends State<_PatientDetailView>
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          final created = await Navigator.push<bool>(
-            context,
-            MaterialPageRoute(
-              builder: (_) => CreateEncounterPage(
-                patient:       p,
-                triageContext: widget.triageContext,
+      floatingActionButton: _isDeceased
+          ? FloatingActionButton.extended(
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                        'Cannot create an encounter — patient is deceased.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              },
+              backgroundColor: Colors.grey[400],
+              icon: const Icon(Icons.block_rounded, color: Colors.white),
+              label: const Text(
+                'Deceased',
+                style: TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w700),
+              ),
+            )
+          : FloatingActionButton.extended(
+              onPressed: () async {
+                final created = await Navigator.push<bool>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CreateEncounterPage(
+                      patient:       p,
+                      triageContext: widget.triageContext,
+                    ),
+                  ),
+                );
+                if (created == true && context.mounted) {
+                  context
+                      .read<EncounterBloc>()
+                      .add(LoadPatientEncountersEvent(p.nupi));
+                }
+              },
+              backgroundColor: _primary,
+              icon: const Icon(Icons.add_rounded, color: Colors.white),
+              label: const Text(
+                'New Visit',
+                style: TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w700),
               ),
             ),
-          );
-          if (created == true && context.mounted) {
-            context
-                .read<EncounterBloc>()
-                .add(LoadPatientEncountersEvent(p.nupi));
-          }
-        },
-        backgroundColor: _primary,
-        icon: const Icon(Icons.add_rounded, color: Colors.white),
-        label: const Text(
-          'New Visit',
-          style: TextStyle(
-              color: Colors.white, fontWeight: FontWeight.w700),
+    );
+  }
+
+  Widget _buildDeceasedBanner() {
+    return Container(
+      width: double.infinity,
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.red.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.block_rounded, color: Colors.red.shade700, size: 16),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Patient is deceased — new encounters cannot be created.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.red.shade700,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

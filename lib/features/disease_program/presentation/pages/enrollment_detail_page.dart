@@ -81,6 +81,35 @@ class _EnrollmentDetailPageState extends State<EnrollmentDetailPage> {
             sliver: SliverList(
               delegate: SliverChildListDelegate([
                 const SizedBox(height: 16),
+                if (_enrollment.status == ProgramEnrollmentStatus.died)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.block_rounded,
+                            color: Colors.red.shade700, size: 18),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'This patient is deceased. The enrollment record '
+                            'is locked and cannot be edited.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.red.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 _enrollmentSummaryCard(),
                 const SizedBox(height: 16),
                 _programSpecificCard(),
@@ -108,16 +137,28 @@ class _EnrollmentDetailPageState extends State<EnrollmentDetailPage> {
         onPressed: () => Navigator.pop(context),
       ),
       actions: [
-        IconButton(
-          icon: const Icon(Icons.swap_horiz_rounded, color: Colors.white),
-          tooltip: 'Change status',
-          onPressed: _changeStatus,
-        ),
-        IconButton(
-          icon: const Icon(Icons.edit_rounded, color: Colors.white),
-          tooltip: 'Edit enrollment',
-          onPressed: _openEdit,
-        ),
+        if (_enrollment.status == ProgramEnrollmentStatus.died) ...[
+          // Deceased — show a lock indicator; no edits or status changes allowed
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Tooltip(
+              message: 'Patient is deceased — record is locked',
+              child: Icon(Icons.lock_outline_rounded,
+                  color: Colors.white.withOpacity(0.7), size: 22),
+            ),
+          ),
+        ] else ...[
+          IconButton(
+            icon: const Icon(Icons.swap_horiz_rounded, color: Colors.white),
+            tooltip: 'Change status',
+            onPressed: _changeStatus,
+          ),
+          IconButton(
+            icon: const Icon(Icons.edit_rounded, color: Colors.white),
+            tooltip: 'Edit enrollment',
+            onPressed: _openEdit,
+          ),
+        ],
       ],
       flexibleSpace: FlexibleSpaceBar(
         background: Container(
