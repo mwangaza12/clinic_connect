@@ -194,15 +194,4 @@ class PatientRepositoryImpl implements PatientRepository {
     }
   }
 
-  Future<void> _refreshAndNotify(String facilityId) async {
-    try {
-      final remote = await remoteDatasource
-          .getPatientsByFacility()
-          .timeout(const Duration(seconds: 10));
-      for (final p in remote) {
-        await localDatasource.cachePatient(p);
-      }
-      onPatientsRefreshed?.call(remote.map((p) => p.toEntity()).toList());
-    } catch (_) {}
-  }
 }

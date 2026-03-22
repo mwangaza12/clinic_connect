@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../data/models/encounter_model.dart';
 import '../../domain/entities/encounter.dart';
-import '../../../../core/services/backend_api_service.dart';
 import '../../../../core/services/hie_api_service.dart';
 import 'edit_encounter_page.dart';
 

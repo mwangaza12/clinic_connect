@@ -76,7 +76,7 @@ class _NurseShellPageState extends State<NurseShellPage> {
           floatingActionButton: _tab == 0
               ? FloatingActionButton.extended(
                   onPressed: () async {
-                    final result = await Navigator.push<bool>(
+                    await Navigator.push<bool>(
                       context,
                       MaterialPageRoute(
                           builder: (_) => const CheckInPage()),

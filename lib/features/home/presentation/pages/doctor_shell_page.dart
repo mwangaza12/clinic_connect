@@ -27,7 +27,6 @@ import '../../../patient/presentation/bloc/patient_event.dart';
 import '../../../patient/presentation/pages/nupi_lookup_page.dart';
 import '../../../patient/presentation/pages/patient_detail_page.dart';
 import '../../../patient/presentation/pages/patient_list_page.dart';
-import '../../../patient/presentation/pages/patient_lookup_page.dart';
 import '../../../patient/presentation/pages/patient_registration_page.dart';
 import '../../../referral/presentation/pages/referrals_page.dart';
 import '../../../encounter/presentation/pages/encounter_detail_page.dart';

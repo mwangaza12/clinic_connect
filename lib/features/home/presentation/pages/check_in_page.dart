@@ -25,7 +25,6 @@ class CheckInPage extends StatefulWidget {
 }
 
 class _CheckInPageState extends State<CheckInPage> {
-  static const _primary = Colors.teal;
   static const _primaryDark = Color(0xFF00796B);
 
   final _pageCtrl      = PageController();

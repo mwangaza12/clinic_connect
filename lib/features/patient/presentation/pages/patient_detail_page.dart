@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
@@ -258,7 +257,7 @@ class _PatientDetailViewState extends State<_PatientDetailView>
                     fontSize: 13, color: Color(0xFF475569)),
               ),
             ],
-            if (vitals != null && (vitals as Map).isNotEmpty) ...[
+            if (vitals != null && (vitals).isNotEmpty) ...[
               const SizedBox(height: 8),
               Wrap(
                 spacing: 6, runSpacing: 4,

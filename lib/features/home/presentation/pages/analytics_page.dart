@@ -14,13 +14,11 @@ import '../../../../core/config/firebase_config.dart';
 import '../../../../core/database/database_helper.dart';
 import '../../../../core/database/schema.dart';
 import '../../../../core/sync/connectivity_manager.dart';
-import 'shell_widgets.dart';
 
 const _kStaffCacheKey = 'analytics_staff_cache';
 
 // ── Palette — matches app green theme ────────────────────────────
 const _green      = Color(0xFF1B4332);
-const _greenLight = Color(0xFF2D6A4F);
 const _bg         = Color(0xFFF1F5F9);
 const _white      = Colors.white;
 const _border     = Color(0xFFE2E8F0);
