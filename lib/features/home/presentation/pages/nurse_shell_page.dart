@@ -398,6 +398,7 @@ class TriageQueueCard extends StatelessWidget {
       default:         return Colors.green;
     }
   }
+  
   Color _news2Color(int score) {
     if (score == 0) return Colors.green;
     if (score <= 4) return Colors.blue;
@@ -405,15 +406,6 @@ class TriageQueueCard extends StatelessWidget {
     return Colors.red;
   }
 
-  Color _statusColor(String s) {
-    switch (s) {
-      case 'waiting':          return Colors.orange;
-      case 'in_triage':        return Colors.blue;
-      case 'ready_for_doctor': return Colors.green;
-      case 'with_doctor':      return Colors.purple;
-      default:                 return Colors.grey;
-    }
-  }
 
   Future<void> _updateStatus(String newStatus) async {
     await FirebaseConfig.facilityDb
@@ -430,7 +422,6 @@ class TriageQueueCard extends StatelessWidget {
     final priority = data['priority'] as String? ?? 'medium';
     final status   = data['status']   as String? ?? 'waiting';
     final pc       = _priorityColor(priority);
-    final sc       = _statusColor(status);
 
     return Container(
       padding: const EdgeInsets.all(14),
