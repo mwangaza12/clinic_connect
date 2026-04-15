@@ -46,6 +46,59 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
   final Color primaryDark = const Color(0xFF1B4332);
   final Color accentGreen = const Color(0xFF2D6A4F);
 
+  // ── Kenya Areas API ───────────────────────────────────────────
+  static const _areasApiKey = 'keyPub1569gsvndc123kg9sjhg';
+  static const _areasApiUrl = 'https://kenyaareadata.vercel.app/api/areas';
+
+  Map<String, dynamic> _areasData = {};
+  bool _areasLoading = false;
+  bool _areasLoadFailed = false;
+
+  // Cascading selection
+  String? _selectedCounty;
+  String? _selectedSubCounty;
+  String? _selectedWard;
+  String? _selectedVillage;
+
+  // Derived lists from the API response
+  List<String> get _counties {
+    final keys = _areasData.keys.toList();
+    keys.sort();
+    return keys;
+  }
+
+  List<String> get _subCounties {
+    if (_selectedCounty == null) return [];
+    final county = _areasData[_selectedCounty];
+    if (county is! Map) return [];
+    final keys = (county as Map<String, dynamic>).keys.toList();
+    keys.sort();
+    return keys;
+  }
+
+  List<String> get _wards {
+    if (_selectedCounty == null || _selectedSubCounty == null) return [];
+    final sub = (_areasData[_selectedCounty] as Map<String, dynamic>?)?[_selectedSubCounty];
+    if (sub is! Map) return [];
+    final keys = (sub as Map<String, dynamic>).keys.toList();
+    keys.sort();
+    return keys;
+  }
+
+  List<String> get _villages {
+    if (_selectedCounty == null || _selectedSubCounty == null || _selectedWard == null) {
+      return [];
+    }
+    final ward = ((_areasData[_selectedCounty] as Map<String, dynamic>?)?[_selectedSubCounty]
+        as Map<String, dynamic>?)?[_selectedWard];
+    if (ward is List) {
+      final list = List<String>.from(ward);
+      list.sort();
+      return list;
+    }
+    return [];
+  }
+
   // ── Security / HIE fields (Step 0) ────────────────────────────
   final _nationalIdController     = TextEditingController();
   final _securityAnswerController = TextEditingController();
@@ -83,6 +136,14 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
   ];
   String? _selectedSecurityQuestion;
 
+  // ── Lifecycle ─────────────────────────────────────────────────
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchAreas();
+  }
+
   @override
   void dispose() {
     _nationalIdController.dispose();
@@ -102,6 +163,70 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
     _nextOfKinPhoneController.dispose();
     _pageController.dispose();
     super.dispose();
+  }
+
+  // ── Kenya Areas API fetch ─────────────────────────────────────
+
+  Future<void> _fetchAreas() async {
+    if (!mounted) return;
+    setState(() {
+      _areasLoading    = true;
+      _areasLoadFailed = false;
+    });
+
+    try {
+      final dio = Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 15),
+      ));
+
+      final response = await dio.get(
+        _areasApiUrl,
+        queryParameters: {'apiKey': _areasApiKey}, // ← correct param name
+      );
+
+      final raw = response.data;
+      final Map<String, dynamic> parsed;
+
+      if (raw is Map<String, dynamic>) {
+        if (raw.containsKey('counties') && raw['counties'] is Map) {
+          parsed = Map<String, dynamic>.from(raw['counties'] as Map);
+        } else if (raw.containsKey('data') && raw['data'] is Map) {
+          parsed = Map<String, dynamic>.from(raw['data'] as Map);
+        } else if (raw.containsKey('areas') && raw['areas'] is Map) {
+          parsed = Map<String, dynamic>.from(raw['areas'] as Map);
+        } else {
+          parsed = raw;
+        }
+      } else {
+        parsed = {};
+      }
+
+      debugPrint('[AreasAPI] ✓ ${parsed.keys.length} counties loaded');
+
+      if (mounted) {
+        setState(() {
+          _areasData    = parsed;
+          _areasLoading = false;
+        });
+      }
+    } on DioException catch (e) {
+      debugPrint('[AreasAPI] ✗ ${e.type} — ${e.response?.statusCode} — ${e.response?.data}');
+      if (mounted) {
+        setState(() {
+          _areasLoading    = false;
+          _areasLoadFailed = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('[AreasAPI] ✗ $e');
+      if (mounted) {
+        setState(() {
+          _areasLoading    = false;
+          _areasLoadFailed = true;
+        });
+      }
+    }
   }
 
   // ── Navigation ────────────────────────────────────────────────
@@ -169,19 +294,11 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
   }
 
   // ── Offline detection ─────────────────────────────────────────
-  //
-  // ROOT CAUSE (confirmed by logs):
-  //   e  = DioException [connection error]        ← what catch receives
-  //   e.error = SocketException: Failed host lookup  ← the real cause, wrapped
-  //
-  // `e is SocketException` never fired because e IS a DioException.
-  // We must check DioException.type first, then unwrap .error.
 
   bool _isOfflineError(Object e) {
-    // 1. DioException — check the enum type AND unwrap the inner error
     if (e is DioException) {
       switch (e.type) {
-        case DioExceptionType.connectionError:   // Failed host lookup, refused
+        case DioExceptionType.connectionError:
         case DioExceptionType.connectionTimeout:
         case DioExceptionType.sendTimeout:
         case DioExceptionType.receiveTimeout:
@@ -189,23 +306,16 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         default:
           break;
       }
-      // Inner error is the raw SocketException / HandshakeException
       final inner = e.error;
       if (inner is SocketException)    return true;
       if (inner is HandshakeException) return true;
     }
-
-    // 2. Bare Dart I/O exceptions (non-Dio code paths)
     if (e is SocketException)    return true;
     if (e is HandshakeException) return true;
-
-    // 3. BackendApiService not yet initialised
     if (e is StateError) return true;
-
-    // 4. Last-resort string match (future-proofs against Dio version changes)
     final msg = e.toString().toLowerCase();
     return msg.contains('failed host lookup')    ||
-           msg.contains('no address associated') ||  // matches your exact log
+           msg.contains('no address associated') ||
            msg.contains('connection refused')    ||
            msg.contains('connection timed out')  ||
            msg.contains('network is unreachable');
@@ -262,7 +372,6 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
     final pendingNupi = 'PENDING-$shortId';
     final patient     = _buildPatient(nupi: pendingNupi, facilityId: facilityId);
 
-    // 1️⃣ SQLite — patient appears in the list immediately
     try {
       final localDs = sl<PatientLocalDatasource>();
       await localDs.savePatient(PatientModel.fromEntity(patient));
@@ -299,7 +408,6 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
       },
     };
 
-    // 2️⃣ Firestore sync — sends the patient record to Firebase on reconnect
     await SyncManager().enqueue(
       entityType: SyncEntityType.patient,
       entityId:   patient.id,
@@ -307,7 +415,6 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
       payload:    PatientModel.fromEntity(patient).toJson(),
     );
 
-    // 3️⃣ HIE sync — registers patient on AfyaChain on reconnect
     await SyncManager().enqueue(
       entityType: SyncEntityType.hiePatient,
       entityId:   'hie_${patient.id}',
@@ -342,7 +449,6 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
     final facilityId = authState.user.facilityId;
     final dob = DateFormat('yyyy-MM-dd').format(_dateOfBirth!);
 
-    // Init wrapped separately — a failure here means offline, not a code bug.
     BackendApiService? backend;
     try {
       backend = await BackendApiService.instanceAsync;
@@ -381,7 +487,6 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
       final alreadyExists = hieResult.data?['alreadyExists'] == true;
       final blockIndex    = hieResult.data?['blockIndex'];
 
-      // ── Duplicate guard ──────────────────────────────────────────────────
       if (alreadyExists) {
         final localDs  = sl<PatientLocalDatasource>();
         final existing = await localDs.getPatientByNupi(nupi);
@@ -409,7 +514,6 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
           color: const Color(0xFF1B4332),
         );
       } else if (!hieResult.success) {
-        // Real backend validation error — do NOT save locally
         debugPrint('[Registration] Backend error: ${hieResult.error}');
         if (mounted) {
           _showSnack(
@@ -420,13 +524,11 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         return;
       }
 
-      // ── Save locally + dispatch to PatientBloc (online path) ────────────
       final patient = _buildPatient(nupi: nupi, facilityId: facilityId);
       if (mounted) {
         context.read<PatientBloc>().add(RegisterPatientEvent(patient));
       }
 
-      // Enqueue HIE retry if NUPI was not minted online
       if (!hieResult.success || hieResult.nupi == null) {
         await SyncManager().enqueue(
           entityType: SyncEntityType.hiePatient,
@@ -462,7 +564,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
 
       if (_isOfflineError(e)) {
         await _savePatientOffline(facilityId: facilityId, dob: dob);
-        return; // _savePatientOffline owns setState + Navigator.pop
+        return;
       }
 
       if (mounted) {
@@ -472,7 +574,6 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         );
       }
     } finally {
-      // Only reset if _savePatientOffline didn't already do it
       if (mounted && _isSubmitting) {
         setState(() => _isSubmitting = false);
       }
@@ -801,17 +902,93 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
         children: [
           _sectionHeader(Icons.location_on_outlined, 'Address', null),
           const SizedBox(height: 16),
-          _field(controller: _countyController, label: 'County'),
-          const SizedBox(height: 12),
-          _field(controller: _subCountyController, label: 'Sub-County'),
-          const SizedBox(height: 12),
-          _field(controller: _wardController, label: 'Ward'),
-          const SizedBox(height: 12),
-          _field(controller: _villageController, label: 'Village / Estate'),
+
+          if (_areasLoading)
+            _buildAreasLoadingIndicator()
+
+          else if (_areasLoadFailed) ...[
+            _buildAreasFailedBanner(),
+            const SizedBox(height: 12),
+            _field(controller: _countyController,    label: 'County'),
+            const SizedBox(height: 12),
+            _field(controller: _subCountyController, label: 'Sub-County'),
+            const SizedBox(height: 12),
+            _field(controller: _wardController,      label: 'Ward'),
+            const SizedBox(height: 12),
+            _field(controller: _villageController,   label: 'Village / Estate'),
+          ]
+
+          else ...[
+            _areaDropdown(
+              label: 'County',
+              icon: Icons.map_outlined,
+              value: _selectedCounty,
+              items: _counties,
+              onChanged: (v) => setState(() {
+                _selectedCounty    = v;
+                _selectedSubCounty = null;
+                _selectedWard      = null;
+                _selectedVillage   = null;
+                _countyController.text    = v ?? '';
+                _subCountyController.text = '';
+                _wardController.text      = '';
+                _villageController.text   = '';
+              }),
+            ),
+            const SizedBox(height: 12),
+
+            _areaDropdown(
+              label: 'Sub-County',
+              icon: Icons.account_tree_outlined,
+              value: _selectedSubCounty,
+              items: _subCounties,
+              enabled: _selectedCounty != null,
+              disabledHint: 'Select a county first',
+              onChanged: (v) => setState(() {
+                _selectedSubCounty = v;
+                _selectedWard      = null;
+                _selectedVillage   = null;
+                _subCountyController.text = v ?? '';
+                _wardController.text      = '';
+                _villageController.text   = '';
+              }),
+            ),
+            const SizedBox(height: 12),
+
+            _areaDropdown(
+              label: 'Ward',
+              icon: Icons.holiday_village_outlined,
+              value: _selectedWard,
+              items: _wards,
+              enabled: _selectedSubCounty != null,
+              disabledHint: 'Select a sub-county first',
+              onChanged: (v) => setState(() {
+                _selectedWard    = v;
+                _selectedVillage = null;
+                _wardController.text    = v ?? '';
+                _villageController.text = '';
+              }),
+            ),
+            const SizedBox(height: 12),
+
+            _areaDropdown(
+              label: 'Village / Estate',
+              icon: Icons.cottage_outlined,
+              value: _selectedVillage,
+              items: _villages,
+              enabled: _selectedWard != null,
+              disabledHint: 'Select a ward first',
+              onChanged: (v) => setState(() {
+                _selectedVillage        = v;
+                _villageController.text = v ?? '';
+              }),
+            ),
+          ],
+
           const SizedBox(height: 24),
           _sectionHeader(Icons.people_outline, 'Next of Kin', 'Optional'),
           const SizedBox(height: 16),
-          _field(controller: _nextOfKinNameController, label: 'Next of Kin Name'),
+          _field(controller: _nextOfKinNameController,  label: 'Next of Kin Name'),
           const SizedBox(height: 12),
           _field(controller: _nextOfKinPhoneController, label: 'Next of Kin Phone',
               keyboardType: TextInputType.phone),
@@ -841,6 +1018,127 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
     );
   }
 
+  // ── Areas API UI helpers ──────────────────────────────────────
+
+  Widget _buildAreasLoadingIndicator() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          SizedBox(
+            width: 16, height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2, color: accentGreen),
+          ),
+          const SizedBox(width: 10),
+          Text('Loading Kenya county data…',
+              style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+        ]),
+        const SizedBox(height: 12),
+        for (int i = 0; i < 4; i++) ...[
+          Container(
+            height: 52,
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          if (i < 3) const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildAreasFailedBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3CD),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFFE083)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.wifi_off_rounded, color: Colors.orange, size: 18),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              'Could not load county data. Please type your address manually.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF856404), height: 1.4),
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: _fetchAreas,
+            child: Text('Retry',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: accentGreen)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _areaDropdown({
+    required String label,
+    required IconData icon,
+    required String? value,
+    required List<String> items,
+    required void Function(String?) onChanged,
+    bool enabled = true,
+    String? disabledHint,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: enabled ? Colors.white : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: enabled ? const Color(0xFFE2E8F0) : const Color(0xFFEEF2F7),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: enabled ? accentGreen : Colors.grey[300]),
+          const SizedBox(width: 10),
+          Expanded(
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                isExpanded: true,
+                value: value,
+                hint: Text(label,
+                    style: TextStyle(color: Colors.grey[400], fontSize: 14)),
+                disabledHint: Text(disabledHint ?? label,
+                    style: TextStyle(color: Colors.grey[300], fontSize: 14)),
+                items: items
+                    .map((item) => DropdownMenuItem(
+                          value: item,
+                          child: Text(item, style: const TextStyle(fontSize: 14)),
+                        ))
+                    .toList(),
+                onChanged: enabled ? onChanged : null,
+              ),
+            ),
+          ),
+          if (enabled && value == null && items.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFFDEF7EC),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text('${items.length}',
+                  style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: accentGreen)),
+            ),
+        ],
+      ),
+    );
+  }
+
   // ── Bottom navigation bar ─────────────────────────────────────
 
   Widget _buildBottomBar(bool isLoading) {
@@ -849,8 +1147,10 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
-            blurRadius: 10, offset: const Offset(0, -4))],
+        boxShadow: [BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -4))],
       ),
       child: Row(children: [
         if (_currentStep > 0) ...[
@@ -927,8 +1227,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
           const SizedBox(width: 8),
           Text(label, style: TextStyle(
               color: selected ? primaryDark : Colors.grey[600],
-              fontWeight:
-                  selected ? FontWeight.w700 : FontWeight.normal)),
+              fontWeight: selected ? FontWeight.w700 : FontWeight.normal)),
         ]),
       ),
     );
@@ -944,8 +1243,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
                 color: primaryDark)),
         if (subtitle != null)
           Text(subtitle,
-              style: const TextStyle(
-                  fontSize: 11, color: Color(0xFF94A3B8))),
+              style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
       ]),
     ]);
   }
