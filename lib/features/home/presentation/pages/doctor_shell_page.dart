@@ -36,6 +36,8 @@ import '../bloc/dashboard_event.dart';
 import '../bloc/dashboard_state.dart';
 import 'profile_page.dart';
 import 'shell_widgets.dart';
+import 'queue_page.dart';
+
 
 class DoctorShellPage extends StatefulWidget {
   const DoctorShellPage({super.key});
@@ -51,6 +53,7 @@ class _DoctorShellPageState extends State<DoctorShellPage> {
 
   static const _navItems = [
     ShellNavItem(Icons.dashboard_rounded,        Icons.dashboard_outlined,         'Dashboard'),
+    ShellNavItem(Icons.queue_rounded,            Icons.queue_outlined,             'Queue'),    // NEW
     ShellNavItem(Icons.people_rounded,           Icons.people_outline_rounded,     'Patients'),
     ShellNavItem(Icons.medical_services_rounded, Icons.medical_services_outlined,  'Encounters'),
     ShellNavItem(Icons.swap_horiz_rounded,       Icons.swap_horiz_outlined,        'Referrals'),
@@ -92,7 +95,7 @@ class _DoctorShellPageState extends State<DoctorShellPage> {
 
         return Scaffold(
           backgroundColor: kBgSlate,
-          appBar: _buildAppBar(user.facilityName),
+          appBar: _buildAppBar(user.facilityName, user.facilityId),
           body: BlocProvider.value(
             value: _dashBloc..add(LoadDashboardEvent(user.facilityId)),
             child: PageView(
@@ -100,6 +103,7 @@ class _DoctorShellPageState extends State<DoctorShellPage> {
               physics: const NeverScrollableScrollPhysics(),
               children: [
                 DoctorDashboardTab(user: user, onNavigate: _goTo),
+                const QueuePage(),
                 BlocProvider(
                   create: (_) =>
                       sl<PatientBloc>()..add(const LoadPatientsByFacilityEvent()),
@@ -121,7 +125,7 @@ class _DoctorShellPageState extends State<DoctorShellPage> {
     );
   }
 
-  PreferredSizeWidget _buildAppBar(String facilityName) {
+  PreferredSizeWidget _buildAppBar(String facilityName, String facilityId) {
     return AppBar(
       backgroundColor: Colors.white,
       elevation: 0,
@@ -141,6 +145,8 @@ class _DoctorShellPageState extends State<DoctorShellPage> {
       ),
       actions: [
         const RoleBadge(label: 'DOCTOR', color: Colors.blue),
+        _QueueBadge(facilityId: facilityId, onTap: () => _goTo(1)),
+
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 12),
           child: SyncStatusWidget(),
@@ -213,18 +219,18 @@ class DoctorDashboardTab extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => const PatientRegistrationPage()))
                 .then((_) {
                   // Navigate to the Patients tab and reload after registration
-                  onNavigate(1);
+                  onNavigate(2);
                 }),
             ),
             ActionRow(
               icon: Icons.medical_services_rounded, color: Colors.blue,
               title: 'New Encounter', subtitle: 'Document a clinical visit',
-              onTap: () => onNavigate(1),
+              onTap: () => onNavigate(2),
             ),
             ActionRow(
               icon: Icons.send_rounded, color: Colors.orange,
               title: 'Create Referral', subtitle: 'Transfer to another facility',
-              onTap: () => onNavigate(3),
+              onTap: () => onNavigate(4),
             ),
             ActionRow(
               icon: Icons.travel_explore_rounded, color: Colors.indigo,
@@ -235,7 +241,7 @@ class DoctorDashboardTab extends StatelessWidget {
             ActionRow(
               icon: Icons.manage_search_rounded, color: kPrimaryGreen,
               title: 'Search Patients', subtitle: 'Find by name, NUPI or ID',
-              onTap: () => onNavigate(1),
+              onTap: () => onNavigate(2),
             ),
             ActionRow(
               icon: Icons.medical_services_outlined, color: Colors.green,
@@ -781,4 +787,65 @@ class _VitalChip extends StatelessWidget {
           fontSize: 11, color: color, fontWeight: FontWeight.w600)),
     ]),
   );
+}
+
+class _QueueBadge extends StatelessWidget {
+  final String facilityId;
+  final VoidCallback onTap;
+  const _QueueBadge({required this.facilityId, required this.onTap});
+ 
+  @override
+  Widget build(BuildContext context) {
+    final today = DateTime.now();
+    final start = DateTime(today.year, today.month, today.day);
+    final end   = start.add(const Duration(days: 1));
+ 
+    final stream = FirebaseConfig.facilityDb
+        .collection('triage_queue')
+        .where('facility_id',  isEqualTo: facilityId)
+        .where('status',       isEqualTo: 'ready_for_doctor')
+        .where('created_at',   isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('created_at',   isLessThan: Timestamp.fromDate(end))
+        .snapshots();
+ 
+    return StreamBuilder<QuerySnapshot>(
+      stream: stream,
+      builder: (_, snap) {
+        final count = snap.data?.docs.length ?? 0;
+        return GestureDetector(
+          onTap: onTap,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(8),
+                child: Icon(Icons.queue_rounded,
+                    color: kPrimaryGreen, size: 22),
+              ),
+              if (count > 0)
+                Positioned(
+                  right: 4,
+                  top: 4,
+                  child: Container(
+                    width: 14,
+                    height: 14,
+                    decoration: const BoxDecoration(
+                        color: Colors.red, shape: BoxShape.circle),
+                    child: Center(
+                      child: Text(
+                        count > 9 ? '9+' : '$count',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }

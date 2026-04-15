@@ -26,6 +26,7 @@ import '../../../patient/presentation/pages/patient_registration_page.dart';
 import 'check_in_page.dart';
 import 'profile_page.dart';
 import 'shell_widgets.dart';
+import '../widgets/triage_scoring_sheet.dart';
 
 class NurseShellPage extends StatefulWidget {
   const NurseShellPage({super.key});
@@ -397,6 +398,12 @@ class TriageQueueCard extends StatelessWidget {
       default:         return Colors.green;
     }
   }
+  Color _news2Color(int score) {
+    if (score == 0) return Colors.green;
+    if (score <= 4) return Colors.blue;
+    if (score <= 6) return Colors.orange;
+    return Colors.red;
+  }
 
   Color _statusColor(String s) {
     switch (s) {
@@ -436,32 +443,91 @@ class TriageQueueCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Patient name + status badge
-          Row(
+           Row(
             children: [
-              Container(
-                width: 8, height: 8,
-                decoration: BoxDecoration(color: pc, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  data['patient_name'] as String? ?? 'Unknown',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 15),
-                ),
-              ),
+              // Priority badge
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: sc.withOpacity(0.1),
+                  color: pc.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  status.replaceAll('_', ' ').toUpperCase(),
+                  priority.toUpperCase(),
                   style: TextStyle(
-                      color: sc, fontSize: 10, fontWeight: FontWeight.w700),
+                      color: pc, fontSize: 10, fontWeight: FontWeight.w700),
                 ),
               ),
+ 
+              // NEWS2 score badge (shown after scoring)
+              if (data['news2_score'] != null) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: _news2Color(data['news2_score'] as int).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _news2Color(data['news2_score'] as int).withOpacity(0.3),
+                    ),
+                  ),
+                  child: Text(
+                    'NEWS2: ${data['news2_score']}',
+                    style: TextStyle(
+                      color: _news2Color(data['news2_score'] as int),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+ 
+              const Spacer(),
+ 
+              // NEWS2 scoring button (always available)
+              GestureDetector(
+                onTap: () => TriageScoringSheet.show(
+                  context,
+                  queueDocId:  id,
+                  vitals:      (data['vitals'] as Map?)?.cast<String, dynamic>() ?? {},
+                  patientName: data['patient_name'] as String? ?? 'Unknown',
+                ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  margin: const EdgeInsets.only(right: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.purple.withOpacity(0.2)),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.monitor_heart_rounded,
+                        color: Colors.purple[700], size: 13),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Score',
+                      style: TextStyle(
+                          color: Colors.purple[700],
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700),
+                    ),
+                  ]),
+                ),
+              ),
+ 
+              // Status action button
+              if (status == 'waiting')
+                _StatusButton(
+                  label: 'Start Triage',
+                  color: Colors.blue,
+                  onTap: () => _updateStatus('in_triage'),
+                ),
+              if (status == 'in_triage')
+                _StatusButton(
+                  label: 'Mark Ready',
+                  color: Colors.green,
+                  onTap: () => _updateStatus('ready_for_doctor'),
+                ),
             ],
           ),
 

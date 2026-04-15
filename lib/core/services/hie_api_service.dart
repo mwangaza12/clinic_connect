@@ -822,4 +822,111 @@ class HieApiService {
       return HieResult(success: false, error: e.toString());
     }
   }
+
+  Future<HieResult> getTodayQueue({
+    required String facilityId,
+    String? status,
+    bool includeCompleted = false,
+  }) async {
+    try {
+      final params = <String, dynamic>{};
+      if (status != null) params['status'] = status;
+      if (includeCompleted) params['include_completed'] = 'true';
+
+      return await _requestWithRetry(
+        () => _dio.get(
+          '/api/queue/$facilityId/today',
+          queryParameters: params.isEmpty ? null : params,
+        ),
+      );
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+// ════════════════════════════════════════════════════════════════
+//  GET QUEUE STATS
+// ════════════════════════════════════════════════════════════════
+
+  Future<HieResult> getQueueStats({required String facilityId}) async {
+    try {
+      return await _requestWithRetry(
+        () => _dio.get('/api/queue/$facilityId/stats'),
+      );
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+// ════════════════════════════════════════════════════════════════
+//  GET CRITICAL PATIENTS
+// ════════════════════════════════════════════════════════════════
+
+  Future<HieResult> getCriticalQueuePatients({
+    required String facilityId,
+  }) async {
+    try {
+      return await _requestWithRetry(
+        () => _dio.get('/api/queue/$facilityId/critical'),
+      );
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+// ════════════════════════════════════════════════════════════════
+//  UPDATE QUEUE ENTRY STATUS
+// ════════════════════════════════════════════════════════════════
+
+  Future<HieResult> updateQueueEntryStatus({
+    required String facilityId,
+    required String docId,
+    required String status,
+    String? priority,
+    String? notes,
+    int? news2Score,
+    String? news2Risk,
+  }) async {
+    try {
+      return await _requestWithRetry(
+        () => _dio.patch(
+          '/api/queue/$facilityId/$docId/status',
+          data: {
+            'status': status,
+            if (priority   != null) 'priority':    priority,
+            if (notes      != null) 'notes':       notes,
+            if (news2Score != null) 'news2_score': news2Score,
+            if (news2Risk  != null) 'news2_risk':  news2Risk,
+          },
+        ),
+      );
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
+
+// ════════════════════════════════════════════════════════════════
+//  GET QUEUE HISTORY
+// ════════════════════════════════════════════════════════════════
+
+  Future<HieResult> getQueueHistory({
+    required String facilityId,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    try {
+      final params = <String, dynamic>{};
+      if (from != null) params['from'] = from.toIso8601String().split('T')[0];
+      if (to   != null) params['to']   = to.toIso8601String().split('T')[0];
+
+      return await _requestWithRetry(
+        () => _dio.get(
+          '/api/queue/$facilityId/history',
+          queryParameters: params.isEmpty ? null : params,
+        ),
+      );
+    } catch (e) {
+      return HieResult(success: false, error: e.toString());
+    }
+  }
 }
