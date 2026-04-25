@@ -1,3 +1,5 @@
+// lib/features/disease_program/data/datasources/program_remote_datasource.dart
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/program_enrollment_model.dart';
 
@@ -20,16 +22,27 @@ class ProgramRemoteDatasourceImpl implements ProgramRemoteDatasource {
   }
 
   @override
-  Future<List<ProgramEnrollmentModel>> getFacilityEnrollments(String facilityId) async {
+  Future<List<ProgramEnrollmentModel>> getFacilityEnrollments(
+      String facilityId) async {
+    // FIX 1: Removed `.where('status', isEqualTo: 'active')` — this was
+    //         silently excluding all completed enrollments (malaria, tb).
+    //
+    // FIX 2: Removed `.orderBy('enrollmentDate', descending: true)` — Firestore
+    //         requires a composite index for where+orderBy on different fields.
+    //         Without the index deployed, the query returns nothing.
+    //         Sorting is done in Dart instead (zero infra requirement).
     final snapshot = await firestore
         .collection('program_enrollments')
         .where('facilityId', isEqualTo: facilityId)
-        .where('status', isEqualTo: 'active')
-        .orderBy('enrollmentDate', descending: true)
         .get();
 
-    return snapshot.docs
+    final enrollments = snapshot.docs
         .map((doc) => ProgramEnrollmentModel.fromFirestore(doc.data()))
         .toList();
+
+    // Sort by enrollmentDate descending — newest first
+    enrollments.sort((a, b) => b.enrollmentDate.compareTo(a.enrollmentDate));
+
+    return enrollments;
   }
 }
