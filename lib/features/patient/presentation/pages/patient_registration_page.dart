@@ -1,5 +1,3 @@
-// lib/features/patient/presentation/pages/patient_registration_page.dart
-
 import 'dart:io'; // SocketException, HandshakeException
 import 'package:dio/dio.dart'; // DioException, DioExceptionType
 import 'package:flutter/material.dart';
@@ -58,7 +56,6 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
   String? _selectedCounty;
   String? _selectedSubCounty;
   String? _selectedWard;
-  String? _selectedVillage;
 
   // Derived lists from the API response
   List<String> get _counties {
@@ -76,28 +73,21 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
     return keys;
   }
 
+  // FIXED: Wards are a List, not a Map
   List<String> get _wards {
     if (_selectedCounty == null || _selectedSubCounty == null) return [];
     final sub = (_areasData[_selectedCounty] as Map<String, dynamic>?)?[_selectedSubCounty];
-    if (sub is! Map) return [];
-    final keys = (sub as Map<String, dynamic>).keys.toList();
-    keys.sort();
-    return keys;
-  }
-
-  List<String> get _villages {
-    if (_selectedCounty == null || _selectedSubCounty == null || _selectedWard == null) {
-      return [];
-    }
-    final ward = ((_areasData[_selectedCounty] as Map<String, dynamic>?)?[_selectedSubCounty]
-        as Map<String, dynamic>?)?[_selectedWard];
-    if (ward is List) {
-      final list = List<String>.from(ward);
+    
+    // The API returns wards as a List of strings, not a Map
+    if (sub is List) {
+      final list = List<String>.from(sub);
       list.sort();
       return list;
     }
     return [];
   }
+
+  // REMOVED: Villages getter - API doesn't provide villages
 
   // ── Security / HIE fields (Step 0) ────────────────────────────
   final _nationalIdController     = TextEditingController();
@@ -182,7 +172,7 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
 
       final response = await dio.get(
         _areasApiUrl,
-        queryParameters: {'apiKey': _areasApiKey}, // ← correct param name
+        queryParameters: {'apiKey': _areasApiKey},
       );
 
       final raw = response.data;
@@ -928,7 +918,6 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
                 _selectedCounty    = v;
                 _selectedSubCounty = null;
                 _selectedWard      = null;
-                _selectedVillage   = null;
                 _countyController.text    = v ?? '';
                 _subCountyController.text = '';
                 _wardController.text      = '';
@@ -947,7 +936,6 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
               onChanged: (v) => setState(() {
                 _selectedSubCounty = v;
                 _selectedWard      = null;
-                _selectedVillage   = null;
                 _subCountyController.text = v ?? '';
                 _wardController.text      = '';
                 _villageController.text   = '';
@@ -963,25 +951,17 @@ class _PatientRegistrationViewState extends State<PatientRegistrationView> {
               enabled: _selectedSubCounty != null,
               disabledHint: 'Select a sub-county first',
               onChanged: (v) => setState(() {
-                _selectedWard    = v;
-                _selectedVillage = null;
-                _wardController.text    = v ?? '';
-                _villageController.text = '';
+                _selectedWard = v;
+                _wardController.text = v ?? '';
               }),
             ),
             const SizedBox(height: 12),
 
-            _areaDropdown(
+            // CHANGED: Village is now a text field, not a dropdown
+            _field(
+              controller: _villageController,
               label: 'Village / Estate',
-              icon: Icons.cottage_outlined,
-              value: _selectedVillage,
-              items: _villages,
-              enabled: _selectedWard != null,
-              disabledHint: 'Select a ward first',
-              onChanged: (v) => setState(() {
-                _selectedVillage        = v;
-                _villageController.text = v ?? '';
-              }),
+              hint: 'Enter village or estate name',
             ),
           ],
 

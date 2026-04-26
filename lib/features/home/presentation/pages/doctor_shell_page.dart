@@ -197,7 +197,7 @@ class DoctorDashboardTab extends StatelessWidget {
             BlocBuilder<DashboardBloc, DashboardState>(
               builder: (_, s) {
                 final p = s is DashboardLoaded ? '${s.stats.totalPatients}'    : '—';
-                final t = s is DashboardLoaded ? '${s.stats.todayVisits}'       : '—';
+                final t = s is DashboardLoaded ? '${s.todayEncounters.length}' : '—'; // ← fixed
                 final r = s is DashboardLoaded ? '${s.stats.pendingReferrals}' : '—';
                 return Row(children: [
                   StatCard(label: 'Patients',  value: p, icon: Icons.people_rounded,    color: Colors.blue),
